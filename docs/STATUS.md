@@ -31,7 +31,9 @@ Nothing on `main`. Workstreams WS1 to WS5 (table below) are unassigned.
 - **Font size:** the bundled Noto Sans SC adds about 10 MB to the repo and image.
 - **`docker compose up --scale api=2` does not work yet:** the api service publishes fixed host port 8000. WS2 needs a proxy service.
 - **Zip contains no evidence files yet** (only two PDFs and `manifest.json`); evidence joins in WS1.
-- **Unverified by a human or by automation:** Chinese text in the built PDFs (checked by text extraction only, never viewed), the Electron window (only `desktop/check.js` has run), `?mock=1` after the M1 UI edits, and second-org isolation in a real browser (covered by tests).
+- **Verified by an agent on 2026-11-06 (Playwright + rendered pages, see the PR #1 comments):** Chinese glyphs render in the built PDF, second-org isolation in two separate browser contexts, `?mock=1`, the empty-caseload state. **Still unverified:** the Electron window itself (only `desktop/check.js` has run). Needs a manual check by Lameda12.
+- **UI routes don't include the case id** (`#timeline`), so a case can't be deep-linked or shared.
+- **Seed data has a zh-language tenant but all-English content.** The demo case needs real Chinese tenant messages and evidence text (fictional) so the video shows multilingual intake. Owner: WS5.
 - **CI has not run on GitHub yet.** It runs Postgres and Redis service containers; the first run is on the draft PR.
 - Rate-limit counters only count requests that pass body validation.
 - Two seeded demo logins share one password (`SEED_PASSWORD`, compose default `tenantproof-demo`). Local only.

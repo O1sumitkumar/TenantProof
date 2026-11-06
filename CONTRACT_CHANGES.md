@@ -40,6 +40,7 @@ Deviations from `API_CONTRACT.md` (v0.2). Each has a reason. Source: `BUILD_PLAN
 | M1 | `UPLOADS_ENABLED = false` config flag: tenant page needs only the two confirmations and skips `/files`; shows a "coming soon" line (flipped in M2) |
 | M1 | Form field edits call `PATCH /cases/{id}/form-draft/fields/{key}` (mock route updated to match) |
 | M1 | Package view shows the version and a download link (real mode only); mock `Package` gains `version`, `sha256` |
+| M1 fix | Empty caseload shows a "No cases yet" state. Case-scoped loaders run only when a case is selected, so the UI never requests `/cases/null/...`; a case route with no case selected redirects to the caseload. If the selected case 404s, the UI clears it, returns to the caseload and shows a toast. A 404 on the caseworker's intake preview now means "no active link", not "case gone". No change in mock mode |
 | M3 | `needs_input` answer control on the run view (approved exception) |
 
 ## Implementation notes

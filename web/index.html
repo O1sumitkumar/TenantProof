@@ -752,6 +752,8 @@ function renderChrome() {
 /* ---------- caseload ---------- */
 function viewCases() {
   const cs = S.cases;
+  if (!cs.length) return `<div class="view-head"><div><h1>Caseload</h1><p>Your open maintenance cases appear here.</p></div></div>
+    <div class="panel panel-pad"><strong>No cases yet</strong><p class="muted">Cases assigned to you will show up here. Nothing is shared with you from other organizations.</p></div>`;
   const review = cs.filter(c => c.stage === "needs_review").length;
   const week = cs.filter(c => c._days !== null && c._days !== undefined && c._days <= 7).length;
   const rows = cs.map(c => {
@@ -961,9 +963,10 @@ function viewIntake() {
 const VIEWS = { cases: viewCases, intake: viewIntake, evidence: viewEvidence, run: viewRun, timeline: viewTimeline, gaps: viewGaps, form: viewForm, package: viewPackage };
 function render() {
   if (S.needLogin) return showLogin();
+  if (!TENANT_MODE && !CASE_ID && route() !== "cases") { location.hash = "cases"; return; }  // hashchange re-renders
   renderChrome();
   const r = route();
-  $("#view").innerHTML = (r === "cases" ? S.cases.length : r === "intake" ? S.intake.view : S.form) ? VIEWS[r]() : `<p>Loading…</p>`;
+  $("#view").innerHTML = (r === "cases" ? S.casesLoaded : r === "intake" ? S.intake.view : S.form) ? VIEWS[r]() : `<p>Loading…</p>`;
   if (r === "evidence") wireDrop();
 }
 
@@ -976,7 +979,7 @@ const tokenOf = url => (url ? url.split("/").pop() : null);
 const intakeTok = () => INTAKE_TOKEN || tokenOf(S.lastLink || (S.case && S.case.intake.url));
 const LOADERS = {
   me: () => request("GET", "/me").then(d => S.me = d),
-  cases: () => request("GET", "/cases").then(d => S.cases = prioritizeClient(d)),
+  cases: () => request("GET", "/cases").then(d => { S.cases = prioritizeClient(d); S.casesLoaded = true; }),
   case: () => request("GET", C).then(d => S.case = d),
   evidence: () => request("GET", `${C}/evidence`).then(d => S.evidence = d),
   run: () => request("GET", `${C}/runs/latest`).then(d => S.run = d).catch(() => S.run = null),
@@ -985,12 +988,28 @@ const LOADERS = {
   sources: () => request("GET", `${C}/sources`).then(d => S.sources = d),
   form: () => request("GET", `${C}/form-draft`).then(d => S.form = d),
   activity: () => request("GET", `${C}/activity`).then(d => S.activity = d),
-  intake: async () => { const tok = intakeTok(); S.intake.view = tok ? await request("GET", `/intake/${tok}`) : { noLink: true }; }
+  // A revoked or expired link is a 404 here; for the caseworker that means "send a new link", not "case gone".
+  intake: async () => { const tok = intakeTok(); try { S.intake.view = tok ? await request("GET", `/intake/${tok}`) : { noLink: true }; } catch (err) { if (err.status === 404 && !TENANT_MODE) S.intake.view = { noLink: true }; else throw err; } }
 };
 function prioritizeClient(list) { return list.map(c => ({ ...c, _days: c.next_deadline ? Math.round((new Date(c.next_deadline.date + "T12:00:00") - new Date(plusDays(0) + "T12:00:00")) / 864e5) : null })); }
+const CASELESS_LOADERS = ["me", "cases"];
+// If the selected case is gone (404), forget it and go back to the caseload instead of an empty shell.
+async function dropCase(why) {
+  CASE_ID = null; C = ""; S.case = null; S.evidence = []; S.run = null; S.timeline = []; S.gaps = []; S.sources = []; S.form = null; S.activity = []; S.pkg = null;
+  S.intake.view = null; S.lastLink = null;
+  location.hash = "cases";
+  toast(why || "That case isn't available. Back to your caseload.");
+  await refresh(["cases"]);
+}
 async function refresh(parts) {
-  const keys = TENANT_MODE ? ["intake"] : parts ? [...new Set([...parts, "activity", "cases"])] : Object.keys(LOADERS);
-  try { await Promise.all(keys.map(k => LOADERS[k]())); } catch (err) { if (err.status === 401 && !TENANT_MODE) return showLogin(); toast(err.message); }
+  let keys = TENANT_MODE ? ["intake"] : parts ? [...new Set([...parts, "activity", "cases"])] : Object.keys(LOADERS);
+  if (!TENANT_MODE && !CASE_ID) keys = keys.filter(k => CASELESS_LOADERS.includes(k));
+  try { await Promise.all(keys.map(k => LOADERS[k]())); }
+  catch (err) {
+    if (err.status === 401 && !TENANT_MODE) return showLogin();
+    if (err.status === 404 && CASE_ID && !TENANT_MODE) return dropCase();
+    toast(err.message);
+  }
   render();
 }
 
