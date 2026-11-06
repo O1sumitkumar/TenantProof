@@ -4,7 +4,7 @@ Single source of truth. Update the relevant section in every PR.
 
 **Date:** 2026-11-06 (MVP due Nov 18)
 **Branch:** `andi/m0-m1-backend` (draft PR into `main`, not merged)
-**Current milestone:** M1 built and checked, waiting for Andi's review. M2 (WS1, WS2) and M3 (WS3, WS4) not started.
+**Current milestone:** M1 built and checked, waiting for Lameda12 (Alamedin)'s review. M2 (WS1, WS2) and M3 (WS3, WS4) not started.
 
 ## Done
 
@@ -67,8 +67,8 @@ Prompts: `docs/NEXT_PROMPTS.md`.
 
 | Workstream | Owner | Branch | Status | Blocked by |
 |---|---|---|---|---|
-| WS1 Evidence ingest + tenant uploads (M2) | TODO | `<name>/m2-evidence-ingest` | not started | none |
-| WS2 Hosted deploy + infra hardening (M2) | TODO | `<name>/m2-deploy` | not started | none (S3 adapter test and QR demo need WS1 for uploads) |
-| WS3 Agent runtime (M3) | TODO | `<name>/m3-agent-runtime` | not started | none for day 1 (`tools.py` and `llm.py`); full run needs WS1 |
-| WS4 Legal sources, rules, gaps agent (M3) | TODO | `<name>/m3-legal-gaps` | not started | WS3 day-1 `tools.py` protocol |
-| WS5 Evals, security, perf, demo (M3 to M4) | TODO | `<name>/m4-evals-security-perf` | not started | starts now; fills in as WS1 to WS4 land |
+| WS1 Evidence ingest + tenant uploads (M2) | TODO | `<github-username>/m2-evidence-ingest` | not started | none |
+| WS2 Hosted deploy + infra hardening (M2) | TODO | `<github-username>/m2-deploy` | not started | none (S3 adapter test and QR demo need WS1 for uploads) |
+| WS3 Agent runtime (M3) | TODO | `<github-username>/m3-agent-runtime` | not started | none for day 1 (`tools.py` and `llm.py`); full run needs WS1 |
+| WS4 Legal sources, rules, gaps agent (M3) | TODO | `<github-username>/m3-legal-gaps` | not started | WS3 day-1 `tools.py` protocol |
+| WS5 Evals, security, perf, demo (M3 to M4) | TODO | `<github-username>/m4-evals-security-perf` | not started | starts now; fills in as WS1 to WS4 land |

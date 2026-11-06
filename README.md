@@ -63,4 +63,4 @@ reference/             original prototype and contract notes
 
 ## Contributing
 
-Read [AGENTS.md](AGENTS.md) first, then [docs/STATUS.md](docs/STATUS.md) and [docs/NEXT_PROMPTS.md](docs/NEXT_PROMPTS.md). Draft PRs into `main`; never push to `main`.
+Read [AGENTS.md](AGENTS.md) first, then [docs/STATUS.md](docs/STATUS.md) and [docs/NEXT_PROMPTS.md](docs/NEXT_PROMPTS.md). Branches are named `<github-username>/<milestone>-<topic>`. Draft PRs into `main`; never push to `main`.
