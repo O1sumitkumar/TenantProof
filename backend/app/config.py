@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     session_ttl_hours: int = 12
     # Password for the seeded caseworkers. Required to seed; never committed.
     seed_password: str | None = None
-    # Rate-limit counters live in Redis so they hold across API replicas; tests use memory://.
+    # Rate-limit counters live in Redis so they hold across API replicas (tests and CI too).
     rate_limit_storage_uri: str | None = None
     login_rate_limit: str = "10/minute"
     submit_rate_limit: str = "20/minute"

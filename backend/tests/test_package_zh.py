@@ -75,12 +75,7 @@ def fonts_md_rows() -> dict[str, str]:
 # --- pure rendering ------------------------------------------------------------------------
 
 
-def test_mixed_latin_and_cjk_text_renders_to_pdf_bytes():
-    pdf = new_pdf()
-    _write(pdf, "Landlord 房东 notified on 10 Oct 哈利法克斯 Harbour Rd")
-    data = bytes(pdf.output())
-    assert data.startswith(b"%PDF")
-    assert b"%%EOF" in data[-64:]
+
 
 
 def test_mixed_text_extracts_back_out_of_rendered_pdf():

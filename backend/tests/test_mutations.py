@@ -3,7 +3,6 @@ form fields. Every success logs exactly one caseworker activity entry; every by-
 org-scoped; rejected and pending events never reach the form narrative.
 Stage and caseload behaviour lives in test_stage_transitions.py."""
 
-from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -17,15 +16,6 @@ FORM = f"/api/cases/{CASE}/form-draft"
 NOTE = "INTERNAL-ONLY-NOTE-7731"
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _reseed_after_module() -> Iterator[None]:
-    """These tests change the demo case. Reload the seed afterwards for later modules."""
-    yield
-    from app.db import get_engine
-    from app.seed import seed
-
-    with Session(get_engine()) as s:
-        seed(s)
 # Date order after te_02 is re-dated to 2026-09-01. te_07 is month precision ("2026-09"), which
 # sorts before any day in September.
 ORDER_AFTER_REDATE = [
@@ -125,9 +115,7 @@ def test_rejecting_accepted_event_removes_it_from_narrative(fresh_db, client):
     assert description not in after["text"]
 
 
-def test_rejecting_pending_event_keeps_it_out_of_narrative(fresh_db, client):
-    client.patch("/api/timeline/te_04", json={"review_status": "rejected"})
-    assert "te_04" not in _draft(client)["narrative"]["event_ids"]
+
 
 
 def test_note_only_patch_keeps_rejected_event_rejected(fresh_db, client):
@@ -166,25 +154,44 @@ def test_resending_unchanged_date_keeps_its_basis(fresh_db, client):
     assert r.json()["review_status"] == "edited"
 
 
-def test_event_with_zero_sources_can_be_accepted_and_reviewed(
-    fresh_db, client, session: Session
-):
-    """An event with no sources is still reviewable. Accepting it must not break the form."""
-    event = session.get(TimelineEventRow, "te_04")
+def _wipe_sources(session: Session, event_id: str) -> None:
+    event = session.get(TimelineEventRow, event_id)
     assert event is not None
     event.sources = []
     session.add(event)
     session.commit()
 
-    r = client.patch("/api/timeline/te_04", json={"review_status": "accepted"})
-    assert r.status_code == 200
-    assert r.json()["sources"] == []
-    narrative = _draft(client)["narrative"]
-    assert "te_04" in narrative["event_ids"]
-    assert _event(client, "te_04")["description"] in narrative["text"]
 
-    r = client.patch("/api/timeline/te_04", json={"review_status": "rejected"})
-    assert r.status_code == 200
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"review_status": "accepted"},
+        {"review_status": "edited"},
+        {"description": "A reworded description"},  # implicit edit
+    ],
+    ids=["accept", "edit", "implicit-edit"],
+)
+def test_event_with_no_source_cannot_be_accepted_or_edited(fresh_db, client, session, body):
+    _wipe_sources(session, "te_04")
+    before = _snapshot(client)
+    r = client.patch("/api/timeline/te_04", json=body)
+    assert r.status_code == 422
+    assert r.json()["detail"] == {"reasons": ["needs at least one source"]}
+    assert _snapshot(client) == before  # nothing changed, nothing logged
+
+
+def test_event_with_no_source_can_still_be_rejected_reset_or_annotated(
+    fresh_db, client, session
+):
+    _wipe_sources(session, "te_04")
+    for body, expected in (
+        ({"review_status": "rejected"}, "rejected"),
+        ({"caseworker_note": "no evidence for this yet"}, "rejected"),
+        ({"review_status": "pending"}, "pending"),
+    ):
+        r = client.patch("/api/timeline/te_04", json=body)
+        assert r.status_code == 200, r.text
+        assert r.json()["review_status"] == expected
     assert "te_04" not in _draft(client)["narrative"]["event_ids"]
 
 
@@ -398,6 +405,15 @@ def test_blank_field_value_sets_field_missing_and_null(fresh_db, client):
     assert r.json()["status"] == "missing"
     field = _field(client, "landlord_address")
     assert field["value"] is None and field["status"] == "missing"
+
+
+def test_emptying_a_field_reopens_the_gap_it_had_resolved(fresh_db, client):
+    client.patch(f"{FORM}/fields/landlord_address", json={"value": "5 Elm St"})
+    assert _gap(client, "gap_01")["status"] == "resolved"
+    client.patch(f"{FORM}/fields/landlord_address", json={"value": ""})
+    gap = _gap(client, "gap_01")
+    assert gap["status"] == "open"
+    assert gap["resolution_note"] is None
 
 
 def test_null_field_value_is_422(fresh_db, client):

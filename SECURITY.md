@@ -15,3 +15,13 @@ Threat model and controls. Status column is updated as controls land.
 | Secrets and PII in logs | Env-only secrets, structured logs with redaction of names, messages and tokens | planned |
 | Accountability | Append-only activity log for agent, tenant and caseworker actions; package builds log version + zip sha256 | M1 |
 | Package integrity | Zip stored content-addressed by sha256 (not in the database); each rebuild is a new version; download streams from storage; row sha256 = stored blob sha256 (tested) | M1 |
+| CSRF | SameSite=Lax cookie plus an Origin check on every POST/PATCH/PUT/DELETE: a browser-sent Origin must be the app's own (`PUBLIC_BASE_URL` or the request host), else 403 | M1 |
+| Brute force and abuse | slowapi limits per client IP, counters in Redis (shared across API replicas): login 10/min, tenant submit 20/min. Tests and CI run against real Redis | M1 |
+| Stale UI | UI page served with `Cache-Control: no-cache` | M1 |
+| Package storage | Zips live on a `blobs` volume (`STORAGE_DIR`), content-addressed; not in the database | M1 |
+
+## Known gaps (not fixed in M1)
+- **Blob storage is a local volume.** Several API replicas need shared storage (object store) behind `storage.py`.
+- **Rate limits behind a proxy.** Limits key on the socket IP; run uvicorn with `--proxy-headers` and trust only your proxy, or all users share one counter.
+- **Expired sessions are never purged.** Rows are ignored once expired but stay in `login_session`.
+- **Font size.** The bundled Noto Sans SC adds about 10 MB to the repo and the image.

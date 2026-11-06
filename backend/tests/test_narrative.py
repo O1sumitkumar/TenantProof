@@ -44,3 +44,11 @@ def test_caseworker_note_never_in_narrative():
     e = ev("a", "accepted")
     e["caseworker_note"] = "INTERNAL NOTE"
     assert "INTERNAL NOTE" not in build_narrative([e], LABELS)["text"]
+
+
+def test_event_without_sources_is_left_out_even_if_accepted():
+    e = ev("a", "accepted", desc="UNSOURCED CLAIM")
+    e["sources"] = []
+    out = build_narrative([e, ev("b", "accepted")], LABELS)
+    assert out["event_ids"] == ["b"]
+    assert "UNSOURCED CLAIM" not in out["text"]

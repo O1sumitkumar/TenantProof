@@ -21,7 +21,8 @@ TEST_URL = _url.set(database=TEST_DB).render_as_string(hide_password=False)
 os.environ["DATABASE_URL"] = TEST_URL
 os.environ["LLM_MODE"] = "fixture"
 os.environ["SEED_PASSWORD"] = "test-password-123"
-os.environ["RATE_LIMIT_STORAGE_URI"] = "memory://"  # CI has no Redis; counters are per-process
+# Real Redis, as in compose and CI (db 1, apart from the app's db 0). No in-memory fallback.
+os.environ.setdefault("RATE_LIMIT_STORAGE_URI", "redis://localhost:6379/1")
 os.environ["STORAGE_DIR"] = tempfile.mkdtemp(prefix="tp-test-storage-")
 os.environ.pop("COOKIE_SECURE", None)  # tests run with the secure default
 CASEWORKER = "sam@example-clinic.test"

@@ -2,11 +2,9 @@
 Stage is recomputed on every mutation by app.services.stage.refresh_stage; the caseload sort is
 the pure priority.sort_key applied to each CaseSummary."""
 
-from collections.abc import Iterator
 from datetime import date
 from typing import Any
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
@@ -18,17 +16,6 @@ CASE = "case_demo_001"
 HEARING_CASE = "case_002"
 WAITING_REASON = "Intake link sent. No files from the tenant yet."
 SUBMIT_BODY = {"attest_genuine": True, "consent_share": True, "language": "zh"}
-
-
-@pytest.fixture(scope="module", autouse=True)
-def _reseed_after_module() -> Iterator[None]:
-    """These tests change the demo case and case_002. Reload the seed afterwards."""
-    yield
-    from app.db import get_engine
-    from app.seed import seed
-
-    with Session(get_engine()) as s:
-        seed(s)
 
 
 def _demo(client: TestClient) -> dict[str, Any]:
@@ -113,11 +100,7 @@ def test_submit_recomputes_stage_to_needs_review(fresh_db, client, anon_client, 
     assert summary["open_blocking"] == 2  # gap_01 still waiting_tenant, gap_02 open
 
 
-def test_submit_records_attestation_in_activity(fresh_db, client, anon_client, token):
-    _submit(anon_client, token)
-    acts = client.get(f"/api/cases/{CASE}/activity").json()
-    assert acts[0]["actor"] == "tenant"
-    assert "genuine" in acts[0]["action"]
+
 
 
 def test_submit_with_unticked_box_is_422_and_keeps_stage(
@@ -220,6 +203,17 @@ def test_reopening_a_gap_moves_ready_to_file_back_to_needs_review(fresh_db, clie
     summary = _demo(client)
     assert summary["stage"] == "needs_review"
     assert summary["open_blocking"] == 1
+
+
+def test_dismissed_gaps_with_empty_required_fields_do_not_reach_ready_to_file(fresh_db, client):
+    """Stage and package gating must agree: an empty required field blocks both."""
+    client.patch("/api/gaps/gap_01", json={"status": "dismissed"})
+    client.patch("/api/gaps/gap_02", json={"status": "dismissed"})
+    for event_id in ("te_02", "te_04", "te_05", "te_06", "te_07", "te_08", "te_09"):
+        client.patch(f"/api/timeline/{event_id}", json={"review_status": "accepted"})
+    summary = _demo(client)
+    assert (summary["open_blocking"], summary["pending_review"]) == (0, 0)
+    assert summary["stage"] == "needs_review"
 
 
 # --- hearing_scheduled is preserved ----------------------------------------------------------

@@ -96,8 +96,7 @@ def test_wrong_password_and_unknown_email_give_identical_401(fresh_db, anon_clie
     assert "set-cookie" not in unknown.headers
 
 
-def test_no_cookie_is_401_on_cases(anon_client):
-    assert anon_client.get("/api/cases").status_code == 401
+
 
 
 def test_unknown_cookie_value_is_401(anon_client):

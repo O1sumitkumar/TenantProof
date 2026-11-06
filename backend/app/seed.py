@@ -1,14 +1,15 @@
 """Seed Postgres from seed_data.json (dumped from the prototype's mock data).
 
-Run: uv run python -m app.seed   (idempotent: wipes and reloads seeded tables)
+Run: uv run python -m app.seed [--force]   (seeds only an empty DB unless --force wipes and reloads)
 Deadlines in the dump are relative to its `dumped_on` date, so they are shifted to today."""
 
 import json
+import sys
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import delete
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.auth import hash_password
 from app.config import get_settings
@@ -199,7 +200,21 @@ def seed(session: Session) -> None:
     print(f"demo intake link (shown once): {settings.public_base_url}/i/{link}")
 
 
-if __name__ == "__main__":
+def is_empty(session: Session) -> bool:
+    return session.exec(select(OrgRow)).first() is None
+
+
+def main(argv: list[str]) -> None:
+    """Default: seed only an empty database, so restarting never wipes work.
+    --force wipes and reloads (make seed / make reset)."""
+    force = "--force" in argv
     with Session(get_engine()) as db_session:
+        if not force and not is_empty(db_session):
+            print("database already has data: not seeding (use --force or `make reset` to wipe)")
+            return
         seed(db_session)
     print("seeded")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

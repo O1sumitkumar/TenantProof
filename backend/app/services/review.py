@@ -52,6 +52,12 @@ def patch_event(
     new_status = patch.review_status if "review_status" in sent else None
     if new_status is None and edited and event.review_status != "rejected":
         new_status = "edited"  # a rejected event needs an explicit review_status to come back
+    if new_status in ("accepted", "edited") and not event.sources:
+        # API_CONTRACT design rule 2: no source, no fact. Discard the in-memory edits.
+        session.rollback()
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, {"reasons": ["needs at least one source"]}
+        )
     if new_status is not None:
         event.review_status = new_status
         event.reviewed_by = None if new_status == "pending" else user.name

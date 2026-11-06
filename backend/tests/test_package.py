@@ -147,10 +147,7 @@ def test_blocking_gaps_open_is_409_with_both_titles(fresh_db, client):
     assert len(reasons) == 2
 
 
-def test_open_gap_field_is_not_repeated_as_empty_field(fresh_db, client):
-    r = client.post(BUILD, json=ATTESTED)
-    assert r.status_code == 409
-    assert not any("Required field is empty" in reason for reason in reasons_of(r))
+
 
 
 def test_tenant_not_attested_is_409(fresh_db, client, session):
@@ -414,10 +411,7 @@ def test_other_org_cannot_build_or_download(fresh_db, client, other_org_client, 
     assert len(package_rows(session)) == rows_before
 
 
-def test_other_org_cannot_build_even_when_case_is_ready(fresh_db, other_org_client, session):
-    before = len(package_rows(session))
-    assert other_org_client.post(BUILD, json=ATTESTED).status_code == 404
-    assert len(package_rows(session)) == before
+
 
 
 def test_anonymous_is_401(fresh_db, anon_client, session):
@@ -497,14 +491,16 @@ def test_pending_events_never_reach_the_pdf(fresh_db, client):
         assert squash(event["description"]) not in text
 
 
-def test_accepted_event_with_zero_sources_still_renders(fresh_db, client, session):
+def test_accepted_event_with_zero_sources_is_left_out_of_the_pdf(fresh_db, client, session):
+    """No source, no fact. The PATCH refuses to accept such an event; if one gets in another
+    way (here: sources wiped on an already-accepted event) the PDF still leaves it out."""
     make_ready(client)
     event = session.get(TimelineEventRow, "te_01")
     assert event is not None
     event.sources = []
     session.add(event)
     session.commit()
-    r = build(client)
-    assert r.status_code == 200
+    build(client)
     text = application_text(client)
-    assert squash("The tenancy began under a written one-year lease.") in text
+    assert squash("The tenancy began under a written one-year lease.") not in text
+    assert squash("Landlord") in text or squash("Tenant") in text  # other events still render

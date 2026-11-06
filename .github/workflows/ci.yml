@@ -15,9 +15,17 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U tenantproof -d tenantproof"
           --health-interval 3s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 3s --health-timeout 3s --health-retries 20
     env:
       DATABASE_URL: postgresql+psycopg://tenantproof:tenantproof@localhost:5432/tenantproof
       LLM_MODE: fixture
+      # Rate-limit counters run against real Redis, same as compose. Db 1 keeps them apart from the app's db 0.
+      RATE_LIMIT_STORAGE_URI: redis://localhost:6379/1
     defaults:
       run:
         working-directory: backend

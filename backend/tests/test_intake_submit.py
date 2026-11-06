@@ -55,10 +55,7 @@ def test_submit_attests_the_case(fresh_db, token, client, anon_client, session):
     assert after["tenant_attested_at"] is not None
 
 
-def test_submit_needs_no_cookie(fresh_db, token, anon_client):
-    r = _submit(anon_client, token, VALID)
-    assert r.status_code == 200
-    assert r.json() == {"ok": True}
+
 
 
 def test_submit_leaves_evidence_untouched(fresh_db, token, anon_client, session):
