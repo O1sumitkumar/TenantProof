@@ -15,7 +15,7 @@ Everything here assumes you have read `AGENTS.md` and `docs/STATUS.md`.
 - Files several workstreams touch (`web/index.html`, `docker-compose.yml`): add your own clearly delimited block (`/* WS1: ... */`, `# WS2: ...`) and keep the edit minimal, so rebases stay trivial.
 - Stay inside your workstream's allowed paths. If you must touch another workstream's files, say so in the PR and tag its owner.
 - Before every PR: `make lint` and `make test` green. Update your section in `docs/STATUS.md`.
-- Claude Code users may use the `scaffolder`, `test-writer` and `checker` subagents in `.claude/agents/`. Codex users ignore that line.
+- Claude Code users: the subagents in `.claude/agents/` (`scoper`, `implementer`, `scaffolder`, `test-writer`, `checker`, `reviewer`, `shipper`) and when to use them are described in `CLAUDE.md`. Codex users ignore that line.
 
 ## Dependency order
 

@@ -30,6 +30,17 @@ Paste "Prompt 0" from `docs/NEXT_PROMPTS.md` at the start of every session, then
 - A milestone is not done on green tests alone: run `docker compose up` (or `make up`), click through the UI with `USE_MOCK=false`, and report any erroring screen.
 - Finish a milestone, commit, summarize what's demoable, then start the next.
 
+## Local environment
+
+- **Python:** the backend runs in `backend/.venv`, which uv creates and keeps in sync with `backend/uv.lock` on Python 3.12. Run Python only through `uv run` from `backend/` or the `make` targets. Never `pip install` into the system Python or a hand-made venv, and never run the backend on another Python version.
+- **Desktop:** Node 22.12+ (Electron 45). `npm install` in `desktop/` keeps everything in `desktop/node_modules`; Electron downloads its binary on the first `npm start`.
+- **Install nothing system-wide:** no `pip install --user`, `npm -g`, `winget`, `choco`, `setx` or global `uv tool install`. If uv is missing, install it inside the repo under `.tools/` (gitignored), with its Python and cache there too:
+  ```bash
+  python -m venv .tools/uv-venv && .tools/uv-venv/Scripts/pip install uv   # bin/ instead of Scripts/ on macOS and Linux
+  export PATH="$PWD/.tools/uv-venv/Scripts:$PATH" UV_PYTHON_INSTALL_DIR="$PWD/.tools/python" UV_CACHE_DIR="$PWD/.cache/uv"
+  ```
+- **Benchmarks and load tests** use the same stack as compose: Postgres, Redis, uv's Python 3.12. Numbers from MySQL or MariaDB, `memory://` rate limits or another Python are not comparable and don't go in the repo. Never commit connection strings with real hosts or passwords.
+
 ## Claude Code subagents
 
-`.claude/agents/` has `scaffolder` (boilerplate from an exact spec), `test-writer` (tests under `backend/tests/`) and `checker` (runs ruff, pyright, pytest). Review every subagent diff yourself. Codex users can ignore this section.
+`.claude/agents/` has `scoper` (scopes unfamiliar tasks, read-only), `implementer` (substantial code and test changes), `scaffolder` (boilerplate from an exact spec), `test-writer` (tests under `backend/tests/`), `checker` (runs ruff, pyright, pytest), `reviewer` (independent review of risky changes) and `shipper` (commit, push, draft PR). When to use each, and the review the main session owes every subagent diff, is in `CLAUDE.md`. Codex users can ignore this section.

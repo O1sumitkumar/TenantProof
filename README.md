@@ -8,7 +8,7 @@ Built for the Cognizant BrAInstorm Challenge (theme: Agentic AI for Good).
 
 ## Quickstart
 
-Prerequisites: Docker (with Compose), [uv](https://docs.astral.sh/uv/), `make`. Node 20+ only for the desktop shell.
+Prerequisites: Docker (with Compose), [uv](https://docs.astral.sh/uv/), `make`. Node 22.12+ only for the desktop shell (Electron 45). No uv? See "Local environment" in [AGENTS.md](AGENTS.md) to install it inside the repo.
 
 ```bash
 cp backend/.env.example backend/.env   # for local `uv run` commands; compose sets its own env
@@ -58,7 +58,7 @@ backend/tests/         pytest suite
 web/index.html         the UI (served by the API; caseworker at /, tenant at /i/{token})
 desktop/               Electron shell
 reference/             original prototype and contract notes
-.claude/agents/        Claude Code subagents (scaffolder, test-writer, checker)
+.claude/agents/        Claude Code subagents (scoper, implementer, scaffolder, test-writer, checker, reviewer, shipper); workflow in CLAUDE.md
 ```
 
 ## Contributing

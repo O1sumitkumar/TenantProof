@@ -18,8 +18,9 @@ function createWindow() {
   });
 
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  const blockOffOrigin = (event, url) => {
-    if (!isSameOrigin(url, appUrl)) {
+  // event.url, not the positional url argument (deprecated since Electron 25).
+  const blockOffOrigin = (event) => {
+    if (!isSameOrigin(event.url, appUrl)) {
       event.preventDefault();
     }
   };

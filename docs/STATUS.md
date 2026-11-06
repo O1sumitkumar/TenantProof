@@ -14,6 +14,7 @@ Single source of truth. Update the relevant section in every PR.
 | M0 review | Random hashed intake tokens, configurable DB port, Makefile | `6fa3af5` |
 | M1 | Argon2 login + server-side sessions, review/gap/form mutations, package build with versions and sha256, tenant submit (attestation only), Electron shell | `b1212b4` |
 | M1 hardening | Seed only when DB is empty (`make reset`), 422 for sourceless accepts, Redis in CI, test audit, concurrent-build test | `9d56e2f` |
+| M1 follow-up | Electron 33 to 45.2.3 (`npm audit` clean, Node 22.12+, no install-script pin needed); Claude Code workflow and `scoper`/`implementer`/`reviewer`/`shipper` subagents; local-environment rules in AGENTS.md | PR #1 |
 
 Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #22).
 
@@ -31,11 +32,10 @@ Nothing on `main`. Workstreams WS1 to WS5 (table below) are unassigned.
 - **Font size:** the bundled Noto Sans SC adds about 10 MB to the repo and image.
 - **`docker compose up --scale api=2` does not work yet:** the api service publishes fixed host port 8000. WS2 needs a proxy service.
 - **Zip contains no evidence files yet** (only two PDFs and `manifest.json`); evidence joins in WS1.
-- **Verified by an agent on 2026-11-06 (Playwright + rendered pages, see the PR #1 comments):** Chinese glyphs render in the built PDF, second-org isolation in two separate browser contexts, `?mock=1`, the empty-caseload state. **Still unverified:** the Electron window itself (only `desktop/check.js` has run). Needs a manual check by Lameda12.
-- Electron 33 has 2 high-severity npm audit findings; bump to current stable Electron (WS2).
+- **Verified by an agent on 2026-11-06 (Playwright + rendered pages, see the PR #1 comments):** Chinese glyphs render in the built PDF, second-org isolation in two separate browser contexts, `?mock=1`, the empty-caseload state. **Electron 45 window (2026-11-06, Windows, against `web/index.html?mock=1` over the DevTools protocol):** the mock UI renders, the renderer has no Node, `window.open` is denied, off-origin navigation is blocked. **Still unverified:** the window against the real API (`make up`, then `make desktop`).
 - **UI routes don't include the case id** (`#timeline`), so a case can't be deep-linked or shared.
 - **Seed data has a zh-language tenant but all-English content.** The demo case needs real Chinese tenant messages and evidence text (fictional) so the video shows multilingual intake. Owner: WS5.
-- **CI has not run on GitHub yet.** It runs Postgres and Redis service containers; the first run is on the draft PR.
+- **CI runs on GitHub** with Postgres and Redis service containers; both checks were green on PR #1 at `e613763`.
 - Rate-limit counters only count requests that pass body validation.
 - Two seeded demo logins share one password (`SEED_PASSWORD`, compose default `tenantproof-demo`). Local only.
 
@@ -49,7 +49,7 @@ Nothing on `main`. Workstreams WS1 to WS5 (table below) are unassigned.
 
 ## How to verify
 
-Prerequisites: Docker, `uv`, Node 20+ (desktop only).
+Prerequisites: Docker, `uv`, Node 22.12+ (desktop only).
 
 ```bash
 cp backend/.env.example backend/.env

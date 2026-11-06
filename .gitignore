@@ -235,4 +235,5 @@ playwright-report/
 test-results/
 data/
 tenantproof-*.zip
+.tools/
 backend/data/
