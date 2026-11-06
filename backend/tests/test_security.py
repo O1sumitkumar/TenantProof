@@ -8,8 +8,8 @@ from sqlmodel import Session, select
 from app.config import get_settings
 from app.db import get_engine
 from app.main import api
-from app.models import CaseRow, GapRow, OrgRow, TimelineEventRow, UserRow
-from app.services.intake_token import hash_token, make_token
+from app.models import GapRow, IntakeTokenRow, OrgRow, TimelineEventRow, UserRow
+from app.services.intake_token import hash_token
 
 CASE = "case_demo_001"
 OTHER_EMAIL = "other@other-clinic.test"
@@ -58,49 +58,55 @@ def test_no_auth_by_default(client):
         api.dependency_overrides.clear()
 
 
-def test_intake_rejects_wrong_forged_and_revoked_tokens(client):
+def test_unknown_token_is_404(client):
     assert client.get("/api/intake/not-a-token").status_code == 404
-    settings = get_settings()
-    # Token for the right case but a bumped version is not the stored one -> revoked.
-    old = make_token(settings.secret_key, CASE, 1)
-    with Session(get_engine()) as s:
-        case = s.get(CaseRow, CASE)
-        assert case is not None and case.intake_token_hash == hash_token(old)
-        case.intake_token_version = 2
-        s.add(case)
-        s.commit()
-    try:
-        assert client.get(f"/api/intake/{old}").status_code == 404
-    finally:
-        with Session(get_engine()) as s:
-            case = s.get(CaseRow, CASE)
-            assert case is not None
-            case.intake_token_version = 1
-            s.add(case)
-            s.commit()
 
 
-def test_intake_token_expires(client):
-    token = client.get(f"/api/cases/{CASE}").json()["intake"]["url"].rsplit("/", 1)[1]
-    with Session(get_engine()) as s:
-        case = s.get(CaseRow, CASE)
-        assert case is not None
-        original = case.intake_expires_at
-        case.intake_expires_at = datetime.now(UTC) - timedelta(days=1)
-        s.add(case)
-        s.commit()
-    try:
-        assert client.get(f"/api/intake/{token}").status_code == 404
-    finally:
-        with Session(get_engine()) as s:
-            case = s.get(CaseRow, CASE)
-            assert case is not None
-            case.intake_expires_at = original
-            s.add(case)
-            s.commit()
+def test_old_token_returns_404_after_resend(client):
+    first = client.post(f"/api/cases/{CASE}/intake-link").json()["url"].rsplit("/", 1)[1]
+    assert client.get(f"/api/intake/{first}").status_code == 200
+    second = client.post(f"/api/cases/{CASE}/intake-link").json()["url"].rsplit("/", 1)[1]
+    assert second != first
+    assert client.get(f"/api/intake/{first}").status_code == 404  # revoked
+    assert client.get(f"/api/intake/{second}").status_code == 200
 
 
-def test_caseworker_note_never_in_form_or_tenant_view(client, session):
+def test_token_is_random_and_only_its_hash_is_stored(client, session):
+    token = client.post(f"/api/cases/{CASE}/intake-link").json()["url"].rsplit("/", 1)[1]
+    assert len(token) >= 43  # token_urlsafe(32)
+    row = session.get(IntakeTokenRow, hash_token(token))
+    assert row is not None and not row.revoked
+    assert token not in {row.token_hash, row.case_id}
+    stored = " ".join(
+        str(v) for r in session.exec(select(IntakeTokenRow)).all() for v in vars(r).values()
+    )
+    assert token not in stored
+    case_json = client.get(f"/api/cases/{CASE}").text
+    assert token not in case_json
+
+
+def test_intake_token_expires(client, token, session):
+    row = session.get(IntakeTokenRow, hash_token(token))
+    assert row is not None
+    row.expires_at = datetime.now(UTC) - timedelta(days=1)
+    session.add(row)
+    session.commit()
+    assert client.get(f"/api/intake/{token}").status_code == 404
+
+
+def test_intake_link_post_logs_activity(client, session):
+    before = len(client.get(f"/api/cases/{CASE}/activity").json())
+    client.post(f"/api/cases/{CASE}/intake-link")
+    acts = client.get(f"/api/cases/{CASE}/activity").json()
+    assert len(acts) == before + 1
+    assert acts[0]["actor"] == "caseworker" and "intake link" in acts[0]["action"]
+
+
+def test_other_org_cannot_mint_link(other_org_client):
+    assert other_org_client.post(f"/api/cases/{CASE}/intake-link").status_code == 404
+
+
+def test_caseworker_note_never_in_form_or_tenant_view(client, token, session):
     note = "INTERNAL-ONLY-NOTE-XYZ"
     ev = session.get(TimelineEventRow, "te_03")
     assert ev is not None and ev.caseworker_note  # seed has one on an accepted event
@@ -108,15 +114,13 @@ def test_caseworker_note_never_in_form_or_tenant_view(client, session):
     session.add(ev)
     session.commit()
     form = client.get(f"/api/cases/{CASE}/form-draft").text
-    token = client.get(f"/api/cases/{CASE}").json()["intake"]["url"].rsplit("/", 1)[1]
     tenant = client.get(f"/api/intake/{token}").text
     assert note not in form
     assert note not in tenant
     assert "caseworker_note" not in tenant
 
 
-def test_tenant_view_only_lists_waiting_tenant_requests(client, session):
-    token = client.get(f"/api/cases/{CASE}").json()["intake"]["url"].rsplit("/", 1)[1]
+def test_tenant_view_only_lists_waiting_tenant_requests(client, token, session):
     assert client.get(f"/api/intake/{token}").json()["requests"] == []
     gap = session.exec(select(GapRow).where(GapRow.id == "gap_01")).one()
     gap.status = "waiting_tenant"

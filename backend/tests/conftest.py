@@ -9,8 +9,9 @@ import pytest
 from psycopg import sql
 from sqlalchemy.engine import make_url
 
+_PORT = os.environ.get("POSTGRES_HOST_PORT", "5433")
 BASE_URL = os.environ.get(
-    "DATABASE_URL", "postgresql+psycopg://tenantproof:tenantproof@localhost:5433/tenantproof"
+    "DATABASE_URL", f"postgresql+psycopg://tenantproof:tenantproof@localhost:{_PORT}/tenantproof"
 )
 _url = make_url(BASE_URL)
 TEST_DB = f"{_url.database}_test"
@@ -52,6 +53,14 @@ def client():
     from app.main import app
 
     return TestClient(app)
+
+
+@pytest.fixture
+def token(client) -> str:
+    """A fresh raw intake token for the demo case (revokes any earlier one)."""
+    r = client.post("/api/cases/case_demo_001/intake-link")
+    assert r.status_code == 200
+    return r.json()["url"].rsplit("/", 1)[1]
 
 
 @pytest.fixture

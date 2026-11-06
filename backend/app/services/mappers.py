@@ -4,7 +4,6 @@ from datetime import UTC, date, datetime
 
 from sqlmodel import Session, col, select
 
-from app.config import Settings
 from app.models import (
     ActivityRow,
     CaseRow,
@@ -30,7 +29,6 @@ from app.schemas import (
     Run,
     TimelineEvent,
 )
-from app.services.intake_token import make_token
 from app.services.narrative import build_narrative
 from app.services.priority import PriorityInput, compute_priority, sort_key
 
@@ -47,14 +45,10 @@ def iso_req(dt: datetime) -> str:
     return iso(dt) or ""
 
 
-def intake_token(case: CaseRow, settings: Settings) -> str:
-    return make_token(settings.secret_key, case.id, case.intake_token_version)
-
-
-def to_intake(case: CaseRow, settings: Settings) -> Intake:
+def to_intake(case: CaseRow, url: str | None = None) -> Intake:
     return Intake.model_validate(
         {
-            "url": f"{settings.public_base_url}/i/{intake_token(case, settings)}",
+            "url": url,
             "status": case.intake_status,
             "sent_at": iso(case.intake_sent_at),
             "last_upload_at": iso(case.intake_last_upload_at),
@@ -117,7 +111,7 @@ def to_summary(
     return summary, sort_key(result.priority, result.days_to_deadline, blocking, pending)
 
 
-def to_case(case: CaseRow, assignee_name: str, settings: Settings) -> Case:
+def to_case(case: CaseRow, assignee_name: str) -> Case:
     return Case.model_validate(
         {
             "id": case.id,
@@ -126,7 +120,7 @@ def to_case(case: CaseRow, assignee_name: str, settings: Settings) -> Case:
             "unit": case.unit,
             "assigned_to": {"id": case.assigned_to_id, "name": assignee_name},
             "tenant": {"name": case.tenant_name, "preferred_language": case.tenant_language},
-            "intake": to_intake(case, settings).model_dump(),
+            "intake": to_intake(case).model_dump(),
             "created_at": iso_req(case.created_at),
             "synthetic": case.synthetic,
         }

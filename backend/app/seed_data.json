@@ -40,7 +40,8 @@
         "pending_review": 0,
         "tenant_language": "en",
         "updated_at": "2026-11-05T16:20:00-03:00",
-        "has_demo_data": false
+        "has_demo_data": false,
+        "synthetic_placeholder_rows": true
       },
       {
         "id": "case_003",
@@ -54,7 +55,8 @@
         "pending_review": 0,
         "tenant_language": "ar",
         "updated_at": "2026-11-04T11:05:00-03:00",
-        "has_demo_data": false
+        "has_demo_data": false,
+        "synthetic_placeholder_rows": true
       },
       {
         "id": "case_004",
@@ -68,7 +70,8 @@
         "pending_review": 0,
         "tenant_language": "zh",
         "updated_at": "2026-11-03T09:40:00-03:00",
-        "has_demo_data": false
+        "has_demo_data": false,
+        "synthetic_placeholder_rows": true
       },
       {
         "id": "case_005",
@@ -85,7 +88,8 @@
         "pending_review": 2,
         "tenant_language": "es",
         "updated_at": "2026-11-05T13:15:00-03:00",
-        "has_demo_data": false
+        "has_demo_data": false,
+        "synthetic_placeholder_rows": true
       }
     ],
     "evidence": [

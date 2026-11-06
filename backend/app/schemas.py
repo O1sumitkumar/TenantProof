@@ -53,7 +53,8 @@ class TenantInfo(BaseModel):
 
 
 class Intake(BaseModel):
-    url: str
+    # Raw link only in the POST /cases/{id}/intake-link response; null on every GET.
+    url: str | None
     status: Literal["not_sent", "sent", "files_received"]
     sent_at: str | None
     last_upload_at: str | None

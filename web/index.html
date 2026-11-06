@@ -769,7 +769,7 @@ function viewEvidence() {
     <div class="panel panel-pad intake-panel">
       <div class="ip-main"><span class="ip-title">Tenant intake link · ${esc(LANGS[S.case.tenant.preferred_language])}</span>
         <span class="muted">Sent ${fmtTime(ik.sent_at)} · last upload ${fmtTime(ik.last_upload_at)} · ${ik.tenant_attested_genuine ? `<span style="color:var(--ok)">tenant confirmed files are genuine</span>` : "not confirmed yet"}</span>
-        <span class="linkbox"><code>${esc(ik.url)}</code><button class="copy" type="button" data-action="copy" data-text="${esc(ik.url)}">Copy link</button></span></div>
+        ${ik.url || S.lastLink ? `<span class="linkbox"><code>${esc(ik.url || S.lastLink)}</code><button class="copy" type="button" data-action="copy" data-text="${esc(ik.url || S.lastLink)}">Copy link</button></span>` : `<span class="muted">The link is shown once, when you send it. Re-send to create a new link (the old one stops working).</span>`}</div>
       <div class="btn-row"><a class="btn" href="#intake">Open tenant view</a><button class="btn" type="button" data-action="resend">Re-send link</button></div>
     </div>
     <label class="drop" id="drop" for="fileIn"><input class="file-in" type="file" id="fileIn" multiple><div><strong>Add files yourself</strong><p>For files the tenant brought to the clinic. JPG, PNG, HEIC, PDF, Word, Excel, TXT or MP4.</p></div><span class="btn primary">Choose files</span></label>
@@ -905,6 +905,7 @@ function viewPackage() {
 /* ---------- tenant intake ---------- */
 function viewIntake() {
   const v = S.intake.view; if (!v) return "<p>Loading…</p>";
+  if (v.noLink) return `<div class="view-head"><div><h1>Tenant view</h1><p>Send the intake link first, then you can preview what the tenant sees. For security the link is only shown when it is created.</p></div></div><div class="btn-row"><button class="btn primary" type="button" data-action="resend">Send intake link</button></div>`;
   const lang = S.intake.lang || v.language, t = I18N[lang] || I18N.en, vars = { org: v.org_name, unit: v.unit };
   const reqs = v.requests.map(r => `<div class="req"><b>${esc(tpl(t.req, vars))}</b>${esc(lang === "zh" ? r.message : r.message_en)}</div>`).join("");
   const body = S.intake.sent ? `<div class="done">${esc(tpl(t.sent, vars))}</div>` : `
@@ -942,7 +943,10 @@ function render() {
 /* ---------- data loading ---------- */
 let C = `/cases/${CASE_ID}`;
 const setCase = id => { CASE_ID = id; C = `/cases/${id}`; };
-const intakeTok = () => INTAKE_TOKEN || (S.case && S.case.intake.url.split("/").pop());
+// The server returns the raw link only from POST /intake-link, so a caseworker can preview
+// the tenant view only after sending a link in this session.
+const tokenOf = url => (url ? url.split("/").pop() : null);
+const intakeTok = () => INTAKE_TOKEN || tokenOf(S.lastLink || (S.case && S.case.intake.url));
 const LOADERS = {
   me: () => request("GET", "/me").then(d => S.me = d),
   cases: () => request("GET", "/cases").then(d => S.cases = prioritizeClient(d)),
@@ -954,7 +958,7 @@ const LOADERS = {
   sources: () => request("GET", `${C}/sources`).then(d => S.sources = d),
   form: () => request("GET", `${C}/form-draft`).then(d => S.form = d),
   activity: () => request("GET", `${C}/activity`).then(d => S.activity = d),
-  intake: async () => { const tok = intakeTok() || (await LOADERS.case()).intake.url.split("/").pop(); S.intake.view = await request("GET", `/intake/${tok}`); }
+  intake: async () => { const tok = intakeTok(); S.intake.view = tok ? await request("GET", `/intake/${tok}`) : { noLink: true }; }
 };
 function prioritizeClient(list) { return list.map(c => ({ ...c, _days: c.next_deadline ? Math.round((new Date(c.next_deadline.date + "T12:00:00") - new Date(plusDays(0) + "T12:00:00")) / 864e5) : null })); }
 async function refresh(parts) {
@@ -982,7 +986,7 @@ document.addEventListener("click", async ev => {
   if (a === "copy") { ev.preventDefault(); try { await navigator.clipboard.writeText(b.dataset.text); toast("Copied"); } catch { toast(b.dataset.text); } }
   if (a === "open-case") { const c = S.cases.find(x => x.id === id); if (c && c.has_demo_data) { if (id !== CASE_ID) { setCase(id); await refresh(); } location.hash = "timeline"; } else toast("Full demo data is only loaded for Jordan Lee's case."); }
   if (a === "new-case") toast("Creating cases isn't part of this prototype yet.");
-  if (a === "resend") { await request("POST", `${C}/intake-link`); toast("Intake link re-sent"); await refresh(["case"]); }
+  if (a === "resend") { const r = await request("POST", `${C}/intake-link`); S.lastLink = r.url; S.intake.view = null; toast("Intake link created. Copy it now: it is only shown once."); await refresh(["case", "intake"]); }
   if (a === "run") { S.run = await request("POST", `${C}/runs`); location.hash = "run"; render(); pollRun(); }
   if (a === "review") { await request("PATCH", `/timeline/${id}`, { review_status: b.dataset.status }); S.editing = null; await refresh(["timeline", "form"]); }
   if (a === "edit") { S.editing = id; render(); const el = document.getElementById("ed-desc-" + id); el && el.focus(); }

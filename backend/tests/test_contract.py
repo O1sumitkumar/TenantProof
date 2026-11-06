@@ -35,7 +35,7 @@ def test_case(client):
     body = r.json()
     assert set(body) == keys(schemas.Case)
     assert set(body["intake"]) == keys(schemas.Intake)
-    assert body["intake"]["url"].startswith("http") and "/i/" in body["intake"]["url"]
+    assert body["intake"]["url"] is None  # the raw link is only in the POST response
 
 
 @pytest.mark.parametrize(
@@ -81,8 +81,15 @@ def test_form_draft_uses_only_accepted_events(client):
     assert len(body["fields"]) == 7
 
 
-def test_intake_view_tenant_only_fields(client):
-    token = client.get(f"/api/cases/{CASE}").json()["intake"]["url"].rsplit("/", 1)[1]
+def test_intake_link_post_returns_url_once(client):
+    r = client.post(f"/api/cases/{CASE}/intake-link")
+    assert r.status_code == 200
+    assert set(r.json()) == keys(schemas.Intake)
+    assert r.json()["url"].startswith("http") and "/i/" in r.json()["url"]
+    assert client.get(f"/api/cases/{CASE}").json()["intake"]["url"] is None
+
+
+def test_intake_view_tenant_only_fields(client, token):
     r = client.get(f"/api/intake/{token}")
     assert r.status_code == 200
     assert set(r.json()) == keys(schemas.IntakeView)

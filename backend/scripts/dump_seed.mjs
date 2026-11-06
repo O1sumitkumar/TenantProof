@@ -11,6 +11,8 @@ const code = lines.slice(start, end).join("\n").replace(/^const /gm, "var ") + "
 const ctx = {};
 vm.createContext(ctx);
 vm.runInContext(code, ctx);
+// Summary-only cases get placeholder gap/event rows at seed time; mark them synthetic.
+ctx.__OUT.SEED.otherCases.forEach(c => { c.synthetic_placeholder_rows = true; });
 ctx.__OUT.dumped_on = new Date().toISOString().slice(0, 10);
 writeFileSync(out, JSON.stringify(ctx.__OUT, null, 2));
 console.log("wrote", out, Object.keys(ctx.__OUT.SEED).join(","));

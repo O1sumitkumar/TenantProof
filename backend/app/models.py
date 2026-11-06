@@ -47,11 +47,6 @@ class CaseRow(SQLModel, table=True):
     has_demo_data: bool = False
     form_name: str = ""
     form_disclaimer: str = ""
-    # Intake. The raw token is never stored: it is HMAC(secret, case_id:version).
-    # We keep its sha256 for lookup, an expiry, and the version for revoke-on-resend.
-    intake_token_version: int = 1
-    intake_token_hash: str = Field(default="", index=True)
-    intake_expires_at: datetime | None = None
     intake_status: str = "not_sent"
     intake_sent_at: datetime | None = None
     intake_last_upload_at: datetime | None = None
@@ -59,6 +54,18 @@ class CaseRow(SQLModel, table=True):
     tenant_attested_at: datetime | None = None
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+class IntakeTokenRow(SQLModel, table=True):
+    """Only sha256(token) is stored; the raw token is shown once, in the POST response.
+    Re-sending the link revokes every earlier token for the case."""
+
+    __tablename__ = "intake_token"
+    token_hash: str = Field(primary_key=True)
+    case_id: str = Field(foreign_key="tenant_case.id", index=True)
+    created_at: datetime = Field(default_factory=utcnow)
+    expires_at: datetime
+    revoked: bool = False
 
 
 class EvidenceRow(SQLModel, table=True):

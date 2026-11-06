@@ -16,8 +16,6 @@ class Settings(BaseSettings):
     dev_user_email: str = "sam@example-clinic.test"
     web_dir: str = "../web"
     public_base_url: str = "http://localhost:8000"
-    # Signs intake tokens (HMAC). Override in any real deployment.
-    secret_key: str = "dev-only-change-me"  # noqa: S105
     intake_token_ttl_days: int = 14
 
 

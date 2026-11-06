@@ -18,18 +18,19 @@ from app.models import (
     EvidenceRow,
     FormFieldRow,
     GapRow,
+    IntakeTokenRow,
     LegalSourceRow,
     OrgRow,
     RunRow,
     TimelineEventRow,
     UserRow,
 )
-from app.services.intake_token import hash_token, make_token
+from app.services.intake_token import issue_token
 
 DATA = Path(__file__).parent / "seed_data.json"
 CHILD_TABLES = (
-    ActivityRow, FormFieldRow, LegalSourceRow, GapRow, TimelineEventRow, RunRow, EvidenceRow,
-    CaseRow, UserRow, OrgRow,
+    IntakeTokenRow, ActivityRow, FormFieldRow, LegalSourceRow, GapRow, TimelineEventRow,
+    RunRow, EvidenceRow, CaseRow, UserRow, OrgRow,
 )
 RUN_STEPS = [
     ("ingest", "Check files"), ("extract", "Extract facts"), ("timeline", "Build timeline"),
@@ -68,14 +69,16 @@ def add_placeholder_rows(session: Session, c: dict) -> None:
     for i in range(c["open_blocking"]):
         session.add(GapRow(
             id=f"{c['id']}_gap_{i + 1}", case_id=c["id"], position=i, severity="blocking",
-            title="Required item", why="Placeholder for a synthetic case.", how_to_fix="",
+            title="[Synthetic placeholder] Required item",
+            why="Placeholder row so this summary-only case has real counts.", how_to_fix="",
             status="open",
         ))
     for i in range(c["pending_review"]):
         session.add(TimelineEventRow(
             id=f"{c['id']}_te_{i + 1}", case_id=c["id"], date={
                 "value": None, "precision": "unknown", "basis": "user"},
-            sort_key="9", title="Event to review", description="Placeholder for a synthetic case.",
+            sort_key="9", title="[Synthetic placeholder] Event to review",
+            description="Placeholder row so this summary-only case has real counts.",
             actor="other", strength="needs_support", review_status="pending",
         ))
 
@@ -100,14 +103,12 @@ def seed(session: Session) -> None:
             deadline = {"date": shift_day(deadline["date"], delta),
                         "label": shift_label(deadline["label"], delta)}
         intake = c.get("intake")
-        token = make_token(settings.secret_key, c["id"], 1)
         row = CaseRow(
             id=c["id"], org_id=org["id"], assigned_to_id=me["id"], title=c["title"], unit=c["unit"],
             tenant_name=c["tenant"]["name"] if demo else c["tenant_name"],
             tenant_language=c["tenant"]["preferred_language"] if demo else c["tenant_language"],
             stage=c.get("stage", "needs_review"), next_deadline=deadline,
-            has_demo_data=demo, intake_token_hash=hash_token(token),
-            intake_expires_at=datetime.now(UTC) + timedelta(days=settings.intake_token_ttl_days),
+            has_demo_data=demo,
             intake_status=intake["status"] if intake else "sent",
             intake_sent_at=dt(intake["sent_at"]) if intake else None,
             intake_last_upload_at=dt(intake["last_upload_at"]) if intake else None,
@@ -130,7 +131,8 @@ def seed(session: Session) -> None:
     for other in s["otherCases"]:
         other["updated_at"] = shift_day(other["updated_at"], delta) + other["updated_at"][10:]
         add_case(other, demo=False)
-        add_placeholder_rows(session, other)
+        if other.get("synthetic_placeholder_rows"):
+            add_placeholder_rows(session, other)
     session.flush()
     case_id = demo_case["id"]
 
@@ -180,7 +182,9 @@ def seed(session: Session) -> None:
     session.add(RunRow(id="run_001", case_id=case_id, status="needs_review",
                        started_at=dt("2026-10-28T14:08:02-03:00"),  # type: ignore[arg-type]
                        finished_at=dt("2026-10-28T14:09:31-03:00"), steps=steps))
+    link = issue_token(session, case_id, settings.intake_token_ttl_days)
     session.commit()
+    print(f"demo intake link (shown once): {settings.public_base_url}/i/{link}")
 
 
 if __name__ == "__main__":
