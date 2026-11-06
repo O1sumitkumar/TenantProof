@@ -32,6 +32,7 @@ Nothing on `main`. Workstreams WS1 to WS5 (table below) are unassigned.
 - **`docker compose up --scale api=2` does not work yet:** the api service publishes fixed host port 8000. WS2 needs a proxy service.
 - **Zip contains no evidence files yet** (only two PDFs and `manifest.json`); evidence joins in WS1.
 - **Verified by an agent on 2026-11-06 (Playwright + rendered pages, see the PR #1 comments):** Chinese glyphs render in the built PDF, second-org isolation in two separate browser contexts, `?mock=1`, the empty-caseload state. **Still unverified:** the Electron window itself (only `desktop/check.js` has run). Needs a manual check by Lameda12.
+- Electron 33 has 2 high-severity npm audit findings; bump to current stable Electron (WS2).
 - **UI routes don't include the case id** (`#timeline`), so a case can't be deep-linked or shared.
 - **Seed data has a zh-language tenant but all-English content.** The demo case needs real Chinese tenant messages and evidence text (fictional) so the video shows multilingual intake. Owner: WS5.
 - **CI has not run on GitHub yet.** It runs Postgres and Redis service containers; the first run is on the draft PR.
