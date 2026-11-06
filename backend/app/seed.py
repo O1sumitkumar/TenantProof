@@ -10,6 +10,7 @@ from pathlib import Path
 from sqlalchemy import delete
 from sqlmodel import Session
 
+from app.auth import hash_password
 from app.config import get_settings
 from app.db import get_engine
 from app.models import (
@@ -20,7 +21,9 @@ from app.models import (
     GapRow,
     IntakeTokenRow,
     LegalSourceRow,
+    LoginSessionRow,
     OrgRow,
+    PackageRow,
     RunRow,
     TimelineEventRow,
     UserRow,
@@ -28,8 +31,12 @@ from app.models import (
 from app.services.intake_token import issue_token
 
 DATA = Path(__file__).parent / "seed_data.json"
+CASEWORKER_EMAIL = "sam@example-clinic.test"
+OTHER_ORG = {"id": "org_harbourside", "name": "Harbourside Tenant Legal Clinic"}
+OTHER_USER = {"id": "usr_harbourside", "name": "Jo Park", "email": "jo@harbourside-clinic.test"}
 CHILD_TABLES = (
-    IntakeTokenRow, ActivityRow, FormFieldRow, LegalSourceRow, GapRow, TimelineEventRow,
+    LoginSessionRow, PackageRow, IntakeTokenRow, ActivityRow, FormFieldRow, LegalSourceRow,
+    GapRow, TimelineEventRow,
     RunRow, EvidenceRow, CaseRow, UserRow, OrgRow,
 )
 RUN_STEPS = [
@@ -92,9 +99,14 @@ def seed(session: Session) -> None:
     for table in CHILD_TABLES:
         session.exec(delete(table))  # type: ignore[call-overload]
 
+    if not settings.seed_password:
+        raise SystemExit("SEED_PASSWORD is required to seed the caseworker accounts")
+    password_hash = hash_password(settings.seed_password)
     session.add(OrgRow(id=org["id"], name=org["name"]))
     session.add(UserRow(id=me["id"], org_id=org["id"], name=me["name"],
-                        email=settings.dev_user_email))
+                        email=CASEWORKER_EMAIL, password_hash=password_hash))
+    session.add(OrgRow(**OTHER_ORG))
+    session.add(UserRow(org_id=OTHER_ORG["id"], password_hash=password_hash, **OTHER_USER))
     session.flush()
 
     def add_case(c: dict, *, demo: bool) -> CaseRow:

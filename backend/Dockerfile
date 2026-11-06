@@ -11,7 +11,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY backend/ ./
 COPY web/ /app/web/
 
-RUN useradd --create-home app && chown -R app:app /app
+RUN useradd --create-home app && mkdir -p /data/storage && chown -R app:app /app /data
 USER app
 EXPOSE 8000
 CMD ["uv", "run", "--no-dev", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

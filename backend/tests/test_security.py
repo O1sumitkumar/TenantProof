@@ -3,31 +3,12 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlmodel import Session, select
+from sqlmodel import select
 
-from app.config import get_settings
-from app.db import get_engine
-from app.main import api
-from app.models import GapRow, IntakeTokenRow, OrgRow, TimelineEventRow, UserRow
+from app.models import GapRow, IntakeTokenRow, TimelineEventRow
 from app.services.intake_token import hash_token
 
 CASE = "case_demo_001"
-OTHER_EMAIL = "other@other-clinic.test"
-
-
-@pytest.fixture
-def other_org_client(client):
-    """A caseworker from a different org."""
-    with Session(get_engine()) as s:
-        if s.get(OrgRow, "org_other") is None:
-            s.add(OrgRow(id="org_other", name="Other Clinic"))
-            s.add(UserRow(id="usr_other", org_id="org_other", name="Olu", email=OTHER_EMAIL))
-            s.commit()
-    base = get_settings()
-    api.dependency_overrides[get_settings] = lambda: base.model_copy(
-        update={"dev_user_email": OTHER_EMAIL})
-    yield client
-    api.dependency_overrides.clear()
 
 
 @pytest.mark.parametrize(
@@ -47,15 +28,9 @@ def test_other_org_caseload_is_empty(other_org_client):
     assert other_org_client.get("/api/cases").json() == []
 
 
-def test_no_auth_by_default(client):
-    base = get_settings()
-    api.dependency_overrides[get_settings] = lambda: base.model_copy(
-        update={"dev_stub_auth": False})
-    try:
-        assert client.get("/api/cases").status_code == 401
-        assert client.get("/api/me").status_code == 401
-    finally:
-        api.dependency_overrides.clear()
+def test_no_cookie_is_401(anon_client):
+    assert anon_client.get("/api/cases").status_code == 401
+    assert anon_client.get("/api/me").status_code == 401
 
 
 def test_unknown_token_is_404(client):

@@ -15,6 +15,16 @@ Deviations from `API_CONTRACT.md` (v0.2). Each has a reason. Source: `BUILD_PLAN
 | 9 | Every by-id handler checks `obj.case.org_id == user.org_id`; other orgs get 404 | Object-level authorization |
 | 10 | New `POST /auth/login` returning an httpOnly session cookie. M0 uses a dev-stub user; real login in M1 | Auth |
 | 11 | Intake links: `Intake.url` is `string \| null`. The raw link (`secrets.token_urlsafe(32)`) is returned only by `POST /cases/{id}/intake-link`; every GET returns `null`. The DB stores only sha256 + expiry + revoked flag (table `intake_token`). Re-sending creates a new token and revokes all earlier ones; revoked, expired and unknown tokens all return the same 404 | Tokens are not recoverable from the database or from case reads |
+| 12 | `PATCH /cases/{case_id}/form-draft/fields/{key}` (was `/form-draft/fields/{key}`) | Field keys repeat per case, so the case must be in the path |
+| 13 | `Package` gains `version: number` and `sha256: string` (of the zip). Every `POST /cases/{id}/package` creates a new version; rows are never overwritten. The zip is stored content-addressed (sha256) outside the database; the row keeps `sha256` + `storage_key` | Chain of custody; rebuild history |
+| 14 | New `GET /cases/{id}/package/download[?version=N]`: latest version unless `N` given; 404 for unknown version or no package; org-checked; also sends `X-Package-Sha256` | Contract had no way to fetch the package |
+| 15 | `POST /auth/logout` returns `{ ok: true }` and clears the cookie; `POST /auth/login` body `{ email, password }` returns `User` | Completes #10 |
+| 16 | `PATCH /timeline/{id}`: an edit to title/description/date with no `review_status` sets `edited`; a date is stamped `basis: "user"` only when its value or precision actually changed; `caseworker_note: null` clears, omitting it keeps. `review_status` is optional (contract listed it as required); a no-op edit changes nothing, and a rejected event needs an explicit `review_status` to come back. `date.value` must be a valid date for its precision (422 otherwise) | UI resends the unchanged date on every edit |
+| 17 | Stage rules: `POST /gaps/{id}/tenant-request` sets `waiting_tenant`; `POST /intake/{token}/submit` recomputes the stage (normally back to `needs_review`); other mutations recompute it, keeping `waiting_tenant` only while a request is outstanding and always keeping `hearing_scheduled` | Caseload shows when a case needs attention again |
+| 18 | `POST /intake/{token}/submit` in M1 records the attestation only (no files); 422 `{ detail: { reasons } }` unless both `attest_genuine` and `consent_share` are true. Response `{ ok: true }` | Files arrive in M2 |
+| 19 | `PATCH /gaps/{id}` reopening a resolved gap clears the form value that gap wrote (field returns to `missing`); `value` requires `status: "resolved"` and a gap with an `input.field_key` (422 otherwise) | Keeps form and gaps consistent |
+| 20 | `PATCH /cases/{id}/form-draft/fields/{key}` with an empty value reopens the gap it had resolved. The stage counts empty required fields like open blocking gaps, so stage and package gating agree | Found by tests: stage said `ready_to_file` while the package refused |
+| 21 | `POST /cases/{id}/package` with no body or missing attestations also answers 422 `{ detail: { reasons } }`; a narrative line with no sources has no trailing `[]` | Consistent error shape |
 
 ## UI changes (`web/index.html`)
 
@@ -25,13 +35,16 @@ Deviations from `API_CONTRACT.md` (v0.2). Each has a reason. Source: `BUILD_PLAN
 | M0 | `/i/{token}` tenant mode: hides caseworker nav and skips caseworker fetches |
 | M0 fix | Evidence panel shows the link only right after sending (`S.lastLink`); the caseworker Tenant view preview needs a link sent in the session, else it shows a "Send intake link" prompt |
 | M0 | `request()` error parsing handles `detail` as string or `{ reasons: string[] }` |
-| M1 | Minimal login view (approved exception) |
+| M1 | Minimal login view (approved exception): shown on a 401, plus a "Sign out" button in the top bar |
+| M1 | `UPLOADS_ENABLED = false` config flag: tenant page needs only the two confirmations and skips `/files`; shows a "coming soon" line (flipped in M2) |
+| M1 | Form field edits call `PATCH /cases/{id}/form-draft/fields/{key}` (mock route updated to match) |
+| M1 | Package view shows the version and a download link (real mode only); mock `Package` gains `version`, `sha256` |
 | M3 | `needs_input` answer control on the run view (approved exception) |
 
 ## Implementation notes
-- M0 auth is a dev stub gated by `DEV_STUB_AUTH` (default off).
+- M0's `DEV_STUB_AUTH` is removed in M1. Seeds create two orgs with one caseworker each (`sam@example-clinic.test`, `jo@harbourside-clinic.test`); passwords come from `SEED_PASSWORD` (compose default `tenantproof-demo`, local only).
+- PDFs use bundled Noto Sans (Regular, Bold) and Noto Sans SC (Regular), SIL OFL, in `backend/app/assets/fonts/` (sha256 in `FONTS.md`), so Chinese renders.
+- M1 zip contents: `application_draft.pdf`, `evidence_manifest.pdf`, `manifest.json`. Evidence files join the zip in M2.
 - Postgres host port is `POSTGRES_HOST_PORT` (default 5433). The Makefile (`up`, `down`, `test`, `lint`, `seed`, `link`) uses `docker compose` if available, else `docker-compose`.
 - The four summary-only cases get placeholder gap/event rows so their counts are real. `seed_data.json` marks them `synthetic_placeholder_rows: true` and the rows are titled `[Synthetic placeholder] ...`.
 
-## Additions to track
-- Package zip download endpoint (`GET /cases/{id}/package/download`): not in the contract; to be added in M1 and logged here.

@@ -1,11 +1,23 @@
 """API response/request shapes. Mirrors API_CONTRACT.md (v0.2) field for field,
 plus the changes logged in CONTRACT_CHANGES.md."""
 
+import re
+from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 Language = str
+_MONTH = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
+def _valid_date(value: str, precision: str) -> bool:
+    if precision == "month":
+        return bool(_MONTH.match(value))
+    try:
+        return date.fromisoformat(value).isoformat() == value
+    except ValueError:
+        return False
 
 
 class Org(BaseModel):
@@ -160,6 +172,15 @@ class EventDate(BaseModel):
     precision: Literal["day", "month", "unknown"]
     basis: Literal["exif", "message_timestamp", "document_text", "filename", "user"]
 
+    @model_validator(mode="after")
+    def value_matches_precision(self) -> "EventDate":
+        """day: YYYY-MM-DD, month: YYYY-MM. A bad date would break the narrative (500)."""
+        if self.precision == "unknown":
+            return self
+        if self.value is None or not _valid_date(self.value, self.precision):
+            raise ValueError(f"date value must be a valid {self.precision}-precision date")
+        return self
+
 
 class EventFlag(BaseModel):
     type: Literal["no_metadata", "edited_software", "date_inferred", "date_mismatch"]
@@ -265,6 +286,8 @@ class PackageFile(BaseModel):
 
 
 class Package(BaseModel):
+    version: int  # CONTRACT_CHANGES #13
+    sha256: str  # of the zip bytes
     built_at: str
     prepared_by: str
     files: list[PackageFile]
@@ -273,3 +296,53 @@ class Package(BaseModel):
 
 class ErrorReasons(BaseModel):
     reasons: list[str]  # CONTRACT_CHANGES #8: 409/422 body is {detail: {reasons: [...]}}
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class TimelineEventPatch(BaseModel):
+    review_status: Literal["pending", "accepted", "edited", "rejected"] | None = None
+    title: str | None = None
+    description: str | None = None
+    date: EventDate | None = None
+    caseworker_note: str | None = None
+    # model_fields_set distinguishes "note omitted" from "note cleared with null".
+    model_config = {"extra": "forbid"}
+
+
+class GapPatch(BaseModel):
+    status: Literal["open", "waiting_tenant", "resolved", "dismissed"]
+    resolution_note: str | None = None
+    value: str | None = None
+    model_config = {"extra": "forbid"}
+
+
+class FieldPatch(BaseModel):
+    value: str
+    model_config = {"extra": "forbid"}
+
+
+class AttestationsIn(BaseModel):
+    """Request-side attestations: anything missing counts as false, so the handler can answer
+    422 with {detail: {reasons}} (CONTRACT_CHANGES #8) instead of FastAPI's default shape."""
+
+    reviewed_fields: bool = False
+    remedy_confirmed_with_tenant: bool = False
+    explained_not_legal_advice: bool = False
+
+
+class PackageRequest(BaseModel):
+    attestations: AttestationsIn = Field(default_factory=AttestationsIn)
+
+
+class IntakeSubmit(BaseModel):
+    attest_genuine: bool
+    consent_share: bool
+    language: Language | None = None
+
+
+class Ok(BaseModel):
+    ok: Literal[True] = True

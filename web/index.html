@@ -354,6 +354,7 @@ body.dev .contract{display:block}
     <nav class="topnav" id="topnav" aria-label="App"></nav>
     <div class="topbar-tools">
       <span class="demo-pill" title="All names, addresses, organizations and files are invented for the demo">Synthetic demo data</span>
+      <button class="btn small" type="button" data-action="logout" id="logoutBtn" hidden>Sign out</button>
       <label class="switch" for="devToggle"><input type="checkbox" id="devToggle"> Show data contract</label>
     </div>
   </div>
@@ -375,6 +376,9 @@ body.dev .contract{display:block}
 // backend it talks to the real API at /api.
 const USE_MOCK = location.protocol === "file:" || new URLSearchParams(location.search).get("mock") === "1";
 const API_BASE = "/api";
+// M1: tenant file upload (POST /intake/{token}/files) arrives in M2. While false, the tenant page
+// needs only the two confirmations and skips the upload call.
+const UPLOADS_ENABLED = false;
 // Tenant mode: the same page served at /i/{token} shows only the tenant intake.
 const TENANT_MODE = !USE_MOCK && /^\/i\/[^/]+/.test(location.pathname);
 // Mock mode uses fixed demo ids. Real mode reads them from the URL (token) or the API (case).
@@ -415,7 +419,7 @@ const ENDPOINTS = {
   run: ["POST /cases/{id}/runs", "GET /cases/{id}/runs/latest", "GET /runs/{run_id}  (poll)"],
   timeline: ["GET /cases/{id}/timeline", "PATCH /timeline/{event_id}"],
   gaps: ["GET /cases/{id}/gaps", "PATCH /gaps/{gap_id}", "POST /gaps/{gap_id}/tenant-request", "GET /cases/{id}/sources"],
-  form: ["GET /cases/{id}/form-draft", "PATCH /form-draft/fields/{key}"],
+  form: ["GET /cases/{id}/form-draft", "PATCH /cases/{id}/form-draft/fields/{key}"],
   package: ["POST /cases/{id}/package", "GET /cases/{id}/activity"],
   intake: ["GET /intake/{token}", "POST /intake/{token}/files (multipart)", "POST /intake/{token}/submit"]
 };
@@ -589,7 +593,7 @@ function mockRoute(method, path, body) {
   }
   if (method === "GET" && path === `${C}/sources`) return clone(db.sources);
   if (method === "GET" && path === `${C}/form-draft`) return clone({ form_name: "Application to Director (Form J) — draft", disclaimer: "Prepared with the tenant to help fill in the official form. It is information, not legal advice, and is not submitted anywhere.", fields: db.fields, narrative: buildNarrative() });
-  if (method === "PATCH" && (m = path.match(/^\/form-draft\/fields\/(\w+)$/))) {
+  if (method === "PATCH" && (m = path.match(/^\/cases\/[^/]+\/form-draft\/fields\/(\w+)$/))) {
     const f = db.fields.find(x => x.key === m[1]); f.value = body.value || null; f.status = f.value ? "user_entered" : "missing";
     const g = db.gaps.find(x => x.input && x.input.field_key === f.key);
     if (g) { g.status = f.value ? "resolved" : "open"; g.resolution_note = f.value ? "Entered on the form draft" : null; }
@@ -606,7 +610,7 @@ function mockRoute(method, path, body) {
     const files = db.evidence.filter(e => e.format_check.accepted).map(e => ({ label: e.label, filename: e.format_check.action === "converted" ? e.filename.replace(/\.(heic|heif)$/i, ".jpg") : e.format_check.action === "will_export_pdf" ? e.filename.replace(/\.\w+$/, ".pdf") : e.filename, sha256: e.sha256, note: e.format_check.action === "converted" ? "Converted from HEIC" : e.format_check.action === "will_export_pdf" ? "Exported to PDF" : (e.kind === "photo" && e.metadata.software ? "Saved by editing app" : e.kind === "photo" && !e.metadata.captured_at ? "No capture metadata" : "") }));
     files.unshift({ label: "—", filename: "application_draft.pdf", sha256: "generated at build time", note: "Form fields + narrative" }, { label: "—", filename: "evidence_manifest.pdf", sha256: "generated at build time", note: "SHA-256, receipt time and uploader of every file" });
     log("caseworker", "Built the filing package");
-    return { built_at: new Date().toISOString(), prepared_by: `${ME.name}, ${ORG.name}`, files, reminders: ["Submit evidence at least 5 days before the hearing date on the Notice of Hearing (Evidence Policy #42).", "Submit text messages and emails digitally or printed. Don't forward them to the officer.", "Keep an exact copy of everything submitted."] };
+    return { version: 1, sha256: "generated at build time", built_at: new Date().toISOString(), prepared_by: `${ME.name}, ${ORG.name}`, files, reminders: ["Submit evidence at least 5 days before the hearing date on the Notice of Hearing (Evidence Policy #42).", "Submit text messages and emails digitally or printed. Don't forward them to the officer.", "Keep an exact copy of everything submitted."] };
   }
   if (method === "GET" && path === `/intake/${INTAKE_TOKEN}`) return clone({ org_name: ORG.name, tenant_first_name: db.case.tenant.name.split(" ")[0], unit: "Unit 4B, 100 Example Street", language: db.case.tenant.preferred_language, requests: db.intakeRequests });
   if (method === "POST" && path === `/intake/${INTAKE_TOKEN}/submit`) {
@@ -662,6 +666,7 @@ const I18N = {
 const S = { me: null, cases: [], case: null, evidence: [], run: null, timeline: [], gaps: [], sources: [], form: null, activity: [], pkg: null, editing: null, drafting: null,
   attest: { reviewed_fields: false, remedy_confirmed_with_tenant: false, explained_not_legal_advice: false }, pkgError: null,
   intake: { view: null, lang: null, files: [], attest: false, consent: false, sent: false } };
+const UPLOAD_SOON = { en: "Uploading files is coming soon. For now, confirm below and send.", zh: "文件上传功能即将推出。现在请先勾选下面的确认并发送。", fr: "Le téléversement de fichiers arrive bientôt. Pour l'instant, confirmez ci-dessous et envoyez.", es: "La subida de archivos llegará pronto. Por ahora, confirme abajo y envíe." };
 const CASE_ROUTES = ["evidence", "run", "timeline", "gaps", "form", "package"];
 const ROUTES = ["cases", "intake", ...CASE_ROUTES];
 const $ = s => document.querySelector(s);
@@ -700,10 +705,31 @@ function stats() {
   return { reviewed, total: S.timeline.length, blocking, recommended, waiting, filled: fields.filter(f => f.value).length, fieldsTotal: fields.length, reqMissing: fields.filter(f => f.required && !f.value).length };
 }
 
+/* ---------- login (M1) ---------- */
+function showLogin(msg) {
+  S.needLogin = true; clearInterval(poller);
+  $("#layout").classList.add("single"); $("#topnav").innerHTML = ""; $("#rail").innerHTML = "";
+  $("#ctx").innerHTML = `<strong>Sign in</strong><span></span>`;
+  $("#view").innerHTML = `<form class="panel panel-pad" data-action="login" style="max-width:380px;display:grid;gap:12px">
+    <h1>Sign in</h1><p class="muted">Caseworkers only. Tenants use the link they were sent.</p>
+    ${msg ? `<div class="note bad"><span class="note-ico">×</span><span>${esc(msg)}</span></div>` : ""}
+    <label>Email<input class="field" type="email" name="email" autocomplete="username" required></label>
+    <label>Password<input class="field" type="password" name="password" autocomplete="current-password" required></label>
+    <button class="btn primary" type="submit">Sign in</button></form>`;
+}
+async function ensureCase() {
+  if (CASE_ID) return;
+  const list = await request("GET", "/cases");
+  const pick = list.find(c => c.has_demo_data) || list[0];
+  if (pick) setCase(pick.id);
+}
+async function logout() { try { await request("POST", "/auth/logout"); } catch {} location.reload(); }
+
 /* ---------- chrome ---------- */
 function renderChrome() {
   const r = route(), inCase = CASE_ROUTES.includes(r);
   $("#layout").classList.toggle("single", !inCase);
+  $("#logoutBtn").hidden = USE_MOCK || TENANT_MODE || !S.me;
   if (TENANT_MODE) { $("#topnav").innerHTML = ""; $("#ctx").innerHTML = `<strong>${esc(S.intake.view ? S.intake.view.org_name : "")}</strong><span></span>`; $("#rail").innerHTML = ""; return; }
   $("#topnav").innerHTML = `<a href="#cases" ${r === "cases" || inCase ? 'aria-current="page"' : ""}>Caseload</a><a href="#intake" ${r === "intake" ? 'aria-current="page"' : ""}>Tenant view</a>`;
   const c = S.case;
@@ -881,7 +907,7 @@ function viewPackage() {
   const whoCls = { agent: "who-agent", tenant: "who-tenant", caseworker: "who-caseworker" };
   const manifest = S.pkg ? `<h2 class="section-h">Package contents</h2>
     <div class="panel tbl-wrap"><table class="manifest"><thead><tr><th>Exhibit</th><th>File</th><th>SHA-256</th><th>Note</th></tr></thead><tbody>${S.pkg.files.map(r => `<tr><td>${r.label === "—" ? "—" : `<span class="exhibit">${esc(r.label)}</span>`}</td><td>${esc(r.filename)}</td><td class="mono">${esc(r.sha256.length === 64 ? r.sha256.slice(0, 16) + "…" : r.sha256)}</td><td>${esc(r.note)}</td></tr>`).join("")}</tbody></table></div>
-    <div class="note"><span class="note-ico">i</span><span>Prepared by ${esc(S.pkg.prepared_by)} · ${fmtTime(S.pkg.built_at)}. In the real app this downloads as one PDF package plus the original files.</span></div>
+    <div class="note"><span class="note-ico">i</span><span>Version ${S.pkg.version} · prepared by ${esc(S.pkg.prepared_by)} · ${fmtTime(S.pkg.built_at)}. ${USE_MOCK ? "In the real app this downloads as one zip." : `<a href="${API_BASE}${C}/package/download?version=${S.pkg.version}" download>Download the zip (v${S.pkg.version})</a> · SHA-256 <span class="mono">${esc(S.pkg.sha256.slice(0, 16))}…</span>`}</span></div>
     <div class="panel panel-pad"><ul class="checklist">${S.pkg.reminders.map(r => `<li><span class="ck maybe">!</span>${esc(r)}</li>`).join("")}</ul></div>` : "";
   return `<div class="view-head"><div><h1>Package</h1><p>Bundle the form draft, the evidence and a fingerprint log for filing. The tenant or the clinic files it. TenantProof never submits anything.</p></div></div>
     <div class="panel panel-pad"><ul class="checklist">
@@ -911,12 +937,12 @@ function viewIntake() {
   const body = S.intake.sent ? `<div class="done">${esc(tpl(t.sent, vars))}</div>` : `
       <p>${esc(tpl(t.intro, vars))}</p>${reqs}
       <div><strong style="font-size:14.5px">${esc(t.what)}</strong><ul>${t.items.map(i => `<li>${esc(i)}</li>`).join("")}</ul></div>
-      <label class="up" for="intakeFiles"><input class="file-in" type="file" id="intakeFiles" multiple>${S.intake.files.length ? esc(tpl(t.selected, { n: S.intake.files.length })) : esc(t.choose)}</label>
+      ${UPLOADS_ENABLED ? `<label class="up" for="intakeFiles"><input class="file-in" type="file" id="intakeFiles" multiple>${S.intake.files.length ? esc(tpl(t.selected, { n: S.intake.files.length })) : esc(t.choose)}</label>` : `<p class="muted">${esc(UPLOAD_SOON[lang] || UPLOAD_SOON.en)}</p>`}
       <p style="font-size:13px">${esc(tpl(t.privacy, vars))}</p>
       <form class="attest" data-action="intake-attest">
         <label><input type="checkbox" id="in-attest" name="attest" ${S.intake.attest ? "checked" : ""}>${esc(t.attest)}</label>
         <label><input type="checkbox" id="in-consent" name="consent" ${S.intake.consent ? "checked" : ""}>${esc(tpl(t.consent, vars))}</label></form>
-      <button class="btn primary" data-action="intake-send" ${S.intake.files.length && S.intake.attest && S.intake.consent ? "" : "disabled"}>${esc(tpl(t.send, vars))}</button>`;
+      <button class="btn primary" data-action="intake-send" ${(S.intake.files.length || !UPLOADS_ENABLED) && S.intake.attest && S.intake.consent ? "" : "disabled"}>${esc(tpl(t.send, vars))}</button>`;
   return `<div class="view-head"><div><h1>Tenant view</h1><p>What ${esc(v.tenant_first_name)} sees after opening the intake link on a phone. No account needed. It opens in the tenant's preferred language, and the tenant never sees the caseworker workspace.</p></div></div>
     <div class="intake-wrap">
       <div class="intake-side">
@@ -934,6 +960,7 @@ function viewIntake() {
 
 const VIEWS = { cases: viewCases, intake: viewIntake, evidence: viewEvidence, run: viewRun, timeline: viewTimeline, gaps: viewGaps, form: viewForm, package: viewPackage };
 function render() {
+  if (S.needLogin) return showLogin();
   renderChrome();
   const r = route();
   $("#view").innerHTML = (r === "cases" ? S.cases.length : r === "intake" ? S.intake.view : S.form) ? VIEWS[r]() : `<p>Loading…</p>`;
@@ -963,7 +990,7 @@ const LOADERS = {
 function prioritizeClient(list) { return list.map(c => ({ ...c, _days: c.next_deadline ? Math.round((new Date(c.next_deadline.date + "T12:00:00") - new Date(plusDays(0) + "T12:00:00")) / 864e5) : null })); }
 async function refresh(parts) {
   const keys = TENANT_MODE ? ["intake"] : parts ? [...new Set([...parts, "activity", "cases"])] : Object.keys(LOADERS);
-  try { await Promise.all(keys.map(k => LOADERS[k]())); } catch (err) { toast(err.message); }
+  try { await Promise.all(keys.map(k => LOADERS[k]())); } catch (err) { if (err.status === 401 && !TENANT_MODE) return showLogin(); toast(err.message); }
   render();
 }
 
@@ -983,6 +1010,7 @@ document.addEventListener("click", async ev => {
   const b = ev.target.closest("[data-action]");
   if (!b || b.tagName === "FORM" || b.tagName === "INPUT") return;
   const a = b.dataset.action, id = b.dataset.id;
+  if (a === "logout") return logout();
   if (a === "copy") { ev.preventDefault(); try { await navigator.clipboard.writeText(b.dataset.text); toast("Copied"); } catch { toast(b.dataset.text); } }
   if (a === "open-case") { const c = S.cases.find(x => x.id === id); if (c && c.has_demo_data) { if (id !== CASE_ID) { setCase(id); await refresh(); } location.hash = "timeline"; } else toast("Full demo data is only loaded for Jordan Lee's case."); }
   if (a === "new-case") toast("Creating cases isn't part of this prototype yet.");
@@ -1006,7 +1034,7 @@ document.addEventListener("click", async ev => {
   }
   if (a === "intake-send") {
     try {
-      await uploadFiles(`/intake/${intakeTok()}/files`, S.intake.files);
+      if (UPLOADS_ENABLED) await uploadFiles(`/intake/${intakeTok()}/files`, S.intake.files);
       await request("POST", `/intake/${intakeTok()}/submit`, { attest_genuine: S.intake.attest, consent_share: S.intake.consent, language: S.intake.lang || S.intake.view.language });
       S.intake.sent = true; await refresh(["evidence", "case"]);
     } catch (err) { toast(err.message); }
@@ -1016,6 +1044,12 @@ document.addEventListener("click", async ev => {
 document.addEventListener("submit", async ev => {
   const f = ev.target; if (!f.dataset.action) return; ev.preventDefault();
   const id = f.dataset.id, a = f.dataset.action;
+  if (a === "login") {
+    const fd = new FormData(f);
+    try { S.me = await request("POST", "/auth/login", { email: fd.get("email"), password: fd.get("password") }); S.needLogin = false; await ensureCase(); await refresh(); location.hash = "cases"; }
+    catch (err) { showLogin(err.status === 429 ? "Too many attempts. Wait a minute and try again." : err.message); }
+    return;
+  }
   if (a === "save-edit") {
     const fd = new FormData(f), date = fd.get("date"), ex = S.timeline.find(e => e.id === id);
     await request("PATCH", `/timeline/${id}`, { review_status: "edited", title: fd.get("title"), description: fd.get("description"), caseworker_note: fd.get("caseworker_note").trim() || null, date: date ? { value: date, precision: "day", basis: "user" } : ex.date });
@@ -1027,7 +1061,7 @@ document.addEventListener("submit", async ev => {
 document.addEventListener("change", async ev => {
   const t = ev.target;
   if (t.id === "devToggle") { document.body.classList.toggle("dev", t.checked); try { localStorage.setItem("tp-dev", t.checked ? "1" : "0"); } catch {} return; }
-  if (t.dataset.action === "field") { await request("PATCH", `/form-draft/fields/${t.dataset.key}`, { value: t.value.trim() }); await refresh(["form", "gaps"]); }
+  if (t.dataset.action === "field") { await request("PATCH", `${C}/form-draft/fields/${t.dataset.key}`, { value: t.value.trim() }); await refresh(["form", "gaps"]); }
   if (t.closest("form[data-action=attest]")) { S.attest[t.name] = t.checked; S.pkgError = null; render(); }
   if (t.closest("form[data-action=intake-attest]")) { S.intake[t.name] = t.checked; render(); }
   if (t.id === "intakeLang") { S.intake.lang = t.value; render(); }
@@ -1051,13 +1085,9 @@ try { if (localStorage.getItem("tp-dev") === "1") { $("#devToggle").checked = tr
 (async function boot() {
   try {
     if (TENANT_MODE) { document.body.classList.add("tenant"); await refresh(["intake"]); return; }
-    if (!CASE_ID) {
-      const list = await request("GET", "/cases");
-      const pick = list.find(c => c.has_demo_data) || list[0];
-      if (pick) setCase(pick.id);
-    }
+    await ensureCase();
     await refresh();
-  } catch (err) { toast(err.message); }
+  } catch (err) { if (err.status === 401 && !TENANT_MODE) showLogin(); else toast(err.message); }
 })();
 </script>
 

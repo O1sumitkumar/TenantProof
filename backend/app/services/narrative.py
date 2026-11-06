@@ -33,5 +33,6 @@ def build_narrative(
             label = labels.get(s["evidence_id"], s["evidence_id"])
             if label not in seen:
                 seen.append(label)
-        lines.append(f"{format_date(e['date'], True)}: {e['description']} [{', '.join(seen)}]")
+        cite = f" [{', '.join(seen)}]" if seen else ""
+        lines.append(f"{format_date(e['date'], True)}: {e['description']}{cite}")
     return {"text": "\n".join(lines), "event_ids": [e["id"] for e in used]}

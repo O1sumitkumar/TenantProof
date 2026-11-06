@@ -2,6 +2,7 @@
 A separate `<db>_test` database is created, migrated with Alembic and seeded."""
 
 import os
+import tempfile
 from collections.abc import Iterator
 
 import psycopg
@@ -14,12 +15,18 @@ BASE_URL = os.environ.get(
     "DATABASE_URL", f"postgresql+psycopg://tenantproof:tenantproof@localhost:{_PORT}/tenantproof"
 )
 _url = make_url(BASE_URL)
-TEST_DB = f"{_url.database}_test"
+TEST_DB = f"{_url.database}_test{os.environ.get('TEST_DB_SUFFIX', '')}"  # suffix: parallel runs
 TEST_URL = _url.set(database=TEST_DB).render_as_string(hide_password=False)
 
 os.environ["DATABASE_URL"] = TEST_URL
-os.environ["DEV_STUB_AUTH"] = "true"
 os.environ["LLM_MODE"] = "fixture"
+os.environ["SEED_PASSWORD"] = "test-password-123"
+os.environ["RATE_LIMIT_STORAGE_URI"] = "memory://"  # CI has no Redis; counters are per-process
+os.environ["STORAGE_DIR"] = tempfile.mkdtemp(prefix="tp-test-storage-")
+os.environ.pop("COOKIE_SECURE", None)  # tests run with the secure default
+CASEWORKER = "sam@example-clinic.test"
+OTHER_CASEWORKER = "jo@harbourside-clinic.test"
+PASSWORD = "test-password-123"
 
 
 def _create_test_db() -> None:
@@ -46,13 +53,46 @@ def database() -> Iterator[None]:
     yield
 
 
+def _client(email: str | None):
+    """https base URL so the Secure session cookie is sent back. email=None: not signed in."""
+    from fastapi.testclient import TestClient
+    from sqlmodel import Session, select
+
+    from app.auth import make_session_for_tests
+    from app.db import get_engine
+    from app.main import app
+    from app.models import UserRow
+
+    c = TestClient(app, base_url="https://testserver")
+    if email:
+        with Session(get_engine()) as s:
+            user = s.exec(select(UserRow).where(UserRow.email == email)).one()
+            c.headers["cookie"] = f"tp_session={make_session_for_tests(s, user.id)}"
+    return c
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limits():
+    from app.ratelimit import limiter
+
+    limiter.reset()
+
+
 @pytest.fixture
 def client():
-    from fastapi.testclient import TestClient
+    """Signed in as the seeded caseworker of the demo org."""
+    return _client(CASEWORKER)
 
-    from app.main import app
 
-    return TestClient(app)
+@pytest.fixture
+def anon_client():
+    return _client(None)
+
+
+@pytest.fixture
+def other_org_client():
+    """Signed in as the caseworker of a different org."""
+    return _client(OTHER_CASEWORKER)
 
 
 @pytest.fixture
@@ -71,3 +111,22 @@ def session():
 
     with Session(get_engine()) as s:
         yield s
+
+
+def _reseed() -> None:
+    from sqlmodel import Session
+
+    from app.db import get_engine
+    from app.seed import seed
+
+    with Session(get_engine()) as s:
+        seed(s)
+
+
+@pytest.fixture
+def fresh_db() -> Iterator[None]:
+    """Reload the seed data. Request this BEFORE client/token fixtures: reseeding wipes
+    sessions and intake tokens. Reseeds again afterwards so no state leaks to later tests."""
+    _reseed()
+    yield
+    _reseed()

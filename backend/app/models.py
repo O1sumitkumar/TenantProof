@@ -6,7 +6,7 @@ routers validate them through the Pydantic models in schemas.py."""
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Column
+from sqlalchemy import JSON, Column, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -27,7 +27,17 @@ class UserRow(SQLModel, table=True):
     name: str
     email: str = Field(unique=True, index=True)
     role: str = "caseworker"
-    password_hash: str | None = None  # M1
+    password_hash: str | None = None  # argon2
+
+
+class LoginSessionRow(SQLModel, table=True):
+    """Server-side login session. Only sha256(cookie value) is stored."""
+
+    __tablename__ = "login_session"
+    token_hash: str = Field(primary_key=True)
+    user_id: str = Field(foreign_key="app_user.id", index=True)
+    created_at: datetime = Field(default_factory=utcnow)
+    expires_at: datetime
 
 
 class CaseRow(SQLModel, table=True):
@@ -168,3 +178,21 @@ class ActivityRow(SQLModel, table=True):
     actor: str
     actor_name: str
     action: str
+
+
+class PackageRow(SQLModel, table=True):
+    """One built filing package. Every build is a new version; rows are never overwritten.
+    The zip itself lives in storage (content-addressed by sha256), not in the database."""
+
+    __tablename__ = "package"
+    __table_args__ = (UniqueConstraint("case_id", "version"),)
+    id: str = Field(primary_key=True)
+    case_id: str = Field(foreign_key="tenant_case.id", index=True)
+    version: int
+    sha256: str
+    storage_key: str
+    size_bytes: int
+    prepared_by: str
+    built_at: datetime = Field(default_factory=utcnow)
+    attestations: dict[str, Any] = Field(sa_column=Column(JSON))
+    files: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON))
