@@ -27,11 +27,14 @@ reset: db  ## Drop the dev database, migrate from scratch and reseed. Destroys a
 		-c "DROP DATABASE IF EXISTS tenantproof WITH (FORCE)" -c "CREATE DATABASE tenantproof"
 	cd backend && uv run alembic upgrade head && uv run python -m app.seed --force
 
-link:      ## Mint a new intake link for the demo case (revokes the previous one)
-	@curl -s -X POST localhost:8000/api/cases/case_demo_001/intake-link
+link:      ## Mint a new intake link for the demo case (revokes the previous one). Signs in as the seeded caseworker.
+	@J=$$(mktemp); \
+	curl -s -c $$J -X POST localhost:8000/api/auth/login -H 'content-type: application/json' \
+		-d '{"email":"sam@example-clinic.test","password":"$(SEED_PASSWORD)"}' >/dev/null; \
+	curl -s -b $$J -X POST localhost:8000/api/cases/case_demo_001/intake-link; echo; rm -f $$J
 
-db:
-	$(COMPOSE) up -d postgres
+db:        # Postgres for data, Redis for rate-limit counters (the tests use both)
+	$(COMPOSE) up -d postgres redis
 
 desktop:   ## Run the Electron shell against APP_URL (default http://localhost:8000)
 	cd desktop && npm install --no-audit --no-fund && node check.js && npm start
