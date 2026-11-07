@@ -1,5 +1,5 @@
 <!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
-<title>TenantProof Prototype (Copy)</title>
+<title>TenantProof</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -68,7 +68,7 @@ a{color:var(--accent)}
 .layout{max-width:1200px;margin:0 auto;padding-block:22px 60px;display:grid;grid-template-columns:232px minmax(0,1fr);gap:28px;align-items:start}
 .layout.single{grid-template-columns:minmax(0,1fr)}
 /* tenant mode (/i/{token}): phone-only intake, no caseworker chrome */
-body.tenant .view-head, body.tenant .intake-side, body.tenant details.contract, body.tenant #topnav{display:none}
+body.tenant .view-head, body.tenant .intake-side, body.tenant details.contract, body.tenant #topnav, body.tenant label[for="devToggle"]{display:none}
 body.tenant .intake-wrap{grid-template-columns:minmax(0,420px);justify-content:center}
 .layout.single .rail{display:none}
 .rail{position:sticky;top:calc(env(safe-area-inset-top,0px) + 74px);display:flex;flex-direction:column;gap:2px}
@@ -587,7 +587,7 @@ function mockRoute(method, path, body) {
   if (method === "POST" && (m = path.match(/^\/gaps\/(gap_\w+)\/tenant-request$/))) {
     const g = db.gaps.find(x => x.id === m[1]);
     g.status = "waiting_tenant"; g.resolution_note = `Request sent to ${db.case.tenant.name} through the intake link`;
-    db.intakeRequests.push({ id: g.id, message: g.tenant_request.message, message_en: g.tenant_request.message_en });
+    db.intakeRequests.push({ id: g.id, message: g.tenant_request.message });
     log("caseworker", `Approved and sent a request to the tenant: “${g.title}”`);
     return clone(g);
   }
@@ -935,7 +935,7 @@ function viewIntake() {
   const v = S.intake.view; if (!v) return "<p>Loading…</p>";
   if (v.noLink) return `<div class="view-head"><div><h1>Tenant view</h1><p>Send the intake link first, then you can preview what the tenant sees. For security the link is only shown when it is created.</p></div></div><div class="btn-row"><button class="btn primary" type="button" data-action="resend">Send intake link</button></div>`;
   const lang = S.intake.lang || v.language, t = I18N[lang] || I18N.en, vars = { org: v.org_name, unit: v.unit };
-  const reqs = v.requests.map(r => `<div class="req"><b>${esc(tpl(t.req, vars))}</b>${esc(lang === "zh" ? r.message : r.message_en)}</div>`).join("");
+  const reqs = v.requests.map(r => `<div class="req"><b>${esc(tpl(t.req, vars))}</b>${esc(r.message ?? "")}</div>`).join("");
   const body = S.intake.sent ? `<div class="done">${esc(tpl(t.sent, vars))}</div>` : `
       <p>${esc(tpl(t.intro, vars))}</p>${reqs}
       <div><strong style="font-size:14.5px">${esc(t.what)}</strong><ul>${t.items.map(i => `<li>${esc(i)}</li>`).join("")}</ul></div>
