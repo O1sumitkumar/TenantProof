@@ -2,7 +2,7 @@
 
 Single source of truth. Update the relevant section in every PR.
 
-**Date:** 2026-11-06 (MVP due Nov 18)
+**Date:** 2026-11-07 (MVP due Nov 18)
 **Branch:** `andi/m0-m1-backend` (draft PR into `dev`, not merged)
 **Current milestone:** M1 built and checked, waiting for Lameda12 (Alamedin)'s review. M2 (WS1, WS2) and M3 (WS3, WS4) not started.
 
@@ -15,6 +15,7 @@ Single source of truth. Update the relevant section in every PR.
 | M1 | Argon2 login + server-side sessions, review/gap/form mutations, package build with versions and sha256, tenant submit (attestation only), Electron shell | `b1212b4` |
 | M1 hardening | Seed only when DB is empty (`make reset`), 422 for sourceless accepts, Redis in CI, test audit, concurrent-build test | `9d56e2f` |
 | M1 follow-up | Electron 33 to 45.2.3 (`npm audit` clean, Node 22.12+, no install-script pin needed); Claude Code workflow and `scoper`/`implementer`/`reviewer`/`shipper` subagents; local-environment rules in AGENTS.md | PR #1 |
+| M1 test fixes | From NineJZ356's Windows run: the seed reads `seed_data.json` as UTF-8 (tests and `make seed` failed on Windows code pages); tests ignore `backend/.env`, so the quickstart's `COOKIE_SECURE=false` no longer fails the Secure-cookie test | PR #1 |
 
 Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #22).
 
@@ -55,7 +56,7 @@ Prerequisites: Docker, `uv`, Node 22.12+ (desktop only).
 cp backend/.env.example backend/.env
 make up                      # api + Postgres + Redis, migrates, seeds an empty DB
 curl localhost:8000/healthz  # {"status":"ok",...}
-make test                    # starts Postgres + Redis, runs pytest (237 tests)
+make test                    # starts Postgres + Redis, runs pytest (238 tests)
 make lint                    # ruff + pyright
 cd desktop && node check.js  # Electron security flags
 ```

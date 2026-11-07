@@ -93,7 +93,7 @@ def add_placeholder_rows(session: Session, c: dict) -> None:
 
 def seed(session: Session) -> None:
     settings = get_settings()
-    raw = json.loads(DATA.read_text())
+    raw = json.loads(DATA.read_text(encoding="utf-8"))  # not the Windows ANSI code page
     s, org, me = raw["SEED"], raw["ORG"], raw["ME"]
     delta = (date.today() - date.fromisoformat(raw["dumped_on"])).days
 

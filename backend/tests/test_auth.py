@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi.testclient import TestClient
 from sqlmodel import select
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.main import api, app
 from app.models import LoginSessionRow, OrgRow, UserRow
 from tests.conftest import CASEWORKER, OTHER_CASEWORKER, PASSWORD
@@ -172,6 +172,13 @@ def test_cookie_secure_can_be_turned_off_for_plain_http_dev(fresh_db, anon_clien
     attrs = _attrs(_set_cookie(r))
     assert "secure" not in attrs
     assert "httponly" in attrs
+
+
+def test_settings_ignore_a_developers_env_file(tmp_path, monkeypatch):
+    """The quickstart's backend/.env sets COOKIE_SECURE=false; tests must not pick it up."""
+    (tmp_path / ".env").write_text("COOKIE_SECURE=false\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert Settings().cookie_secure is True
 
 
 def test_cross_origin_mutation_is_refused(fresh_db, client):

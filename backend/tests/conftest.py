@@ -10,6 +10,8 @@ import pytest
 from psycopg import sql
 from sqlalchemy.engine import make_url
 
+from app.config import Settings
+
 _PORT = os.environ.get("POSTGRES_HOST_PORT", "5433")
 BASE_URL = os.environ.get(
     "DATABASE_URL", f"postgresql+psycopg://tenantproof:tenantproof@localhost:{_PORT}/tenantproof"
@@ -24,6 +26,9 @@ os.environ["SEED_PASSWORD"] = "test-password-123"
 # Real Redis, as in compose and CI (db 1, apart from the app's db 0). No in-memory fallback.
 os.environ.setdefault("RATE_LIMIT_STORAGE_URI", "redis://localhost:6379/1")
 os.environ["STORAGE_DIR"] = tempfile.mkdtemp(prefix="tp-test-storage-")
+# Tests never read backend/.env. The quickstart copies .env.example there, which sets
+# COOKIE_SECURE=false, and any other value in it would leak in the same way. Env vars still apply.
+Settings.model_config["env_file"] = None
 os.environ.pop("COOKIE_SECURE", None)  # tests run with the secure default
 CASEWORKER = "sam@example-clinic.test"
 OTHER_CASEWORKER = "jo@harbourside-clinic.test"
