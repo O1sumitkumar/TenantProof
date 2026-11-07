@@ -2,15 +2,14 @@ from datetime import UTC, date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
-from sqlmodel import select
 
 from app.config import Settings, get_settings
 from app.deps import CaseDep, SessionDep, UserDep
-from app.models import CaseRow, UserRow
+from app.models import UserRow
 from app.schemas import Case, CaseSummary, Intake
 from app.services import activity
 from app.services.intake_token import issue_token
-from app.services.mappers import to_case, to_intake, to_summary
+from app.services.mappers import list_case_rows, to_case, to_intake, to_summary
 
 LANG_NAMES = {"en": "English", "zh": "中文", "fr": "Français", "es": "Español", "ar": "العربية"}
 
@@ -19,9 +18,11 @@ router = APIRouter()
 
 @router.get("/cases", response_model=list[CaseSummary])
 def list_cases(session: SessionDep, user: UserDep) -> list[CaseSummary]:
-    cases = session.exec(select(CaseRow).where(CaseRow.org_id == user.org_id)).all()
     today = date.today()
-    ranked = [to_summary(session, c, today) for c in cases]
+    ranked = [
+        to_summary(case, blocking, pending, last_at, today)
+        for case, blocking, pending, last_at in list_case_rows(session, user.org_id)
+    ]
     ranked.sort(key=lambda pair: pair[1])
     return [summary for summary, _ in ranked]
 

@@ -2,7 +2,8 @@
 
 from datetime import UTC, date, datetime
 
-from sqlmodel import Session, col, select
+from sqlalchemy import ColumnElement
+from sqlmodel import Session, col, func, select
 
 from app.models import (
     ActivityRow,
@@ -58,23 +59,59 @@ def to_intake(case: CaseRow, url: str | None = None) -> Intake:
     )
 
 
-def case_counts(session: Session, case_id: str) -> tuple[int, int]:
-    gaps = session.exec(select(GapRow).where(GapRow.case_id == case_id)).all()
-    blocking = sum(1 for g in gaps if g.severity == "blocking" and g.status in OPEN_GAP)
-    pending = len(
-        session.exec(
-            select(TimelineEventRow).where(
-                TimelineEventRow.case_id == case_id, TimelineEventRow.review_status == "pending"
-            )
-        ).all()
+def _blocking_count() -> ColumnElement[int]:
+    """Open blocking gaps of the enclosing case, as a correlated scalar subquery."""
+    return (
+        select(func.count())
+        .select_from(GapRow)
+        .where(
+            GapRow.case_id == CaseRow.id,
+            GapRow.severity == "blocking",
+            col(GapRow.status).in_(OPEN_GAP),
+        )
+        .scalar_subquery()
     )
-    return blocking, pending
+
+
+def _pending_count() -> ColumnElement[int]:
+    """Timeline events of the enclosing case still waiting for review."""
+    return (
+        select(func.count())
+        .select_from(TimelineEventRow)
+        .where(TimelineEventRow.case_id == CaseRow.id, TimelineEventRow.review_status == "pending")
+        .scalar_subquery()
+    )
+
+
+def _last_activity_at() -> ColumnElement[datetime]:
+    return (
+        select(func.max(ActivityRow.at))
+        .where(ActivityRow.case_id == CaseRow.id)
+        .scalar_subquery()
+    )
+
+
+def list_case_rows(
+    session: Session, org_id: str
+) -> list[tuple[CaseRow, int, int, datetime | None]]:
+    """The org's cases with their counts and last activity time, in one query."""
+    rows = session.exec(
+        select(CaseRow, _blocking_count(), _pending_count(), _last_activity_at()).where(
+            CaseRow.org_id == org_id
+        )
+    ).all()
+    return [(case, int(blocking), int(pending), last) for case, blocking, pending, last in rows]
+
+
+def case_counts(session: Session, case_id: str) -> tuple[int, int]:
+    query = select(_blocking_count(), _pending_count()).where(CaseRow.id == case_id)
+    blocking, pending = session.exec(query).one()
+    return int(blocking), int(pending)
 
 
 def to_summary(
-    session: Session, case: CaseRow, today: date
+    case: CaseRow, blocking: int, pending: int, last_at: datetime | None, today: date
 ) -> tuple[CaseSummary, tuple[int, int, int, int]]:
-    blocking, pending = case_counts(session, case.id)
     deadline = case.next_deadline
     result = compute_priority(
         PriorityInput(
@@ -85,11 +122,6 @@ def to_summary(
         ),
         today,
     )
-    last = session.exec(
-        select(ActivityRow)
-        .where(ActivityRow.case_id == case.id)
-        .order_by(col(ActivityRow.at).desc())
-    ).first()
     summary = CaseSummary.model_validate(
         {
             "id": case.id,
@@ -104,7 +136,7 @@ def to_summary(
             "tenant_language": case.tenant_language,
             "priority": result.priority,
             "priority_reason": result.reason,
-            "updated_at": iso_req(last.at if last else case.updated_at),
+            "updated_at": iso_req(last_at or case.updated_at),
             "has_demo_data": case.has_demo_data,
         }
     )
