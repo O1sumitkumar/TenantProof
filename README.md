@@ -56,10 +56,7 @@ cd desktop; npm install; node check.js; npm start             # make desktop
 ```
 
 - **Seed password:** only the Makefile exports `SEED_PASSWORD`. Without `make`, set `$env:SEED_PASSWORD = "tenantproof-demo"` before running `uv run python -m app.seed` yourself; compose is not affected.
-- **uv inside the repo** (the bash snippet in `AGENTS.md`, in PowerShell):
-  ```powershell
-  $env:PATH = "$PWD\.tools\uv-venv\Scripts;$env:PATH"; $env:UV_PYTHON_INSTALL_DIR = "$PWD\.tools\python"; $env:UV_CACHE_DIR = "$PWD\.cache\uv"
-  ```
+- **uv inside the repo:** the PowerShell snippet is in `AGENTS.md` (Local environment).
 - **Tenant link** (`make link`): sign in with a web session, then post to the intake-link endpoint. Not tested on Windows.
   ```powershell
   $body = '{"email":"sam@example-clinic.test","password":"tenantproof-demo"}'

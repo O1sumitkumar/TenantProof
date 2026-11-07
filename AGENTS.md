@@ -39,6 +39,12 @@ Paste "Prompt 0" from `docs/NEXT_PROMPTS.md` at the start of every session, then
   python -m venv .tools/uv-venv && .tools/uv-venv/Scripts/pip install uv   # bin/ instead of Scripts/ on macOS and Linux
   export PATH="$PWD/.tools/uv-venv/Scripts:$PATH" UV_PYTHON_INSTALL_DIR="$PWD/.tools/python" UV_CACHE_DIR="$PWD/.cache/uv"
   ```
+  The same in PowerShell (Windows):
+  ```powershell
+  python -m venv .tools\uv-venv; .tools\uv-venv\Scripts\pip install uv
+  $env:PATH = "$PWD\.tools\uv-venv\Scripts;$env:PATH"; $env:UV_PYTHON_INSTALL_DIR = "$PWD\.tools\python"; $env:UV_CACHE_DIR = "$PWD\.cache\uv"
+  ```
+  Without `make`, nothing exports `SEED_PASSWORD` (only the Makefile does), so set it yourself before `uv run python -m app.seed`: `$env:SEED_PASSWORD = "tenantproof-demo"`.
 - **Benchmarks and load tests** use the same stack as compose: Postgres, Redis, uv's Python 3.12. Numbers from MySQL or MariaDB, `memory://` rate limits or another Python are not comparable and don't go in the repo. Never commit connection strings with real hosts or passwords.
 
 ## Claude Code subagents
