@@ -20,7 +20,7 @@ Read `CLAUDE.md` and `AGENTS.md` before touching git state. Run `git rev-parse -
 ## Pre-flight checks
 
 1. `git status --short --untracked-files=all`.
-2. Check the current branch. If it is `main`, stop and report. The branch should be named `<github-username>/<milestone>-<topic>`; report it if not.
+2. Check the current branch. If it is `main` or `dev`, stop and report. The branch should be named `<github-username>/<milestone>-<topic>`; report it if not.
 3. Read `git diff --stat` and the diff of every file you will stage.
 4. Check for unresolved conflicts.
 5. Shared files (`backend/app/schemas.py`, `backend/app/models.py`, `backend/app/config.py`, `backend/alembic/`, `API_CONTRACT.md`, `CONTRACT_CHANGES.md`, `.github/`) may only be in a `schema:` change that touches nothing else (a `config.py` setting comes with its `backend/.env.example` line). If they are mixed with other files, stop and report.
@@ -36,7 +36,7 @@ If any check fails or anything looks unrelated, stop and report it. Do not inclu
 2. Write a short commit message in the repository's style (`git log --oneline -10`, Conventional Commits such as `feat:`, `fix(ui):`, `docs:`, `schema:`): an imperative summary line, and a body only when the reason is not obvious from the diff.
 3. Commit.
 4. Push with `git push -u origin HEAD`. If the SSH agent refuses, push once over HTTPS with the gh token, for example `git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push https://github.com/<owner>/<repo>.git <branch>`. Leave the remote config unchanged.
-5. If asked, open the PR as a **draft** into `main` with `gh pr create --draft --base main --body-file <file>`. Never open a PR without a description.
+5. If asked, open the PR as a **draft** into `dev` with `gh pr create --draft --base dev --body-file <file>`. Never open a PR without a description.
 
 ## Pull request description
 
@@ -49,7 +49,7 @@ Sections: Summary, Changes, Scope notes (workstream, allowed paths, any contract
 
 - No email addresses or other personal information in commits or PR descriptions.
 - No test pass counts in commit messages.
-- Never push to `main`. Never force-push, amend, rebase or reset unless the parent explicitly asks.
+- Never push to `main` or `dev`. Never force-push, amend, rebase or reset unless the parent explicitly asks.
 - Never bypass hooks or failing checks, for example with `--no-verify`.
 - Never merge a PR, mark it ready for review, or reply to or post review comments.
 
