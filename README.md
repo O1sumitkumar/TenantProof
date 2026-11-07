@@ -43,6 +43,30 @@ make lint    # ruff + pyright
 
 Tests run with `LLM_MODE=fixture`, never touch the network, and need real Postgres and Redis. CI (`.github/workflows/ci.yml`) runs the same against service containers.
 
+## Windows (PowerShell)
+
+`make` is not available natively and the Makefile needs a POSIX shell. Run the underlying commands instead (verified on Windows 11, PowerShell 7, Docker Desktop, Node 24 by NineJZ356 on PR #1; open a new terminal after installing Docker so `docker` is on PATH).
+
+```powershell
+copy backend\.env.example backend\.env
+docker compose up -d --build                                  # make up
+docker compose up -d postgres redis; cd backend; uv run pytest -q   # make test
+cd backend; uv run ruff check .; uv run pyright               # make lint
+cd desktop; npm install; node check.js; npm start             # make desktop
+```
+
+- **Seed password:** only the Makefile exports `SEED_PASSWORD`. Without `make`, set `$env:SEED_PASSWORD = "tenantproof-demo"` before running `uv run python -m app.seed` yourself; compose is not affected.
+- **uv inside the repo** (the bash snippet in `AGENTS.md`, in PowerShell):
+  ```powershell
+  $env:PATH = "$PWD\.tools\uv-venv\Scripts;$env:PATH"; $env:UV_PYTHON_INSTALL_DIR = "$PWD\.tools\python"; $env:UV_CACHE_DIR = "$PWD\.cache\uv"
+  ```
+- **Tenant link** (`make link`): sign in with a web session, then post to the intake-link endpoint. Not tested on Windows.
+  ```powershell
+  $body = '{"email":"sam@example-clinic.test","password":"tenantproof-demo"}'
+  Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/auth/login -ContentType application/json -Body $body -SessionVariable s | Out-Null
+  Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/cases/case_demo_001/intake-link -WebSession $s
+  ```
+
 ## Repo layout
 
 ```
