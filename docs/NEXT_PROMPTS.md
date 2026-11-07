@@ -6,7 +6,7 @@ Everything here assumes you have read `AGENTS.md` and `docs/STATUS.md`.
 ## Team rules (apply to every prompt)
 
 - One workstream per person, one branch per task: `<github-username>/<milestone>-<topic>`, for example `octocat/m2-evidence-ingest`.
-- PRs go into `main` as **drafts**. Never push to `main`, never force-push a shared branch.
+- Branch from `dev`; PRs go into `dev` as **drafts** (`dev` merges into `main` only for releases). Never push to `main` or `dev`, never force-push a shared branch.
 - **Shared files are owned by Lameda12 (Alamedin)**: `backend/app/schemas.py`, `backend/app/models.py`, `backend/app/config.py`, `backend/alembic/`, `API_CONTRACT.md`, `CONTRACT_CHANGES.md`, `.github/`.
   A new setting in `config.py` goes in the same `schema:` PR as its line in `backend/.env.example`.
   Need a change there? Open a tiny PR titled `schema: <what>` that touches only those files. Lameda12 merges it the same day, then you rebase.

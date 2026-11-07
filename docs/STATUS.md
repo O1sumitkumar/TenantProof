@@ -3,7 +3,7 @@
 Single source of truth. Update the relevant section in every PR.
 
 **Date:** 2026-11-06 (MVP due Nov 18)
-**Branch:** `andi/m0-m1-backend` (draft PR into `main`, not merged)
+**Branch:** `andi/m0-m1-backend` (draft PR into `dev`, not merged)
 **Current milestone:** M1 built and checked, waiting for Lameda12 (Alamedin)'s review. M2 (WS1, WS2) and M3 (WS3, WS4) not started.
 
 ## Done
@@ -20,7 +20,7 @@ Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to 
 
 ## In progress
 
-Nothing on `main`. Workstreams WS1 to WS5 (table below) are unassigned.
+Nothing on `dev`. Workstreams WS1 to WS5 (table below) are unassigned.
 
 ## Known issues
 

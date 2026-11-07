@@ -8,7 +8,7 @@ Read, in this order: `docs/STATUS.md`, `docs/NEXT_PROMPTS.md`, `API_CONTRACT.md`
 Paste "Prompt 0" from `docs/NEXT_PROMPTS.md` at the start of every session, then use the prompt for your workstream.
 
 - **Branches:** `<github-username>/<milestone>-<topic>`, for example `octocat/m2-evidence-ingest`.
-- **PRs:** open **draft** PRs into `main`. Never push to `main`. Never force-push a shared branch. Never rewrite history that is on the remote.
+- **PRs:** branch from `dev` and open **draft** PRs into `dev`. `dev` merges into `main` only for releases (the Nov 18 submission). Never push to `main` or `dev` directly. Never force-push a shared branch. Never rewrite history that is on the remote.
 - **Shared files** (`backend/app/schemas.py`, `backend/app/models.py`, `backend/app/config.py`, `backend/alembic/`, `API_CONTRACT.md`, `CONTRACT_CHANGES.md`, `.github/`) change only through a small `schema:` PR that touches only those files (a new setting in `config.py` comes with its line in `backend/.env.example`). This prevents Alembic "multiple heads" and contract drift.
 - Files several workstreams touch (`web/index.html`, `docker-compose.yml`): add your own clearly delimited block and keep the edit minimal. Add your dependencies explicitly to `backend/pyproject.toml`; on a `uv.lock` conflict rebase and run `uv lock`, never hand-edit it.
 - Stay inside your workstream's allowed paths (see your prompt). Update your row in `docs/STATUS.md` in every PR.
