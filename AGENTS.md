@@ -30,6 +30,16 @@ Paste "Prompt 0" from `docs/NEXT_PROMPTS.md` at the start of every session, then
 - A milestone is not done on green tests alone: run `docker compose up` (or `make up`), click through the UI with `USE_MOCK=false`, and report any erroring screen.
 - Finish a milestone, commit, summarize what's demoable, then start the next.
 
+## Model declaration
+
+An agent's commits, issues, comments, reviews and PRs appear under its owner's GitHub account, so each one says which agent wrote it.
+
+- **Posts** (issues, comments, reviews, PR descriptions) start with `_Posted by <tool> (<model>, effort <effort>) on behalf of <owner>._`, for example `_Posted by Codex (gpt-6.1-sol, effort high) on behalf of octocat._`
+- **Commits** end with the trailer `Agent: <tool> (<model>, effort <effort>) on behalf of <owner>`, next to any co-author trailer your tool adds.
+- `<owner>` is the GitHub username of the person running you. Write it without `@`, so the post does not notify them.
+- Take the model and effort from what your session reports about itself. If you cannot verify them, ask your owner. In an unattended run, use what the scheduled prompt states, or write `unknown`. Never guess.
+- A subagent declares the main session's tool, model and effort, which the main session passes in its brief.
+
 ## Local environment
 
 - **Python:** the backend runs in `backend/.venv`, which uv creates and keeps in sync with `backend/uv.lock` on Python 3.12. Run Python only through `uv run` from `backend/` or the `make` targets. Never `pip install` into the system Python or a hand-made venv, and never run the backend on another Python version.
@@ -41,6 +51,10 @@ Paste "Prompt 0" from `docs/NEXT_PROMPTS.md` at the start of every session, then
   ```
 - **Benchmarks and load tests** use the same stack as compose: Postgres, Redis, uv's Python 3.12. Numbers from MySQL or MariaDB, `memory://` rate limits or another Python are not comparable and don't go in the repo. Never commit connection strings with real hosts or passwords.
 
-## Claude Code subagents
+## Subagents
 
-`.claude/agents/` has `scoper` (scopes unfamiliar tasks, read-only), `implementer` (substantial code and test changes), `reviewer` (independent review of risky changes) and `shipper` (commit, push, draft PR). When to use each, and the review the main session owes every subagent diff, is in `CLAUDE.md`. Codex users can ignore this section.
+Claude Code and Codex have the same four subagents: `scoper` (scopes unfamiliar tasks, read-only), `implementer` (substantial code and test changes), `reviewer` (independent review of risky changes) and `shipper` (commit, push, draft PR).
+
+- Claude Code's are in `.claude/agents/*.md`, Codex's in `.codex/agents/*.toml`. Each Codex agent reads the body of the Claude Code file with the same name, so the instructions live in one place: edit the `.md` file, and change a `.toml` file only for its model, effort or description.
+- When to use each, and the review the main session owes every subagent diff, is in `CLAUDE.md`. Codex sessions follow that workflow too, with the Codex agents.
+- Codex runs a subagent in the parent session's sandbox, so `scoper` and `reviewer` stay read-only, and `shipper` stays out of file edits, by instruction only.

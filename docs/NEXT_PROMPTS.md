@@ -15,7 +15,8 @@ Everything here assumes you have read `AGENTS.md` and `docs/STATUS.md`.
 - Files several workstreams touch (`web/index.html`, `docker-compose.yml`): add your own clearly delimited block (`/* WS1: ... */`, `# WS2: ...`) and keep the edit minimal, so rebases stay trivial.
 - Stay inside your workstream's allowed paths. If you must touch another workstream's files, say so in the PR and tag its owner.
 - Before every PR: `make lint` and `make test` green. Update your section in `docs/STATUS.md`.
-- Claude Code users: the subagents in `.claude/agents/` (`scoper`, `implementer`, `reviewer`, `shipper`) and when to use them are described in `CLAUDE.md`. Codex users ignore that line.
+- Subagents (`scoper`, `implementer`, `reviewer`, `shipper`) are in `.claude/agents/` for Claude Code and `.codex/agents/` for Codex; when to use them is described in `CLAUDE.md`.
+- Every agent post and commit declares its tool, model and effort ("Model declaration" in `AGENTS.md`).
 
 ## Dependency order
 

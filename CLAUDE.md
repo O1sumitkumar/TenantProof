@@ -1,17 +1,17 @@
 @AGENTS.md
 
-# Claude Code only
+# Working with subagents
 
-How a Claude Code session works in this repo, on top of the rules in `AGENTS.md`. Codex users can skip this part.
+How a session works in this repo with subagents, on top of the rules in `AGENTS.md`. It applies to Claude Code, which loads this file, and to Codex, which `AGENTS.md` sends here. Codex uses the agents of the same name in `.codex/agents/`.
 
-## Subagents in `.claude/agents/`
+## Subagents in `.claude/agents/` and `.codex/agents/`
 
-| Agent | Model | Use it for |
-|---|---|---|
-| `scoper` | haiku | Start of a non-trivial task in code you have not read yet: goal, acceptance criteria, files, tests, possible split. Read-only. |
-| `implementer` | sonnet | Substantial, well-defined code or test changes once the plan is clear, boilerplate and new tests included. |
-| `reviewer` | opus | Independent review, only when asked or for the risky changes listed under Escalation. |
-| `shipper` | haiku | Commit, push and open the draft PR, only when the user asked for it. |
+| Agent | Claude Code model | Codex model | Use it for |
+|---|---|---|---|
+| `scoper` | haiku | `gpt-6-luna` | Start of a non-trivial task in code you have not read yet: goal, acceptance criteria, files, tests, possible split. Read-only. |
+| `implementer` | sonnet | `gpt-6.1-sol` | Substantial, well-defined code or test changes once the plan is clear, boilerplate and new tests included. |
+| `reviewer` | opus | `gpt-6-astra` | Independent review, only when asked or for the risky changes listed under Escalation. |
+| `shipper` | haiku | `gpt-6-luna` | Commit, push and open the draft PR, only when the user asked for it. |
 
 This is a standing request to use subagents. Do not wait to be asked.
 
@@ -43,7 +43,7 @@ Do not take a subagent's summary or its "tests pass" as proof. Before reporting 
 6. Look for wrong assumptions, missing cases, regressions, scope creep, weakened tests, and behavior that passes tests but misses the real requirement.
 7. Run `make lint` and `make test` yourself (without `make`, from `backend/`: `uv run ruff check .`, `uv run pyright`, `uv run pytest -q`), plus `cd desktop && node check.js` for desktop changes and targeted tests when the diff raises doubts.
 
-If you find a defect, send substantial fixes back to the same `implementer` with `SendMessage` (spawn a new one only if it is gone) and review the new diff. Fix small things yourself.
+If you find a defect, send substantial fixes back to the same `implementer` (Claude Code: `SendMessage`; Codex: a follow-up in the same agent thread), spawning a new one only if it is gone, and review the new diff. Fix small things yourself.
 
 This review is the only default review. Do not also run `reviewer` on the same change unless the user asks or the change falls under Escalation.
 
@@ -55,7 +55,7 @@ Run `reviewer` after these, in addition to your own review: auth, sessions and i
 
 ## Ship with `shipper`
 
-- When the user asks to commit, push or open a PR, hand the git and GitHub steps to `shipper` after your review and checks are done. Tell it which steps the user asked for, which files belong to the change, the issue number if any, and the verification you ran. It does not run tests or edit files.
+- When the user asks to commit, push or open a PR, hand the git and GitHub steps to `shipper` after your review and checks are done. Tell it which steps the user asked for, which files belong to the change, the issue number if any, the verification you ran, and your tool, model and effort for the model declaration in `AGENTS.md`. It does not run tests or edit files.
 - Update the workstream's row in `docs/STATUS.md` before you hand off, since shipper will not.
 - If it stops on a pre-flight problem (an unrelated file, a shared file outside a `schema:` PR, a missing STATUS update), fix it and run it again.
 - Do small git operations yourself when a handoff would cost more, such as one follow-up commit on an open PR.

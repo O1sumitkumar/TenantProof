@@ -59,6 +59,7 @@ web/index.html         the UI (served by the API; caseworker at /, tenant at /i/
 desktop/               Electron shell
 reference/             original prototype and contract notes
 .claude/agents/        Claude Code subagents (scoper, implementer, reviewer, shipper); workflow in CLAUDE.md
+.codex/agents/         the same subagents for Codex, reading the .claude/agents/ instructions
 ```
 
 ## Contributing

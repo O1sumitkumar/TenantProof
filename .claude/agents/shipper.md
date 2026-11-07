@@ -33,14 +33,14 @@ If any check fails or anything looks unrelated, stop and report it. Do not inclu
 ## Publishing
 
 1. Stage only the files that belong to the task, by name. Never `git add -A` or `git add .`.
-2. Write a short commit message in the repository's style (`git log --oneline -10`, Conventional Commits such as `feat:`, `fix(ui):`, `docs:`, `schema:`): an imperative summary line, and a body only when the reason is not obvious from the diff.
+2. Write a short commit message in the repository's style (`git log --oneline -10`, Conventional Commits such as `feat:`, `fix(ui):`, `docs:`, `schema:`): an imperative summary line, and a body only when the reason is not obvious from the diff. End it with the `Agent:` trailer from "Model declaration" in `AGENTS.md`, using the tool, model and effort the parent passed you; if it passed none, stop and ask.
 3. Commit.
 4. Push with `git push -u origin HEAD`. If the SSH agent refuses, push once over HTTPS with the gh token, for example `git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push https://github.com/<owner>/<repo>.git <branch>`. Leave the remote config unchanged.
 5. If asked, open the PR as a **draft** into `dev` with `gh pr create --draft --base dev --body-file <file>`. Never open a PR without a description.
 
 ## Pull request description
 
-Sections: Summary, Changes, Scope notes (workstream, allowed paths, any contract or UI change logged in `CONTRACT_CHANGES.md`), Verification, then `Closes #<issue>`.
+Start with the declaration line from "Model declaration" in `AGENTS.md`. Then the sections: Summary, Changes, Scope notes (workstream, allowed paths, any contract or UI change logged in `CONTRACT_CHANGES.md`), Verification, then `Closes #<issue>`.
 
 - Take the issue number and the verification already done from the parent's handoff. Do not invent checks that were not reported to you.
 - Add `Closes #<issue>` only when the PR fully resolves that issue. Never guess issue numbers.
