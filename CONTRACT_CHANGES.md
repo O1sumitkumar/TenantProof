@@ -42,6 +42,7 @@ Deviations from `API_CONTRACT.md` (v0.2). Each has a reason. Source: `BUILD_PLAN
 | M1 | Package view shows the version and a download link (real mode only); mock `Package` gains `version`, `sha256` |
 | M1 fix | Empty caseload shows a "No cases yet" state. Case-scoped loaders run only when a case is selected, so the UI never requests `/cases/null/...`; a case route with no case selected redirects to the caseload. If the selected case 404s, the UI clears it, returns to the caseload and shows a toast. A 404 on the caseworker's intake preview now means "no active link", not "case gone". No change in mock mode |
 | M3 | `needs_input` answer control on the run view (approved exception) |
+| M1 fix | Tenant page shows each request's `message` (already in the tenant's language; `IntakeRequest` has no `message_en`), not `message_en` for non-zh tenants, which rendered blank. The mock intake requests drop `message_en` so mock mode matches the API. Browser title is "TenantProof" (was "TenantProof Prototype (Copy)"). The "Show data contract" switch is hidden on the tenant page (`body.tenant`). |
 
 ## Implementation notes
 - M0's `DEV_STUB_AUTH` is removed in M1. Seeds create two orgs with one caseworker each (`sam@example-clinic.test`, `jo@harbourside-clinic.test`); passwords come from `SEED_PASSWORD` (compose default `tenantproof-demo`, local only).

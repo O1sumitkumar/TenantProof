@@ -25,7 +25,6 @@ Nothing on `dev`. Workstreams WS1 to WS5 (table below) are unassigned.
 
 ## Known issues
 
-- **Non-zh tenants see "undefined".** `web/index.html` shows `r.message_en` for tenants whose language isn't `zh`, but the intake API correctly omits `message_en`. Only the Chinese demo tenant renders correctly. (M0 bug, not fixed.)
 - **No production guard.** The app starts with dev defaults (`SEED_PASSWORD`, compose passwords, `COOKIE_SECURE=false` in compose). It must refuse to start when `ENV=production` and `SEED_PASSWORD` or `SECRET_KEY` is unset or a dev default. Neither `ENV` nor `SECRET_KEY` exists in `config.py` yet. Tracked in WS2's "Done when".
 - **Blob storage is a local volume** (`STORAGE_DIR`). Several API replicas need shared storage (WS2).
 - **Rate limits behind a proxy** key on the socket IP; needs `--proxy-headers` and trusted proxy config (WS2).
@@ -33,10 +32,11 @@ Nothing on `dev`. Workstreams WS1 to WS5 (table below) are unassigned.
 - **Font size:** the bundled Noto Sans SC adds about 10 MB to the repo and image.
 - **`docker compose up --scale api=2` does not work yet:** the api service publishes fixed host port 8000. WS2 needs a proxy service.
 - **Zip contains no evidence files yet** (only two PDFs and `manifest.json`); evidence joins in WS1.
-- **Verified by an agent on 2026-11-06 (Playwright + rendered pages, see the PR #1 comments):** Chinese glyphs render in the built PDF, second-org isolation in two separate browser contexts, `?mock=1`, the empty-caseload state. **Electron 45 window (2026-11-06, Windows, against `web/index.html?mock=1` over the DevTools protocol):** the mock UI renders, the renderer has no Node, `window.open` is denied, off-origin navigation is blocked. **Still unverified:** the window against the real API (`make up`, then `make desktop`).
+- **Verified by an agent on 2026-11-06 (Playwright + rendered pages, see the PR #1 comments):** Chinese glyphs render in the built PDF, second-org isolation in two separate browser contexts, `?mock=1`, the empty-caseload state. **Electron 45 window (2026-11-06, Windows, against `web/index.html?mock=1` over the DevTools protocol):** the mock UI renders, the renderer has no Node, `window.open` is denied, off-origin navigation is blocked. **Electron 45 window against the real API (2026-11-07, Windows 11, NineJZ356, PR #1):** `npm install`, `node check.js` and `npm start` work, login works in the window, the renderer has no Node, `window.open` is denied. **Mac: pending Lameda12's check by eye** (`make desktop` starts the window; install and `check.js` pass).
+- **Throughput work is deferred:** `WEB_CONCURRENCY` and gzip belong to WS2; the load re-benchmark (`backend/bench/load.py`, p50/p95/p99 on the compose stack) to WS5. `GET /api/cases` already runs a fixed number of queries (query-count test).
 - **UI routes don't include the case id** (`#timeline`), so a case can't be deep-linked or shared.
 - **Seed data has a zh-language tenant but all-English content.** The demo case needs real Chinese tenant messages and evidence text (fictional) so the video shows multilingual intake. Owner: WS5.
-- **CI runs on GitHub** with Postgres and Redis service containers; both checks were green on PR #1 at `e613763`.
+- **CI runs on GitHub** with Postgres and Redis service containers; both checks are green on PR #1 (re-checked after each push).
 - Rate-limit counters only count requests that pass body validation.
 - Two seeded demo logins share one password (`SEED_PASSWORD`, compose default `tenantproof-demo`). Local only.
 
@@ -56,7 +56,7 @@ Prerequisites: Docker, `uv`, Node 22.12+ (desktop only).
 cp backend/.env.example backend/.env
 make up                      # api + Postgres + Redis, migrates, seeds an empty DB
 curl localhost:8000/healthz  # {"status":"ok",...}
-make test                    # starts Postgres + Redis, runs pytest (238 tests)
+make test                    # starts Postgres + Redis, runs pytest (239 tests)
 make lint                    # ruff + pyright
 cd desktop && node check.js  # Electron security flags
 ```

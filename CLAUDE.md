@@ -56,6 +56,7 @@ Run `reviewer` after these, in addition to your own review: auth, sessions and i
 ## Ship with `shipper`
 
 - When the user asks to commit, push or open a PR, hand the git and GitHub steps to `shipper` after your review and checks are done. Tell it which steps the user asked for, which files belong to the change, the issue number if any, the verification you ran, and your tool, model and effort for the model declaration in `AGENTS.md`. It does not run tests or edit files.
+- Branches start from `dev` and draft PRs target `dev` (`--base dev`). `dev` merges into `main` only for releases. Never push to `main` or `dev`.
 - Update the workstream's row in `docs/STATUS.md` before you hand off, since shipper will not.
 - If it stops on a pre-flight problem (an unrelated file, a shared file outside a `schema:` PR, a missing STATUS update), fix it and run it again.
 - Do small git operations yourself when a handoff would cost more, such as one follow-up commit on an open PR.
