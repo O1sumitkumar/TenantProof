@@ -58,7 +58,7 @@ backend/tests/         pytest suite
 web/index.html         the UI (served by the API; caseworker at /, tenant at /i/{token})
 desktop/               Electron shell
 reference/             original prototype and contract notes
-.claude/agents/        Claude Code subagents (scoper, implementer, scaffolder, test-writer, checker, reviewer, shipper); workflow in CLAUDE.md
+.claude/agents/        Claude Code subagents (scoper, implementer, reviewer, shipper); workflow in CLAUDE.md
 ```
 
 ## Contributing

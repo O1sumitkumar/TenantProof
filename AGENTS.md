@@ -43,4 +43,4 @@ Paste "Prompt 0" from `docs/NEXT_PROMPTS.md` at the start of every session, then
 
 ## Claude Code subagents
 
-`.claude/agents/` has `scoper` (scopes unfamiliar tasks, read-only), `implementer` (substantial code and test changes), `scaffolder` (boilerplate from an exact spec), `test-writer` (tests under `backend/tests/`), `checker` (runs ruff, pyright, pytest), `reviewer` (independent review of risky changes) and `shipper` (commit, push, draft PR). When to use each, and the review the main session owes every subagent diff, is in `CLAUDE.md`. Codex users can ignore this section.
+`.claude/agents/` has `scoper` (scopes unfamiliar tasks, read-only), `implementer` (substantial code and test changes), `reviewer` (independent review of risky changes) and `shipper` (commit, push, draft PR). When to use each, and the review the main session owes every subagent diff, is in `CLAUDE.md`. Codex users can ignore this section.

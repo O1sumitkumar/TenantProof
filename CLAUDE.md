@@ -9,10 +9,7 @@ How a Claude Code session works in this repo, on top of the rules in `AGENTS.md`
 | Agent | Model | Use it for |
 |---|---|---|
 | `scoper` | haiku | Start of a non-trivial task in code you have not read yet: goal, acceptance criteria, files, tests, possible split. Read-only. |
-| `implementer` | sonnet | Substantial, well-defined code or test changes once the plan is clear. |
-| `scaffolder` | haiku | Mechanical boilerplate where your spec names every file and shape (routers, seed data, compose, CI). |
-| `test-writer` | haiku | Tests under `backend/tests/` for a module that just landed. Never changes app code. |
-| `checker` | haiku | `ruff`, `pyright`, `pytest`. Before every commit and after any subagent finishes. |
+| `implementer` | sonnet | Substantial, well-defined code or test changes once the plan is clear, boilerplate and new tests included. |
 | `reviewer` | opus | Independent review, only when asked or for the risky changes listed under Escalation. |
 | `shipper` | haiku | Commit, push and open the draft PR, only when the user asked for it. |
 
@@ -26,7 +23,7 @@ This is a standing request to use subagents. Do not wait to be asked.
 
 ## Delegate implementation
 
-- Once the task is understood and the solution is clear, hand substantial code or test changes to `implementer`: new features, bug fixes, refactors, tests. Use `scaffolder` instead when the work is mechanical and your spec names every file and shape, and `test-writer` for tests of a module that just landed.
+- Once the task is understood and the solution is clear, hand substantial code or test changes to `implementer`: new features, bug fixes, refactors, boilerplate, tests.
 - Make the edit yourself when it is small and fully known, even a few dozen lines: a handoff plus a diff review would cost about as much.
 - The main session writes these itself, never a subagent: `schemas.py`, `models.py`, `db.py`, `config.py`, `auth.py`, `deps.py`, `services/agent/`, `services/legal/`, `verifier.py`, `gating.py`, and all security code.
 - A brief gives the issue number, acceptance criteria, the workstream's allowed paths (from `docs/NEXT_PROMPTS.md`), the `API_CONTRACT.md` section, decisions already made, edge cases, and the validation commands (`make lint`, `make test`, plus `cd desktop && node check.js` for desktop changes). The subagent starts with no context, so do not make it rediscover what you know.
@@ -44,7 +41,7 @@ Do not take a subagent's summary or its "tests pass" as proof. Before reporting 
 4. Check that tests cover the changed behavior, including edge and failure cases (other org's ids, month-precision dates, zero sources, rejected events).
 5. Check the TenantProof rules: contract field names match exactly or the change is logged in `CONTRACT_CHANGES.md`; every by-id handler checks org ownership; every mutation calls `activity.log(...)`; `caseworker_note` never leaves the caseworker workspace; the pure modules make no LLM calls; edits stay inside the workstream's allowed paths and shared files change only in a `schema:` PR.
 6. Look for wrong assumptions, missing cases, regressions, scope creep, weakened tests, and behavior that passes tests but misses the real requirement.
-7. Run `checker`, plus targeted tests when the diff raises doubts.
+7. Run `make lint` and `make test` yourself (without `make`, from `backend/`: `uv run ruff check .`, `uv run pyright`, `uv run pytest -q`), plus `cd desktop && node check.js` for desktop changes and targeted tests when the diff raises doubts.
 
 If you find a defect, send substantial fixes back to the same `implementer` with `SendMessage` (spawn a new one only if it is gone) and review the new diff. Fix small things yourself.
 

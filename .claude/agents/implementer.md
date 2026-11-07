@@ -17,7 +17,7 @@ When invoked:
 2. Inspect the existing implementation and nearby tests.
 3. Follow the existing architecture, conventions and patterns.
 4. Implement the smallest complete solution.
-5. Add or update tests under `backend/tests/` where appropriate.
+5. Add or update tests under `backend/tests/` where appropriate, including edge and failure cases (other org's ids, month-precision dates, zero sources, rejected events). When the task is tests only, do not change application code to make a test pass; report the bug instead.
 6. Run the checks from `backend/`: `uv run ruff check .`, `uv run pyright`, `uv run pytest -q` (Postgres and Redis must be up: `make db`). For desktop changes also run `cd desktop && node check.js`.
 7. Fix regressions caused by your changes.
 8. Review your own diff before finishing.
