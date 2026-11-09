@@ -30,15 +30,9 @@ Paste "Prompt 0" from `docs/NEXT_PROMPTS.md` at the start of every session, then
 - A milestone is not done on green tests alone: run `docker compose up` (or `make up`), click through the UI with `USE_MOCK=false`, and report any erroring screen.
 - Finish a milestone, commit, summarize what's demoable, then start the next.
 
-## Model declaration
+## Attribution
 
-An agent's commits, issues, comments, reviews and PRs appear under its owner's GitHub account, so each one says which agent wrote it.
-
-- **Posts** (issues, comments, reviews, PR descriptions) start with `_Posted by <tool> (<model>, effort <effort>) on behalf of <owner>._`, for example `_Posted by Codex (gpt-6.1-sol, effort high) on behalf of octocat._`
-- **Commits** end with the trailer `Agent: <tool> (<model>, effort <effort>) on behalf of <owner>`, next to any co-author trailer your tool adds.
-- `<owner>` is the GitHub username of the person running you. Write it without `@`, so the post does not notify them.
-- Take the model and effort from what your session reports about itself. If you cannot verify them, ask your owner. In an unattended run, use what the scheduled prompt states, or write `unknown`. Never guess.
-- A subagent declares the main session's tool, model and effort, which the main session passes in its brief.
+Commits and PRs are authored by the human's own git identity (for example Lameda12). No `Co-Authored-By` or `Agent:` trailers, no "Posted by" lines, no "Generated with" footers. Codex users: same. Claude Code's `.claude/settings.json` turns its own attribution off.
 
 ## Local environment
 

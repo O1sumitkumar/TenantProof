@@ -16,7 +16,7 @@ Everything here assumes you have read `AGENTS.md` and `docs/STATUS.md`.
 - Stay inside your workstream's allowed paths. If you must touch another workstream's files, say so in the PR and tag its owner.
 - Before every PR: `make lint` and `make test` green. Update your section in `docs/STATUS.md`.
 - Subagents (`scoper`, `implementer`, `reviewer`, `shipper`) are in `.claude/agents/` for Claude Code and `.codex/agents/` for Codex; when to use them is described in `CLAUDE.md`.
-- Every agent post and commit declares its tool, model and effort ("Model declaration" in `AGENTS.md`).
+- Commits and PRs carry no AI attribution ("Attribution" in `AGENTS.md`).
 
 ## Dependency order
 
