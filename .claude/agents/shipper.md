@@ -2,7 +2,7 @@
 name: shipper
 description: Commit, push and open or update a draft pull request after implementation and review are complete. Use only when the user has explicitly asked to commit, push, open a PR or ship the completed changes.
 model: sonnet
-effort: xhigh
+effort: medium
 tools: Read, Bash
 permissionMode: default
 maxTurns: 40
