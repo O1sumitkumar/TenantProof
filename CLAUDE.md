@@ -8,10 +8,10 @@ How a session works in this repo with subagents, on top of the rules in `AGENTS.
 
 | Agent | Claude Code model | Codex model | Use it for |
 |---|---|---|---|
-| `scoper` | haiku | `gpt-6-luna` | Start of a non-trivial task in code you have not read yet: goal, acceptance criteria, files, tests, possible split. Read-only. |
+| `scoper` | sonnet | `gpt-6-luna` | Start of a non-trivial task in code you have not read yet: goal, acceptance criteria, files, tests, possible split. Read-only. |
 | `implementer` | sonnet | `gpt-6.1-sol` | Substantial, well-defined code or test changes once the plan is clear, boilerplate and new tests included. |
 | `reviewer` | opus | `gpt-6-astra` | Independent review, only when asked or for the risky changes listed under Escalation. |
-| `shipper` | haiku | `gpt-6-luna` | Commit, push and open the draft PR, only when the user asked for it. |
+| `shipper` | sonnet | `gpt-6-luna` | Commit, push and open the draft PR, only when the user asked for it. |
 
 This is a standing request to use subagents. Do not wait to be asked.
 
@@ -55,7 +55,7 @@ Run `reviewer` after these, in addition to your own review: auth, sessions and i
 
 ## Ship with `shipper`
 
-- When the user asks to commit, push or open a PR, hand the git and GitHub steps to `shipper` after your review and checks are done. Tell it which steps the user asked for, which files belong to the change, the issue number if any, the verification you ran, and your tool, model and effort for the model declaration in `AGENTS.md`. It does not run tests or edit files.
+- When the user asks to commit, push or open a PR, hand the git and GitHub steps to `shipper` after your review and checks are done. Tell it which steps the user asked for, which files belong to the change, the issue number if any, and the verification you ran. It does not run tests or edit files.
 - Branches start from `dev` and draft PRs target `dev` (`--base dev`). `dev` merges into `main` only for releases. Never push to `main` or `dev`.
 - Update the workstream's row in `docs/STATUS.md` before you hand off, since shipper will not.
 - If it stops on a pre-flight problem (an unrelated file, a shared file outside a `schema:` PR, a missing STATUS update), fix it and run it again.
