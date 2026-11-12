@@ -376,9 +376,11 @@ body.dev .contract{display:block}
 // backend it talks to the real API at /api.
 const USE_MOCK = location.protocol === "file:" || new URLSearchParams(location.search).get("mock") === "1";
 const API_BASE = "/api";
-// M1: tenant file upload (POST /intake/{token}/files) arrives in M2. While false, the tenant page
-// needs only the two confirmations and skips the upload call.
-const UPLOADS_ENABLED = false;
+/* WS1: uploads are on (M2). Tenant files go to POST /intake/{token}/files, caseworker files to
+   POST /cases/{id}/evidence. The server checks each file's type from its bytes; `accept` only
+   narrows the picker. */
+const UPLOADS_ENABLED = true;
+const UPLOAD_ACCEPT = ".jpg,.jpeg,.png,.heic,.heif,.pdf,.txt";
 // Tenant mode: the same page served at /i/{token} shows only the tenant intake.
 const TENANT_MODE = !USE_MOCK && /^\/i\/[^/]+/.test(location.pathname);
 // Mock mode uses fixed demo ids. Real mode reads them from the URL (token) or the API (case).
@@ -800,7 +802,7 @@ function viewEvidence() {
         ${ik.url || S.lastLink ? `<span class="linkbox"><code>${esc(ik.url || S.lastLink)}</code><button class="copy" type="button" data-action="copy" data-text="${esc(ik.url || S.lastLink)}">Copy link</button></span>` : `<span class="muted">The link is shown once, when you send it. Re-send to create a new link (the old one stops working).</span>`}</div>
       <div class="btn-row"><a class="btn" href="#intake">Open tenant view</a><button class="btn" type="button" data-action="resend">Re-send link</button></div>
     </div>
-    <label class="drop" id="drop" for="fileIn"><input class="file-in" type="file" id="fileIn" multiple><div><strong>Add files yourself</strong><p>For files the tenant brought to the clinic. JPG, PNG, HEIC, PDF, Word, Excel, TXT or MP4.</p></div><span class="btn primary">Choose files</span></label>
+    <label class="drop" id="drop" for="fileIn"><input class="file-in" type="file" id="fileIn" multiple accept="${UPLOAD_ACCEPT}"><div><strong>Add files yourself</strong><p>For files the tenant brought to the clinic. JPG, PNG, HEIC, PDF or TXT, up to 25 MB each.</p></div><span class="btn primary">Choose files</span></label>
     <div class="panel ev-list">${rows}</div>
     ${contract("evidence", { intake: ik, evidence: S.evidence })}`;
 }
@@ -939,7 +941,7 @@ function viewIntake() {
   const body = S.intake.sent ? `<div class="done">${esc(tpl(t.sent, vars))}</div>` : `
       <p>${esc(tpl(t.intro, vars))}</p>${reqs}
       <div><strong style="font-size:14.5px">${esc(t.what)}</strong><ul>${t.items.map(i => `<li>${esc(i)}</li>`).join("")}</ul></div>
-      ${UPLOADS_ENABLED ? `<label class="up" for="intakeFiles"><input class="file-in" type="file" id="intakeFiles" multiple>${S.intake.files.length ? esc(tpl(t.selected, { n: S.intake.files.length })) : esc(t.choose)}</label>` : `<p class="muted">${esc(UPLOAD_SOON[lang] || UPLOAD_SOON.en)}</p>`}
+      ${UPLOADS_ENABLED ? `<label class="up" for="intakeFiles"><input class="file-in" type="file" id="intakeFiles" multiple accept="${UPLOAD_ACCEPT}">${S.intake.files.length ? esc(tpl(t.selected, { n: S.intake.files.length })) : esc(t.choose)}</label>` : `<p class="muted">${esc(UPLOAD_SOON[lang] || UPLOAD_SOON.en)}</p>`}
       <p style="font-size:13px">${esc(tpl(t.privacy, vars))}</p>
       <form class="attest" data-action="intake-attest">
         <label><input type="checkbox" id="in-attest" name="attest" ${S.intake.attest ? "checked" : ""}>${esc(t.attest)}</label>
@@ -1088,7 +1090,7 @@ document.addEventListener("change", async ev => {
   if (t.id === "fileIn" && t.files.length) handleFiles(t.files);
 });
 async function handleFiles(files) {
-  try { await uploadFiles(`${C}/evidence`, [...files]); } catch (err) { toast(err.message); }
+  try { await uploadFiles(`${C}/evidence`, [...files]); } catch (err) { toast(err.message); return; } /* WS1: an error toast is not overwritten */
   toast(`${files.length} file(s) added. Run the analysis again to include them.`);
   await refresh(["evidence"]);
 }

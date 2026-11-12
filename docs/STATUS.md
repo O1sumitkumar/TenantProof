@@ -71,7 +71,7 @@ Prompts: `docs/NEXT_PROMPTS.md`.
 
 | Workstream | Owner | Branch | Status | Blocked by |
 |---|---|---|---|---|
-| WS1 Evidence ingest + tenant uploads (M2) | TODO | `<github-username>/m2-evidence-ingest` | not started | none |
+| WS1 Evidence ingest + tenant uploads (M2) | opoeci6 | `opoeci6/m2-evidence-ingest` | in progress: upload routes, type check, metadata, stripped copy, text, evidence in the zip | `schema:` PR (evidence columns, upload settings) |
 | WS2 Hosted deploy + infra hardening (M2) | TODO | `<github-username>/m2-deploy` | not started | none (S3 adapter test and QR demo need WS1 for uploads) |
 | WS3 Agent runtime (M3) | TODO | `<github-username>/m3-agent-runtime` | not started | none for day 1 (`tools.py` and `llm.py`); full run needs WS1 |
 | WS4 Legal sources, rules, gaps agent (M3) | TODO | `<github-username>/m3-legal-gaps` | not started | WS3 day-1 `tools.py` protocol |

@@ -1,4 +1,9 @@
-"""Filing package: two PDFs + manifest.json in a zip, stored content-addressed.
+"""Filing package: two PDFs, manifest.json and the original evidence files in a zip, stored
+content-addressed. Evidence entries are named from the exhibit label (`evidence/E-01.pdf`),
+never from the uploaded filename; a row whose original was never stored (seed data) is listed
+in the manifest with `in_zip: null`. The tribunal doesn't take HEIC, and text messages are
+filed as PDF, so the zip also carries a JPG made from each HEIC and a PDF made from each TXT
+(`rendition` in the manifest), each with its own sha256. The originals stay in the zip.
 
 Every build is a new version (never overwritten). The zip's sha256 goes on the row and in the
 activity entry. `caseworker_note` is never read here. Text uses Noto Sans with Noto Sans SC as
@@ -7,6 +12,7 @@ fallback so Chinese renders (core PDF fonts cannot encode CJK)."""
 import hashlib
 import io
 import json
+import logging
 import uuid
 import zipfile
 from dataclasses import dataclass
@@ -17,11 +23,13 @@ from typing import Any
 from fastapi import HTTPException, status
 from fpdf import FPDF
 from fpdf.enums import WrapMode
+from PIL import Image
 from sqlmodel import Session, col, select
 
 from app.models import CaseRow, EvidenceRow, FormFieldRow, GapRow, PackageRow, UserRow
 from app.schemas import Attestations, Package, PackageFile
 from app.services import activity, storage
+from app.services.evidence import sniff  # also registers the HEIC opener
 from app.services.gating import MissingField, OpenGap, package_blockers
 from app.services.mappers import OPEN_GAP, build_form_draft, iso_req
 
@@ -31,6 +39,10 @@ REMINDERS = [
     "This package is prepared information, not legal advice. The tenant files the form themselves.",
     "Nothing has been submitted anywhere. Check every field against the official form.",
 ]
+EVIDENCE_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/heic": ".heic",
+                "application/pdf": ".pdf", "text/plain": ".txt"}
+NOT_STORED = "Original file not in storage (seeded demo rows have none)"
+log = logging.getLogger(__name__)
 ATTESTATION_LABELS = {
     "reviewed_fields": "Confirm you reviewed every field and the summary",
     "remedy_confirmed_with_tenant": "Confirm the tenant has said what they are asking for",
@@ -97,7 +109,74 @@ def application_pdf(session: Session, case: CaseRow, prepared_by: str, built_at:
     return bytes(pdf.output())
 
 
-def manifest_pdf(evidence: list[EvidenceRow], case: CaseRow) -> bytes:
+def evidence_zip_name(ev: EvidenceRow) -> str | None:
+    """Zip path for the original file, or None when its bytes were never stored."""
+    if not storage.exists(ev.sha256):
+        return None
+    label = "".join(c for c in ev.label if c.isalnum() or c == "-") or ev.id
+    return f"evidence/{label}{EVIDENCE_EXT.get(ev.mime, '.bin')}"
+
+
+@dataclass(frozen=True)
+class EvidenceFile:
+    """One evidence entry in the zip: an original (streamed from storage) or a rendition."""
+
+    label: str
+    name: str
+    sha256: str
+    note: str
+    data: bytes | None = None  # None: the original, read from storage by sha256
+
+
+def evidence_files(ev: EvidenceRow) -> list[EvidenceFile]:
+    """The original, plus a JPG (from HEIC) or PDF (from TXT) when the tribunal needs one.
+    Empty when the original was never stored."""
+    name = evidence_zip_name(ev)
+    if name is None:
+        return []
+    files = [EvidenceFile(ev.label, name, ev.sha256, ev.filename)]
+    made = _rendition(ev, name.rsplit(".", 1)[0])
+    if made is not None:
+        files.append(made)
+    return files
+
+
+def _rendition(ev: EvidenceRow, stem: str) -> EvidenceFile | None:
+    try:
+        if ev.mime == sniff.HEIC:
+            data = heic_to_jpeg(storage.read(ev.sha256))
+            return EvidenceFile(ev.label, f"{stem}.jpg", _sha(data),
+                                f"JPG made from the HEIC original ({ev.filename})", data)
+        if ev.mime == sniff.TEXT:
+            data = text_to_pdf(ev, storage.read(ev.sha256).decode("utf-8-sig"))
+            return EvidenceFile(ev.label, f"{stem}.pdf", _sha(data),
+                                f"PDF made from the text file ({ev.filename})", data)
+    except Exception as exc:  # the original is still filed; a missing copy must not block
+        log.warning("could not make a filing copy of %s: %s", ev.label, type(exc).__name__)
+    return None
+
+
+def heic_to_jpeg(data: bytes) -> bytes:
+    """Same pixels and the same EXIF as the original (it is filed as evidence, like the
+    original). Not the stripped copy: that one is only for the model."""
+    with Image.open(io.BytesIO(data)) as img:
+        exif = img.getexif()
+        out = io.BytesIO()
+        img.convert("RGB").save(out, format="JPEG", quality=92, exif=exif.tobytes())
+    return out.getvalue()
+
+
+def text_to_pdf(ev: EvidenceRow, text: str) -> bytes:
+    pdf = new_pdf()
+    _write(pdf, f"{ev.label}  {ev.filename}", bold=True, size=12, gap=1)
+    _write(pdf, f"Text file, sha256 {ev.sha256}", size=8, gap=4)
+    _write(pdf, text or "(empty)", size=9)
+    return bytes(pdf.output())
+
+
+def manifest_pdf(
+    evidence: list[EvidenceRow], case: CaseRow, ev_files: dict[str, list[EvidenceFile]]
+) -> bytes:
     pdf = new_pdf()
     _write(pdf, "Evidence manifest", bold=True, size=16, gap=3)
     _write(pdf, f"Case: {case.title}", gap=4)
@@ -106,7 +185,13 @@ def manifest_pdf(evidence: list[EvidenceRow], case: CaseRow) -> bytes:
     for ev in evidence:
         _write(pdf, f"{ev.label}  {ev.filename}", bold=True, gap=0)
         _write(pdf, f"Received {iso_req(ev.received_at)} from {ev.uploaded_by}", gap=0)
-        _write(pdf, f"sha256 {ev.sha256}", size=8)
+        copies = ev_files[ev.id][1:]
+        stored = bool(ev_files[ev.id])
+        _write(pdf, f"sha256 {ev.sha256}", size=8, gap=0 if copies or not stored else 3)
+        for copy in copies:
+            _write(pdf, f"Also as {copy.name}, sha256 {copy.sha256}", size=8, gap=3)
+        if not stored:
+            _write(pdf, NOT_STORED, size=8, gap=3)
     return bytes(pdf.output())
 
 
@@ -124,7 +209,8 @@ def build_zip(
         .order_by(col(EvidenceRow.position))
     ).all())
     app_pdf = application_pdf(session, case, prepared_by, built_at)
-    man_pdf = manifest_pdf(evidence, case)
+    ev_files = {e.id: evidence_files(e) for e in evidence}
+    man_pdf = manifest_pdf(evidence, case, ev_files)
     manifest: dict[str, Any] = {
         "case_id": case.id, "version": version, "built_at": iso_req(built_at),
         "prepared_by": prepared_by,
@@ -137,7 +223,10 @@ def build_zip(
         },
         "evidence": [
             {"label": e.label, "filename": e.filename, "sha256": e.sha256,
-             "received_at": iso_req(e.received_at), "uploaded_by": e.uploaded_by}
+             "received_at": iso_req(e.received_at), "uploaded_by": e.uploaded_by,
+             "in_zip": ev_files[e.id][0].name if ev_files[e.id] else None,
+             "rendition": {"path": ev_files[e.id][1].name, "sha256": ev_files[e.id][1].sha256}
+             if len(ev_files[e.id]) > 1 else None}
             for e in evidence
         ],
     }
@@ -147,12 +236,26 @@ def build_zip(
         ("evidence_manifest.pdf", man_pdf, "Evidence manifest", "Each file with its hash"),
         ("manifest.json", man_json, "Machine-readable manifest", "Hashes, times, uploaders"),
     ]
+    stamp = built_at.timetuple()[:6]
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, data, _, _ in parts:
-            archive.writestr(zipfile.ZipInfo(name, date_time=built_at.timetuple()[:6]), data)
+            archive.writestr(zipfile.ZipInfo(name, date_time=stamp), data)
+        for ev in evidence:
+            for item in ev_files[ev.id]:
+                info = zipfile.ZipInfo(item.name, date_time=stamp)
+                info.compress_type = zipfile.ZIP_DEFLATED
+                with archive.open(info, "w") as out:
+                    if item.data is not None:
+                        out.write(item.data)
+                    else:
+                        for chunk in storage.open_chunks(item.sha256):
+                            out.write(chunk)
     files = [{"label": lbl, "filename": n, "sha256": _sha(d), "note": note}
              for n, d, lbl, note in parts]
+    # Only what is actually in the zip; unstored seed rows are in the manifests only.
+    files += [{"label": f.label, "filename": f.name, "sha256": f.sha256, "note": f.note}
+              for e in evidence for f in ev_files[e.id]]
     data = buffer.getvalue()
     return BuiltZip(data=data, sha256=_sha(data), files=files)
 

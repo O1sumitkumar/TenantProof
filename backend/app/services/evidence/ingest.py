@@ -1,0 +1,254 @@
+"""Turn uploaded files into evidence rows.
+
+Callers have already checked the case (org) or the intake token. Flow per request:
+1. check(): count, size and type of every file, before anything is stored (413 / 415).
+2. Hash each file and find the ones the case already has (one short query).
+3. With no database connection held: store each new original by sha256, read its metadata,
+   store a stripped copy of photos, extract text. One file in memory at a time.
+4. Under a short lock on the case row: insert the rows, give them E-NN labels, log each one,
+   mark earlier runs stale.
+A file that can't be read is kept with processing "failed"; it never fails the upload."""
+
+import hashlib
+import io
+import logging
+import re
+import uuid
+import warnings
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Any, BinaryIO, Literal
+
+from PIL import Image
+from sqlmodel import Session, col, func, select
+
+from app.models import CaseRow, EvidenceRow, RunRow
+from app.services import activity, storage
+from app.services.evidence import exif, sniff, strip, text
+
+log = logging.getLogger(__name__)
+
+Uploader = Literal["tenant", "caseworker"]
+MAX_FILES = 20
+CHUNK = 1024 * 1024
+
+_KIND = {sniff.JPEG: "photo", sniff.PNG: "photo", sniff.HEIC: "photo", sniff.PDF: "other",
+         sniff.TEXT: "messages"}
+_FORMAT: dict[str, dict[str, Any]] = {
+    sniff.JPEG: {"accepted": True, "action": "none", "note": "JPEG is an accepted format."},
+    sniff.PNG: {"accepted": True, "action": "none", "note": "PNG is an accepted format."},
+    sniff.PDF: {"accepted": True, "action": "none", "note": "PDF is an accepted format."},
+    sniff.HEIC: {"accepted": True, "action": "converted",
+                 "note": "HEIC isn't an accepted format. The package adds a JPG copy."},
+    sniff.TEXT: {"accepted": True, "action": "will_export_pdf",
+                 "note": "Text messages must be submitted digitally or printed. "
+                         "The package adds a PDF copy."},
+}
+_NAME_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+MAX_NAME = 120
+
+
+class UploadRejected(Exception):
+    """The whole request is refused and nothing is stored. `status_code` is 413 or 415."""
+
+    def __init__(self, status_code: int, reasons: list[str]) -> None:
+        super().__init__(reasons)
+        self.status_code = status_code
+        self.reasons = reasons
+
+
+@dataclass(frozen=True)
+class Upload:
+    filename: str  # display only; never used as a path
+    mime: str
+    size: int
+    source: BinaryIO  # the spooled upload, rewound
+
+
+@dataclass
+class _Processed:
+    metadata: dict[str, Any] = field(default_factory=exif.NO_META.as_dict)
+    stripped_sha256: str | None = None
+    text_pages: list[dict[str, str]] | None = None
+    processing: str = "done"
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class _Ready:
+    upload: Upload
+    sha256: str
+    done: _Processed
+
+
+def display_name(raw: str | None) -> str:
+    """Last path segment, no control characters, capped. Shown to people, never opened."""
+    name = re.split(r"[\\/]", raw or "")[-1]
+    name = _NAME_CONTROL.sub("", name).strip()
+    return name[-MAX_NAME:] or "file"
+
+
+def check(files: Sequence[tuple[str | None, BinaryIO]], max_bytes: int) -> list[Upload]:
+    """Validate every file before storing any. Raises UploadRejected (413 before 415)."""
+    if len(files) > MAX_FILES:
+        raise UploadRejected(413, [f"Send at most {MAX_FILES} files at a time"])
+    sizes = [_size(source) for _, source in files]
+    too_big = [f"File {n} is larger than {max_bytes // (1024 * 1024)} MB"
+               for n, size in enumerate(sizes, 1) if size > max_bytes]
+    if too_big:
+        raise UploadRejected(413, too_big)
+    uploads, wrong_type = [], []
+    for n, ((name, source), size) in enumerate(zip(files, sizes, strict=True), 1):
+        mime = sniff.sniff_file(source, max_bytes)
+        if mime is None:
+            wrong_type.append(f"File {n} is not an accepted type ({sniff.ALLOWED_LABEL})")
+        else:
+            uploads.append(Upload(filename=display_name(name), mime=mime, size=size,
+                                  source=source))
+    if wrong_type:
+        raise UploadRejected(415, wrong_type)
+    return uploads
+
+
+def ingest(
+    session: Session, case: CaseRow, uploads: list[Upload], uploaded_by: Uploader,
+    actor_name: str,
+) -> list[EvidenceRow]:
+    """Add the files to the case and return one row per upload, in order. A file the case
+    already has comes back as its existing row. Caller commits."""
+    case_id = case.id
+    digests = [_sha256(u.source) for u in uploads]
+    known = set(session.exec(
+        select(EvidenceRow.sha256).where(EvidenceRow.case_id == case_id,
+                                         col(EvidenceRow.sha256).in_(digests))
+    ).all())
+    session.rollback()  # nothing written yet: give the connection back while files are processed
+    ready: dict[str, _Ready] = {}
+    for upload, digest in zip(uploads, digests, strict=True):
+        if digest not in known and digest not in ready:
+            ready[digest] = _prepare(upload, digest)
+    return _insert(session, case_id, digests, list(ready.values()), uploaded_by, actor_name)
+
+
+def model_safe_blob(row: EvidenceRow) -> str | None:
+    """The only stored bytes of a photo that may be sent to the model: the stripped copy.
+    Never `row.sha256` (the original keeps its EXIF and GPS). Documents go to the model as
+    `row.text_pages`, never as files."""
+    return row.stripped_sha256
+
+
+def _size(source: BinaryIO) -> int:
+    source.seek(0, io.SEEK_END)
+    size = source.tell()
+    source.seek(0)
+    return size
+
+
+def _sha256(source: BinaryIO) -> str:
+    digest = hashlib.sha256()
+    source.seek(0)
+    while chunk := source.read(CHUNK):
+        digest.update(chunk)
+    source.seek(0)
+    return digest.hexdigest()
+
+
+def _prepare(upload: Upload, digest: str) -> _Ready:
+    data = upload.source.read()
+    stored = storage.put(data)
+    assert stored.key == digest
+    return _Ready(upload=upload, sha256=digest, done=_process(data, upload.mime))
+
+
+def _process(data: bytes, mime: str) -> _Processed:
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            return _process_unchecked(data, mime)
+    except Exception as exc:  # any decoder error: keep the original, flag it, never fail
+        log.warning("evidence processing failed for %s: %s", mime, type(exc).__name__)
+        return _Processed(processing="failed", error="This file could not be read.")
+
+
+def _process_unchecked(data: bytes, mime: str) -> _Processed:
+    if mime == sniff.PDF:
+        pdf = text.read_pdf(data)
+        return _Processed(
+            metadata={**exif.NO_META.as_dict(), "software": pdf.software},
+            text_pages=pdf.pages,
+            error=None if pdf.complete else "Only part of the text could be extracted.",
+        )
+    if mime == sniff.TEXT:
+        return _Processed(text_pages=text.read_txt(data))
+    with Image.open(io.BytesIO(data)) as img:
+        meta = exif.read_meta(img).as_dict()  # before strip_image changes the image
+        clean, _ = strip.strip_image(img, mime)
+    return _Processed(metadata=meta, stripped_sha256=storage.put(clean).key)
+
+
+def _insert(
+    session: Session, case_id: str, digests: list[str], ready: list[_Ready],
+    uploaded_by: Uploader, actor_name: str,
+) -> list[EvidenceRow]:
+    # FOR NO KEY UPDATE: serialises uploads on this case (labels) without blocking the
+    # foreign-key checks other writes on the case make.
+    case = session.exec(
+        select(CaseRow).where(CaseRow.id == case_id).with_for_update(key_share=True)
+    ).one()
+    last = session.exec(
+        select(func.max(EvidenceRow.position)).where(EvidenceRow.case_id == case_id)
+    ).one()
+    position = -1 if last is None else last
+    now = datetime.now(UTC)
+    added = 0
+    for item in ready:
+        if _find(session, case_id, item.sha256) is not None:
+            continue  # another request added the same file meanwhile
+        position += 1
+        row = _new_row(case_id, position, item, uploaded_by, now)
+        session.add(row)
+        session.flush()
+        activity.log(session, case_id, uploaded_by, actor_name,
+                     f"Uploaded {row.label} ({row.filename})")
+        added += 1
+    if added:
+        _after_new_evidence(session, case, uploaded_by, now)
+    rows = [_find(session, case_id, d) for d in digests]
+    return [r for r in rows if r is not None]
+
+
+def _find(session: Session, case_id: str, digest: str) -> EvidenceRow | None:
+    return session.exec(
+        select(EvidenceRow).where(EvidenceRow.case_id == case_id,
+                                  col(EvidenceRow.sha256) == digest)
+    ).first()
+
+
+def _new_row(
+    case_id: str, position: int, item: _Ready, uploaded_by: Uploader, now: datetime
+) -> EvidenceRow:
+    upload, done = item.upload, item.done
+    return EvidenceRow(
+        id=f"ev_{uuid.uuid4().hex[:16]}", case_id=case_id, position=position,
+        label=f"E-{position + 1:02d}", filename=upload.filename, kind=_KIND[upload.mime],
+        mime=upload.mime, size_bytes=upload.size, sha256=item.sha256, received_at=now,
+        uploaded_by=uploaded_by, format_check=dict(_FORMAT[upload.mime]),
+        metadata_=done.metadata, metadata_stripped_for_ai=done.processing == "done",
+        processing=done.processing, error=done.error, stripped_sha256=done.stripped_sha256,
+        text_pages=done.text_pages,
+    )
+
+
+def _after_new_evidence(
+    session: Session, case: CaseRow, uploaded_by: Uploader, now: datetime
+) -> None:
+    for run in session.exec(select(RunRow).where(RunRow.case_id == case.id)).all():
+        if run.started_at < now and not run.stale:
+            run.stale = True  # the UI tells the caseworker to run the analysis again
+            session.add(run)
+    if uploaded_by == "tenant":
+        case.intake_status = "files_received"
+        case.intake_last_upload_at = now
+    case.updated_at = now
+    session.add(case)

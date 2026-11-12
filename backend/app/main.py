@@ -23,6 +23,7 @@ from app.routers import (
     sources,
     timeline,
 )
+from app.services.evidence.http import refuse_oversized_upload
 
 app = FastAPI(title="TenantProof API", version="0.1.0")
 
@@ -43,6 +44,9 @@ async def check_origin(request: Request, call_next):
         if origin not in allowed:
             return JSONResponse({"detail": "Cross-origin request refused"}, status_code=403)
     return await call_next(request)
+
+
+api.middleware("http")(refuse_oversized_upload)  # WS1: before the multipart body is read
 
 for module in (
     auth, me, cases, package, evidence, runs, timeline, gaps, sources, form, activity, intake
