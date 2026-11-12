@@ -27,8 +27,11 @@ RUN_BUDGET_S = 60.0  # the run target
 CALL_TIMEOUT_S = RUN_BUDGET_S
 MAX_RETRIES = 1
 EFFORT = "medium"  # output_config.effort: suggested start for multistep tool use
+PRICE_IN_USD_PER_MTOK = 2.0  # claude-sonnet-5-5 list price, 2026-11
+PRICE_OUT_USD_PER_MTOK = 10.0
 DEFAULT_MAX_TOKENS = 16000  # thinking counts against max_tokens
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
+_EVIDENCE_TAG = re.compile(r"evidence-[0-9a-f]{6,}")
 _FIXTURE_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,150}$")
 
 
@@ -102,7 +105,12 @@ class LLMResponse(BaseModel):
     content: list[dict[str, Any]] = Field(default_factory=list)
     text: str = ""
     tool_uses: list[ToolUse] = Field(default_factory=list)
-    stop_reason: Literal["end_turn", "tool_use", "max_tokens", "other"] = "end_turn"
+    stop_reason: Literal[
+        "end_turn", "tool_use", "max_tokens", "refusal", "pause_turn", "other"
+    ] = "end_turn"
+    # Set on "refusal": {"type": "refusal", "category": "cyber" | "bio" | ... | None,
+    # "explanation": ...}. The runner shows the category only.
+    stop_details: dict[str, Any] | None = None
     usage: Usage = Field(default_factory=Usage)
 
     def assistant_message(self) -> Message:
@@ -124,8 +132,9 @@ class LLMProvider(Protocol):
 
 
 def request_hash(request: LLMRequest) -> str:
-    """12 hex chars over the system prompt and each tool's name, description and schema. It
-    changes when a prompt or a tool definition changes, so stale fixtures are noticed."""
+    """12 hex chars over the system prompt (the run's evidence nonce masked) and each tool's
+    name, description and schema. It changes when a prompt or a tool definition changes, so
+    stale fixtures are noticed."""
     tools = sorted(
         (
             {
@@ -137,7 +146,9 @@ def request_hash(request: LLMRequest) -> str:
         ),
         key=lambda t: str(t["name"]),
     )
-    blob = json.dumps({"system": request.system, "tools": tools}, sort_keys=True)
+    # The evidence tag carries a per-run random suffix; it must not change the hash.
+    system = _EVIDENCE_TAG.sub("evidence-NONCE", request.system)
+    blob = json.dumps({"system": system, "tools": tools}, sort_keys=True)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:12]
 
 
@@ -197,10 +208,12 @@ class FixtureProvider:
         warnings.warn(msg, FixtureHashWarning, stacklevel=3)
 
 
-_STOP_REASONS: dict[str, Literal["end_turn", "tool_use", "max_tokens"]] = {
+_STOP_REASONS: dict[str, Literal["end_turn", "tool_use", "max_tokens", "refusal", "pause_turn"]] = {
     "end_turn": "end_turn",
     "tool_use": "tool_use",
     "max_tokens": "max_tokens",
+    "refusal": "refusal",
+    "pause_turn": "pause_turn",
 }
 
 
@@ -260,10 +273,27 @@ def _to_response(raw: Any) -> LLMResponse:
         text="".join(text_parts),
         tool_uses=tool_uses,
         stop_reason=_STOP_REASONS.get(raw.stop_reason, "other"),
+        stop_details=_stop_details(raw),
         usage=Usage(
             input_tokens=raw.usage.input_tokens,
             output_tokens=raw.usage.output_tokens,
         ),
+    )
+
+
+def _stop_details(raw: Any) -> dict[str, Any] | None:
+    details = getattr(raw, "stop_details", None)
+    if details is None:
+        return None
+    return details.model_dump(mode="json") if hasattr(details, "model_dump") else dict(details)
+
+
+def estimate_cost_usd(usage: Usage) -> float:
+    """Estimated from MODEL's list price. Cache reads and writes are not tracked here."""
+    return round(
+        usage.input_tokens * PRICE_IN_USD_PER_MTOK / 1e6
+        + usage.output_tokens * PRICE_OUT_USD_PER_MTOK / 1e6,
+        4,
     )
 
 

@@ -43,7 +43,13 @@ Nothing on `dev`. Workstreams WS1 to WS5 (table below) are unassigned.
 ## WS3 TODO
 
 - `schema:` PR for `config.py` and `.env.example`: `anthropic_api_key`, `llm_model`, `record_fixtures`, `fixture_strict` (today `FIXTURE_STRICT` is read from the environment in `llm.py`; tests set it to 1). Until then `llm._live_api_key()` reads `ANTHROPIC_API_KEY` from the process environment only (not from `backend/.env`), and the model is the constant `llm.MODEL`.
-- Cost estimate (`Run.usage.est_cost_usd`) and `RecordingProvider` (`RECORD_FIXTURES=1`) are not built yet.
+- `RecordingProvider` (`RECORD_FIXTURES=1`) is not built yet. `Run.usage.est_cost_usd` is estimated from the `claude-sonnet-5-5` list price in `llm.py` (input and output tokens only, no cache pricing).
+- **Evidence text and extracted facts are not stored anywhere yet** (no column, no table). The tools read them through the `EvidenceTextStore` protocol (`services/agent/evidence_text.py`); only the in-memory store exists, used by tests. WS1 ingest (page text) and the extract step (facts) need a real store, which needs a `schema:` PR or a decision to keep them in blob storage. Until then a live run on the seeded demo case has no text to read.
+- Not built: the arq worker, `POST /cases/{id}/runs`, `POST /runs/{id}/answer` and the UI answer control (the runner has `execute_run(..., answer=...)`), the `ingest`, `extract`, `rules`, `gaps` and `draft` steps. Only `timeline` runs.
+- `search_legal_sources` returns an empty `excerpt` until WS4 stores the official text.
+- One random evidence nonce per run, saved on the steps so a resume reuses it. `request_hash` masks it, so recordings replay under any nonce.
+- A photo has no text page, so it cannot be cited yet (the seeded "EXIF" locator is rejected); the store needs a metadata locator for photos. An `exif` date candidate must match a cited file's capture time.
+- `flag_conflict` appends to `strength_reasons`, which `web/index.html` shows only for events without flags (UI is outside WS3's paths).
 
 ## Open decisions
 
@@ -78,6 +84,6 @@ Prompts: `docs/NEXT_PROMPTS.md`.
 |---|---|---|---|---|
 | WS1 Evidence ingest + tenant uploads (M2) | TODO | `<github-username>/m2-evidence-ingest` | not started | none |
 | WS2 Hosted deploy + infra hardening (M2) | TODO | `<github-username>/m2-deploy` | not started | none (S3 adapter test and QR demo need WS1 for uploads) |
-| WS3 Agent runtime (M3) | Lameda12 | `Lameda12/m3-agent-runtime` | day 1 in draft PR: `services/agent/tools.py` (Tool protocol, 12 typed stubs, `wrap_evidence`, `ToolError`) and `llm.py` (`LLMProvider`, `AnthropicProvider`, `FixtureProvider`). Next: worker, steps, loop, verifier | none for day 1; full run needs WS1 |
+| WS3 Agent runtime (M3) | Lameda12 | `Lameda12/m3-tool-bodies-loop` | day 1 merged (PR #2). Day 2 in draft PR: the 12 tool bodies, `loop.py`, `runner.py` (one nonce per run, 60 s whole-run deadline, pause/resume), `verifier.py`, `strength.py`, `dates.py`, refusal handling. Next: text/facts store, worker, other steps | a real text and facts store (WS1 or `schema:` PR) for a live run |
 | WS4 Legal sources, rules, gaps agent (M3) | TODO | `<github-username>/m3-legal-gaps` | not started | WS3 day-1 `tools.py` protocol |
 | WS5 Evals, security, perf, demo (M3 to M4) | TODO | `<github-username>/m4-evals-security-perf` | not started | starts now; fills in as WS1 to WS4 land |
