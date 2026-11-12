@@ -103,8 +103,6 @@ class EvidenceRow(SQLModel, table=True):
     # Storage key of the copy with EXIF/GPS removed (images only). Only this copy may reach
     # the model; null when there is nothing to strip or stripping failed.
     stripped_sha256: str | None = None
-    # Extracted text for PDF and TXT files: [{"locator": "page 1", "text": "..."}].
-    text_pages: list[dict[str, str]] | None = Field(default=None, sa_column=Column(JSON))
 
 
 class EvidencePageRow(SQLModel, table=True):
