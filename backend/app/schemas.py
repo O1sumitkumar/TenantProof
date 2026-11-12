@@ -346,3 +346,10 @@ class IntakeSubmit(BaseModel):
 
 class Ok(BaseModel):
     ok: Literal[True] = True
+
+
+class IntakeFilesReceived(BaseModel):
+    """`POST /intake/{token}/files`: how many of the sent files are now on the case
+    (a file the case already had counts too)."""
+
+    received: int
