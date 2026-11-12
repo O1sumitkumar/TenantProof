@@ -22,6 +22,7 @@ TEST_URL = _url.set(database=TEST_DB).render_as_string(hide_password=False)
 
 os.environ["DATABASE_URL"] = TEST_URL
 os.environ["LLM_MODE"] = "fixture"
+os.environ["FIXTURE_STRICT"] = "1"  # a stale fixture fails the test instead of warning
 os.environ["SEED_PASSWORD"] = "test-password-123"
 # Real Redis, as in compose and CI (db 1, apart from the app's db 0). No in-memory fallback.
 os.environ.setdefault("RATE_LIMIT_STORAGE_URI", "redis://localhost:6379/1")
