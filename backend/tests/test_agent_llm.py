@@ -93,6 +93,13 @@ def test_scripted_responses_skip_files_and_hash() -> None:
 # --- Anthropic provider against a fake client (no network)
 
 
+class Block(SimpleNamespace):
+    """Fake SDK content block: attributes plus model_dump(), like the real pydantic ones."""
+
+    def model_dump(self, **_: Any) -> dict[str, Any]:
+        return dict(vars(self))
+
+
 class FakeMessages:
     def __init__(self, raw: Any) -> None:
         self.raw, self.calls = raw, []
@@ -109,9 +116,10 @@ def fake_client(raw: Any) -> Any:
 def test_anthropic_provider_maps_text_tool_use_and_usage() -> None:
     raw = SimpleNamespace(
         content=[
-            SimpleNamespace(type="text", text="thinking "),
-            SimpleNamespace(type="text", text="done"),
-            SimpleNamespace(type="tool_use", id="tu1", name="finish", input={"summary": "s"}),
+            Block(type="thinking", thinking="plan it", signature="sig=="),
+            Block(type="text", text="thinking "),
+            Block(type="text", text="done"),
+            Block(type="tool_use", id="tu1", name="finish", input={"summary": "s"}),
         ],
         stop_reason="tool_use",
         usage=SimpleNamespace(input_tokens=11, output_tokens=7),
@@ -123,8 +131,39 @@ def test_anthropic_provider_maps_text_tool_use_and_usage() -> None:
     assert (res.usage.input_tokens, res.usage.output_tokens) == (11, 7)
     sent = client.messages.calls[0]
     assert sent["model"] == "claude-sonnet-5-5" and sent["max_tokens"] == 99
+    assert sent["output_config"] == {"effort": "medium"}
+    # raw blocks kept in order, thinking included, and sent back unchanged as the assistant turn
+    assert [b["type"] for b in res.content] == ["thinking", "text", "text", "tool_use"]
+    assert res.content[0] == {"type": "thinking", "thinking": "plan it", "signature": "sig=="}
+    assert res.assistant_message() == llm.Message(role="assistant", content=res.content)
     assert sent["tools"][0]["name"] == "finish"
     assert sent["messages"] == [{"role": "user", "content": "hi"}]
+
+
+def test_default_max_tokens_is_16000() -> None:
+    assert llm.LLMRequest(system="s", messages=[], fixture_key="k").max_tokens == 16000
+
+
+def test_assistant_message_falls_back_to_text_and_tool_uses() -> None:
+    res = llm.LLMResponse(
+        text="hi", tool_uses=[llm.ToolUse(id="t", name="finish", input={"summary": "s"})]
+    )
+    assert res.assistant_message().content == [
+        {"type": "text", "text": "hi"},
+        {"type": "tool_use", "id": "t", "name": "finish", "input": {"summary": "s"}},
+    ]
+
+
+def test_fixture_stores_and_replays_raw_blocks(tmp_path: Path) -> None:
+    blocks = [
+        {"type": "thinking", "thinking": "t", "signature": "s"},
+        {"type": "text", "text": "a"},
+    ]
+    request = req()
+    doc = llm.fixture_document(request, llm.LLMResponse(content=blocks, text="a"))
+    (tmp_path / f"{request.fixture_key}.json").write_text(json.dumps(doc), encoding="utf-8")
+    res = run(llm.FixtureProvider(tmp_path, strict=True).complete(request))
+    assert res.content == blocks and res.assistant_message().content == blocks
 
 
 def test_anthropic_provider_omits_empty_tools_and_maps_unknown_stop_reason() -> None:
@@ -172,6 +211,33 @@ def test_api_errors_become_llm_call_errors_without_details() -> None:
     assert "APIConnectionError" in str(info.value) and "secret" not in str(info.value)
 
 
-def test_real_client_gets_a_timeout_and_one_retry() -> None:
+def test_real_client_timeout_equals_the_run_budget() -> None:
     provider = llm.AnthropicProvider("sk-test-not-real")
+    assert llm.CALL_TIMEOUT_S == llm.RUN_BUDGET_S == 60.0
     assert provider.client.timeout == llm.CALL_TIMEOUT_S and provider.client.max_retries == 1
+
+
+def test_a_hung_call_hits_the_total_deadline_and_is_not_retried() -> None:
+    class Hang:
+        calls = 0
+
+        async def create(self, **_: Any) -> Any:
+            Hang.calls += 1
+            await asyncio.sleep(10)
+
+    provider = llm.AnthropicProvider("k", client=SimpleNamespace(messages=Hang()), deadline_s=0.05)
+    with pytest.raises(llm.LLMTimeout):
+        run(provider.complete(req()))
+    assert Hang.calls == 1
+
+
+def test_sdk_timeout_error_is_an_llm_timeout() -> None:
+    import httpx
+
+    class Slow:
+        async def create(self, **_: Any) -> Any:
+            raise llm.anthropic.APITimeoutError(request=httpx.Request("POST", "http://x"))
+
+    provider = llm.AnthropicProvider("k", client=SimpleNamespace(messages=Slow()))
+    with pytest.raises(llm.LLMTimeout):
+        run(provider.complete(req()))

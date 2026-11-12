@@ -5,6 +5,7 @@ the environment in one place (`_live_api_key`), and only in live mode. TODO (sch
 `anthropic_api_key`, `llm_model` and `record_fixtures` move into `config.py`.
 """
 
+import asyncio
 import hashlib
 import json
 import os
@@ -19,8 +20,14 @@ from pydantic import BaseModel, Field
 from app.config import Settings
 
 MODEL = "claude-sonnet-5-5"
-CALL_TIMEOUT_S = 45.0  # one hung call must not eat the 60 s run target
+RUN_BUDGET_S = 60.0  # the run target
+# One total deadline per call (asyncio.timeout), equal to the run budget. The httpx timeout
+# (per phase) is set to the same value, so a timed-out attempt has used the whole budget and
+# the SDK retry cannot start another one. Retries stay for 429 and 5xx, inside the deadline.
+CALL_TIMEOUT_S = RUN_BUDGET_S
 MAX_RETRIES = 1
+EFFORT = "medium"  # output_config.effort: suggested start for multistep tool use
+DEFAULT_MAX_TOKENS = 16000  # thinking counts against max_tokens
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 _FIXTURE_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,150}$")
 
@@ -35,6 +42,10 @@ class LLMConfigError(LLMError):
 
 class LLMCallError(LLMError):
     """The provider call failed. Carries the error type and HTTP status only."""
+
+
+class LLMTimeout(LLMCallError):
+    """The call hit its total deadline. Not retried."""
 
 
 class FixtureMissing(LLMError):
@@ -78,17 +89,31 @@ class LLMRequest(BaseModel):
     system: str
     messages: list[Message]
     tools: list[dict[str, Any]] = Field(default_factory=list)  # tools.tool_specs() output
-    max_tokens: int = Field(default=4096, ge=1)
+    max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, ge=1)
     # Names the recorded response. Chosen by the caller, for example
     # "extract-<sha256>-<prompt_version>" or "timeline-turn3". Letters, digits, `_`, `.`, `-`.
     fixture_key: str
 
 
 class LLMResponse(BaseModel):
+    # The raw content blocks (block.model_dump()), thinking blocks included, in order. The loop
+    # sends them back unchanged as the assistant turn (`assistant_message`). `text` and
+    # `tool_uses` are views of them for the runner's convenience.
+    content: list[dict[str, Any]] = Field(default_factory=list)
     text: str = ""
     tool_uses: list[ToolUse] = Field(default_factory=list)
     stop_reason: Literal["end_turn", "tool_use", "max_tokens", "other"] = "end_turn"
     usage: Usage = Field(default_factory=Usage)
+
+    def assistant_message(self) -> Message:
+        """The assistant turn to append to the conversation. Uses the raw blocks; a response
+        built by hand without them (scripted tests) falls back to its text and tool_uses."""
+        blocks = self.content or [
+            *([{"type": "text", "text": self.text}] if self.text else []),
+            *({"type": "tool_use", "id": u.id, "name": u.name, "input": u.input}
+              for u in self.tool_uses),
+        ]  # fmt: skip
+        return Message(role="assistant", content=blocks)
 
 
 class LLMProvider(Protocol):
@@ -187,8 +212,12 @@ class AnthropicProvider:
         api_key: str,
         model: str = MODEL,
         client: Any | None = None,
+        effort: str = EFFORT,
+        deadline_s: float = RUN_BUDGET_S,
     ) -> None:
         self.model = model
+        self.effort = effort
+        self.deadline_s = deadline_s
         self.client = client or anthropic.AsyncAnthropic(
             api_key=api_key, timeout=CALL_TIMEOUT_S, max_retries=MAX_RETRIES
         )
@@ -199,11 +228,17 @@ class AnthropicProvider:
             "max_tokens": request.max_tokens,
             "system": request.system,
             "messages": [m.model_dump(mode="json") for m in request.messages],
+            "output_config": {"effort": self.effort},
         }
         if request.tools:
             kwargs["tools"] = request.tools
         try:
-            raw = await self.client.messages.create(**kwargs)
+            async with asyncio.timeout(self.deadline_s):
+                raw = await self.client.messages.create(**kwargs)
+        except TimeoutError:
+            raise LLMTimeout(f"no response within {self.deadline_s:.0f}s") from None
+        except anthropic.APITimeoutError:
+            raise LLMTimeout("provider request timed out") from None
         except anthropic.APIError as exc:
             status = getattr(exc, "status_code", None)
             raise LLMCallError(f"{type(exc).__name__} (status {status})") from None
@@ -213,12 +248,15 @@ class AnthropicProvider:
 def _to_response(raw: Any) -> LLMResponse:
     text_parts: list[str] = []
     tool_uses: list[ToolUse] = []
+    content: list[dict[str, Any]] = []
     for block in raw.content:
+        content.append(block.model_dump(mode="json"))
         if block.type == "text":
             text_parts.append(block.text)
         elif block.type == "tool_use":
             tool_uses.append(ToolUse(id=block.id, name=block.name, input=dict(block.input)))
     return LLMResponse(
+        content=content,
         text="".join(text_parts),
         tool_uses=tool_uses,
         stop_reason=_STOP_REASONS.get(raw.stop_reason, "other"),
