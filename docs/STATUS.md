@@ -40,6 +40,11 @@ Nothing on `dev`. Workstreams WS1 to WS5 (table below) are unassigned.
 - Rate-limit counters only count requests that pass body validation.
 - Two seeded demo logins share one password (`SEED_PASSWORD`, compose default `tenantproof-demo`). Local only.
 
+## WS3 TODO
+
+- `schema:` PR for `config.py` and `.env.example`: `anthropic_api_key`, `llm_model`, `record_fixtures`, `fixture_strict` (today `FIXTURE_STRICT` is read from the environment in `llm.py`; tests set it to 1). Until then `llm._live_api_key()` reads `ANTHROPIC_API_KEY` from the process environment only (not from `backend/.env`), and the model is the constant `llm.MODEL`.
+- Cost estimate (`Run.usage.est_cost_usd`) and `RecordingProvider` (`RECORD_FIXTURES=1`) are not built yet.
+
 ## Open decisions
 
 - Who owns each workstream (table below).
@@ -73,6 +78,6 @@ Prompts: `docs/NEXT_PROMPTS.md`.
 |---|---|---|---|---|
 | WS1 Evidence ingest + tenant uploads (M2) | TODO | `<github-username>/m2-evidence-ingest` | not started | none |
 | WS2 Hosted deploy + infra hardening (M2) | TODO | `<github-username>/m2-deploy` | not started | none (S3 adapter test and QR demo need WS1 for uploads) |
-| WS3 Agent runtime (M3) | TODO | `<github-username>/m3-agent-runtime` | not started | none for day 1 (`tools.py` and `llm.py`); full run needs WS1 |
+| WS3 Agent runtime (M3) | Lameda12 | `Lameda12/m3-agent-runtime` | day 1 in draft PR: `services/agent/tools.py` (Tool protocol, 12 typed stubs, `wrap_evidence`, `ToolError`) and `llm.py` (`LLMProvider`, `AnthropicProvider`, `FixtureProvider`). Next: worker, steps, loop, verifier | none for day 1; full run needs WS1 |
 | WS4 Legal sources, rules, gaps agent (M3) | TODO | `<github-username>/m3-legal-gaps` | not started | WS3 day-1 `tools.py` protocol |
 | WS5 Evals, security, perf, demo (M3 to M4) | TODO | `<github-username>/m4-evals-security-perf` | not started | starts now; fills in as WS1 to WS4 land |
