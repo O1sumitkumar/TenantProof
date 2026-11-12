@@ -14,7 +14,7 @@ from PIL import Image
 from sqlmodel import Session, col, select
 
 from app.config import get_settings
-from app.models import CaseRow, EvidenceRow, IntakeTokenRow, RunRow
+from app.models import CaseRow, EvidencePageRow, EvidenceRow, IntakeTokenRow, RunRow
 from app.services import storage
 from app.services.intake_token import hash_token
 
@@ -93,6 +93,16 @@ def reasons_of(r) -> list[str]:
     detail = r.json()["detail"]
     assert set(detail) == {"reasons"}
     return detail["reasons"]
+
+
+def pages_of(session: Session, row: EvidenceRow) -> list[tuple[str, str]]:
+    """(locator, text) of the row's evidence_page rows, in order."""
+    session.expire_all()
+    found = session.exec(
+        select(EvidencePageRow).where(EvidencePageRow.evidence_id == row.id)
+        .order_by(col(EvidencePageRow.position))
+    ).all()
+    return [(p.locator, p.text) for p in found]
 
 
 def stripped_image(row: EvidenceRow) -> tuple[Image.Image, bytes]:
@@ -341,10 +351,10 @@ def test_corrupt_pdf_is_kept_as_failed(fresh_db, client, session):
     r = upload(client, ("broken.pdf", b"%PDF-1.4\nnot really a pdf", "application/pdf"))
     assert r.status_code == 200, r.text
     assert r.json()[0]["processing"] == "failed"
-    assert evidence_rows(session)[-1].text_pages is None
+    assert pages_of(session, evidence_rows(session)[-1]) == []
 
 
-def test_pdf_upload_extracts_text_pages(fresh_db, client, session):
+def test_pdf_upload_writes_one_evidence_page_per_page(fresh_db, client, session):
     data = pdf_with_text(["Leak in the kitchen", "Landlord was told on Aug 20"])
 
     r = upload(client, ("letter.pdf", data, "application/pdf"))
@@ -356,20 +366,36 @@ def test_pdf_upload_extracts_text_pages(fresh_db, client, session):
     assert item["metadata"]["software"] == "Acme Scanner 3"
     assert item["metadata"]["gps_present"] is False
     row = evidence_rows(session)[-1]
-    assert row.text_pages is not None
-    assert [p["locator"] for p in row.text_pages] == ["page 1", "page 2"]
-    assert "Leak in the kitchen" in row.text_pages[0]["text"]
-    assert "August" in row.text_pages[1]["text"] or "Aug 20" in row.text_pages[1]["text"]
+    pages = pages_of(session, row)
+    assert [locator for locator, _ in pages] == ["page 1", "page 2"]
+    assert "Leak in the kitchen" in pages[0][1]
+    assert "Aug 20" in pages[1][1]
     assert row.stripped_sha256 is None
 
 
-def test_text_upload_is_messages_with_a_text_locator(fresh_db, client, session):
-    r = upload(client, ("chat.txt", b"Tenant: it leaks\n", "text/plain"))
+def test_text_upload_writes_one_evidence_page_per_message(fresh_db, client, session):
+    chat = "Tenant: it leaks\r\n\n房东：下周派人来修。\nTenant: thanks\n".encode()
+    r = upload(client, ("chat.txt", chat, "text/plain"))
     assert r.status_code == 200, r.text
     assert r.json()[0]["kind"] == "messages"
     assert r.json()[0]["format_check"]["action"] == "will_export_pdf"
-    assert evidence_rows(session)[-1].text_pages == [
-        {"locator": "text", "text": "Tenant: it leaks\n"}]
+    assert pages_of(session, evidence_rows(session)[-1]) == [
+        ("message 1", "Tenant: it leaks"), ("message 2", "房东：下周派人来修。"),
+        ("message 3", "Tenant: thanks")]
+
+
+def test_evidence_pages_go_with_their_evidence_and_case(fresh_db, client, session):
+    upload(client, ("chat.txt", b"one\ntwo\n", "text/plain"))
+    row = evidence_rows(session)[-1]
+    pages = session.exec(
+        select(EvidencePageRow).where(EvidencePageRow.evidence_id == row.id)).all()
+    assert {p.case_id for p in pages} == {CASE}
+    assert [p.position for p in pages] == [0, 1]
+
+
+def test_photos_get_no_evidence_page(fresh_db, client, session):
+    upload(client, jpg())
+    assert pages_of(session, evidence_rows(session)[-1]) == []
 
 
 def test_png_upload_is_stripped_to_a_png(fresh_db, client, session):

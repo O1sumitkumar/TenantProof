@@ -1,4 +1,5 @@
-"""Text from PDF and TXT evidence, with locators the timeline can cite ("page 3", "text").
+"""Text from PDF and TXT evidence, with locators the timeline can cite ("page 3", "message 2").
+Ingest stores each one as an `evidence_page` row.
 
 PDF parsing is bounded: at most MAX_PAGES pages, MAX_CHARS characters and PDF_SECONDS of
 work (checked between pages). Pages that share one content stream are parsed once."""
@@ -12,7 +13,8 @@ from pypdf import PdfReader
 from pypdf.generic import ArrayObject, IndirectObject
 
 MAX_PAGES = 300
-MAX_CHARS = 1_000_000
+MAX_CHARS = 1_000_000  # per document
+MAX_MESSAGES = 5000
 PDF_SECONDS = 10.0
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0e-\x1f\x7f]")
 
@@ -55,7 +57,13 @@ def read_pdf(data: bytes) -> PdfText:
 
 
 def read_txt(data: bytes) -> Pages:
-    return [{"locator": "text", "text": _clean(data.decode("utf-8-sig"))[:MAX_CHARS]}]
+    """One locator per non-empty line ("message 1", "message 2", ...): chat exports put one
+    message on each line, and the timeline cites messages by number."""
+    text = _clean(data.decode("utf-8-sig"))[:MAX_CHARS]
+    # Newlines only: splitlines() would also break on form feeds and U+2028 inside a message.
+    lines = [line.strip() for line in re.split(r"\r\n|\r|\n", text) if line.strip()]
+    return [{"locator": f"message {n}", "text": line}
+            for n, line in enumerate(lines[:MAX_MESSAGES], start=1)]
 
 
 def _contents_key(raw: object) -> tuple[int, ...]:

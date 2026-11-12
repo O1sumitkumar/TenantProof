@@ -378,14 +378,21 @@ def test_read_pdf_garbage_raises():
         text.read_pdf(b"%PDF-1.4\nthis is not a pdf at all")
 
 
-def test_read_txt_strips_the_bom():
+def test_read_txt_strips_the_bom_and_gives_one_message_per_line():
     pages = text.read_txt("\ufeffTenant: it leaks\nLandlord: ok".encode())
-    assert pages == [{"locator": "text", "text": "Tenant: it leaks\nLandlord: ok"}]
+    assert pages == [{"locator": "message 1", "text": "Tenant: it leaks"},
+                     {"locator": "message 2", "text": "Landlord: ok"}]
 
 
-def test_read_txt_drops_control_characters():
-    [page] = text.read_txt(b"a\x0cb\tc\x00")  # form feed and tab are kept, NUL is not
-    assert page["text"] == "a\x0cb\tc"
+def test_read_txt_skips_blank_lines_and_drops_control_characters():
+    pages = text.read_txt(b"a\tb\x00\r\n\n   \nc\x0cd\n")
+    assert pages == [{"locator": "message 1", "text": "a\tb"},
+                     {"locator": "message 2", "text": "c\x0cd"}]
+
+
+def test_read_txt_caps_the_number_of_messages(monkeypatch):
+    monkeypatch.setattr(text, "MAX_MESSAGES", 3)
+    assert len(text.read_txt(b"1\n2\n3\n4\n5\n")) == 3
 
 
 def test_read_pdf_parses_a_content_stream_shared_by_many_pages_once(monkeypatch):

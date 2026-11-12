@@ -5,8 +5,8 @@ Callers have already checked the case (org) or the intake token. Flow per reques
 2. Hash each file and find the ones the case already has (one short query).
 3. With no database connection held: store each new original by sha256, read its metadata,
    store a stripped copy of photos, extract text. One file in memory at a time.
-4. Under a short lock on the case row: insert the rows, give them E-NN labels, log each one,
-   mark earlier runs stale.
+4. Under a short lock on the case row: insert the rows, give them E-NN labels, write their
+   text as `evidence_page` rows, log each one, mark earlier runs stale.
 A file that can't be read is kept with processing "failed"; it never fails the upload."""
 
 import hashlib
@@ -23,7 +23,7 @@ from typing import Any, BinaryIO, Literal
 from PIL import Image
 from sqlmodel import Session, col, func, select
 
-from app.models import CaseRow, EvidenceRow, RunRow
+from app.models import CaseRow, EvidencePageRow, EvidenceRow, RunRow
 from app.services import activity, storage
 from app.services.evidence import exif, sniff, strip, text
 
@@ -70,7 +70,7 @@ class Upload:
 class _Processed:
     metadata: dict[str, Any] = field(default_factory=exif.NO_META.as_dict)
     stripped_sha256: str | None = None
-    text_pages: list[dict[str, str]] | None = None
+    pages: text.Pages = field(default_factory=list)  # becomes evidence_page rows
     processing: str = "done"
     error: str | None = None
 
@@ -134,7 +134,7 @@ def ingest(
 def model_safe_blob(row: EvidenceRow) -> str | None:
     """The only stored bytes of a photo that may be sent to the model: the stripped copy.
     Never `row.sha256` (the original keeps its EXIF and GPS). Documents go to the model as
-    `row.text_pages`, never as files."""
+    their `evidence_page` rows, never as files."""
     return row.stripped_sha256
 
 
@@ -176,11 +176,11 @@ def _process_unchecked(data: bytes, mime: str) -> _Processed:
         pdf = text.read_pdf(data)
         return _Processed(
             metadata={**exif.NO_META.as_dict(), "software": pdf.software},
-            text_pages=pdf.pages,
+            pages=pdf.pages,
             error=None if pdf.complete else "Only part of the text could be extracted.",
         )
     if mime == sniff.TEXT:
-        return _Processed(text_pages=text.read_txt(data))
+        return _Processed(pages=text.read_txt(data))
     with Image.open(io.BytesIO(data)) as img:
         meta = exif.read_meta(img).as_dict()  # before strip_image changes the image
         clean, _ = strip.strip_image(img, mime)
@@ -209,6 +209,9 @@ def _insert(
         row = _new_row(case_id, position, item, uploaded_by, now)
         session.add(row)
         session.flush()
+        for n, page in enumerate(item.done.pages):
+            session.add(EvidencePageRow(evidence_id=row.id, locator=page["locator"],
+                                        case_id=case_id, position=n, text=page["text"]))
         activity.log(session, case_id, uploaded_by, actor_name,
                      f"Uploaded {row.label} ({row.filename})")
         added += 1
@@ -236,7 +239,6 @@ def _new_row(
         uploaded_by=uploaded_by, format_check=dict(_FORMAT[upload.mime]),
         metadata_=done.metadata, metadata_stripped_for_ai=done.processing == "done",
         processing=done.processing, error=done.error, stripped_sha256=done.stripped_sha256,
-        text_pages=done.text_pages,
     )
 
 
