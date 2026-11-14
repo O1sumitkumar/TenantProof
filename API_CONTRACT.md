@@ -68,7 +68,7 @@ When the agent needs something only a person knows, a step becomes `needs_input`
 
 - **Who and where.** The run comes from the path and must belong to the signed-in caseworker's org (404 otherwise, the same answer as an unknown id). The answer is trimmed; empty or over 500 characters is a 422 with the usual `{ detail: { reasons } }`.
 - **One answer per pause.** The first answer moves the run to `running` and the step resumes. A second answer for the same pause, or an answer to a run that is not `needs_input`, is a 409.
-- **A question can name a field.** The agent's question may carry a field key. Only `hearing_date` is defined. The key is never part of the `Run` response; the server keeps it with the paused step.
+- **A question can name a field.** The agent's question may carry a field key. Only `hearing_date` is defined. The key is not a field of `Run`; the server keeps it with the paused step. It still shows in the step's `tool_calls`, as part of the `ask_caseworker` call's input, like any tool input.
   - For `hearing_date`, the server parses the answer into a date: `YYYY-MM-DD`, or an English month name with day and year (`Nov 21, 2026`, `21 November 2026`). It must be a real calendar date from 2020-01-01 to 2099-12-31. It is stored as `Case.hearing_date` (ISO date) and logged in the activity log. The agent is told the date in the stored form.
   - An answer that does not parse is a 422 with a plain reason (`Enter the date like 2026-11-21 or Nov 21, 2026`). The run stays paused and the same question can be answered again.
   - For any other key, or none, the answer is kept as text and goes only to the agent. It is not written to the case.
