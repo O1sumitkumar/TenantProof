@@ -6,7 +6,7 @@ routers validate them through the Pydantic models in schemas.py."""
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Column, UniqueConstraint
+from sqlalchemy import JSON, Column, Index, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -96,6 +96,36 @@ class EvidenceRow(SQLModel, table=True):
     metadata_stripped_for_ai: bool = False
     processing: str = "done"
     error: str | None = None
+
+
+class EvidencePageRow(SQLModel, table=True):
+    """Stripped text of one evidence item, one row per locator ("page 1", "message 3"): what the
+    agent's read_evidence serves and the verifier matches excerpts against. Written by ingest
+    (PDF text per page, message lines), never from unstripped files. Deleting the evidence or
+    the case deletes its pages."""
+
+    __tablename__ = "evidence_page"
+    evidence_id: str = Field(foreign_key="evidence.id", primary_key=True, ondelete="CASCADE")
+    locator: str = Field(primary_key=True)
+    case_id: str = Field(foreign_key="tenant_case.id", index=True, ondelete="CASCADE")
+    position: int = 0
+    text: str
+
+
+class EvidenceFactRow(SQLModel, table=True):
+    """One fact the extract step pulled from an evidence item, with its locator. Cached by
+    (sha256 of the original bytes, prompt_version): unchanged evidence is not extracted twice."""
+
+    __tablename__ = "evidence_fact"
+    __table_args__ = (Index("ix_evidence_fact_cache", "sha256", "prompt_version"),)
+    id: str = Field(primary_key=True)
+    case_id: str = Field(foreign_key="tenant_case.id", index=True, ondelete="CASCADE")
+    evidence_id: str = Field(foreign_key="evidence.id", index=True, ondelete="CASCADE")
+    sha256: str
+    prompt_version: str
+    locator: str
+    text: str
+    position: int = 0
 
 
 class RunRow(SQLModel, table=True):
