@@ -23,7 +23,7 @@ from app.routers import (
     sources,
     timeline,
 )
-from app.services.evidence.http import refuse_oversized_upload
+from app.services.evidence.http import UploadBodyLimit
 
 app = FastAPI(title="TenantProof API", version="0.1.0")
 
@@ -46,7 +46,7 @@ async def check_origin(request: Request, call_next):
     return await call_next(request)
 
 
-api.middleware("http")(refuse_oversized_upload)  # WS1: before the multipart body is read
+api.add_middleware(UploadBodyLimit)  # WS1: caps upload bodies before FastAPI reads them
 
 for module in (
     auth, me, cases, package, evidence, runs, timeline, gaps, sources, form, activity, intake

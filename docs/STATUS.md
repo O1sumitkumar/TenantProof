@@ -21,7 +21,16 @@ Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to 
 
 ## In progress
 
-Nothing on `dev`. Workstreams WS1 to WS5 (table below) are unassigned.
+Open draft PRs into `dev` (2026-11-12). Merge order for the evidence work: #6, then #7, then #8.
+
+| PR | Workstream | What | Depends on |
+|---|---|---|---|
+| #5 | WS3 | Tool bodies, agent loop, step runner | none (reads text through `EvidenceTextStore`) |
+| #6 | shared (`schema:`) | `evidence_page`, `evidence_fact` tables | none |
+| #7 | shared (`schema:`) | `EvidenceRow.stripped_sha256`, unique `(case_id, sha256)`, upload settings | #6 |
+| #8 | WS1 | Uploads, type check, metadata, stripped copy, `evidence_page` rows, evidence in the zip | #7 |
+
+Issue #4 tracks WS3 follow-ups from the PR #2 review. WS2, WS4 and WS5 are unassigned.
 
 ## Known issues
 

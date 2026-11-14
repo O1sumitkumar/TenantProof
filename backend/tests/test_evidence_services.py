@@ -2,6 +2,9 @@
 EXIF reading, metadata stripping and text extraction. Every image and PDF is built here."""
 
 import io
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 from fpdf import FPDF
@@ -121,7 +124,9 @@ def test_sniff_other_ftyp_brand_is_not_heic():
         b"\x00\x01\x02\x03",
         b"control \x07 bell",
         b"\x7f delete",
-        b"\xff\xfe not valid utf-8",
+        b"\xc3\x28 not valid utf-8 or gb18030",
+        b"\xfe\xff\xe0\x00\xe0\x01\xe0\x02",  # UTF-16 BOM, then private-use code units
+        b"\x84\x31\xa4\x39" * 4,  # GB18030 four-byte codes past the BMP's assigned range
         b"\x7fELF\x02\x01\x01",
     ],
 )
@@ -451,3 +456,149 @@ def test_camera_apps_and_firmware_are_not_reported_as_editing_software(value):
 ])
 def test_editors_are_reported_as_software(value):
     assert _software_of(value) == value
+
+
+# --- read_pdf_isolated: a child process with a hard time limit ------------------------------
+
+
+def test_read_pdf_isolated_returns_what_read_pdf_returns():
+    data = pdf_bytes(["Notice of entry", "Second page"], producer="Acme Scanner 3")
+    assert text.read_pdf_isolated(data) == text.read_pdf(data)
+
+
+def test_read_pdf_isolated_reports_a_parser_error_as_value_error():
+    with pytest.raises(ValueError):
+        text.read_pdf_isolated(b"%PDF-1.7 this is not a pdf")
+
+
+def test_read_pdf_isolated_kills_the_child_at_the_hard_limit(monkeypatch):
+    """A child that can't answer in time is killed and reported, never waited on. A limit
+    shorter than starting Python stands in for a page that never finishes."""
+    started = []
+    real = text.multiprocessing.get_context
+
+    def recording_context(method):
+        ctx = real(method)
+        process = ctx.Process
+
+        def make(*args, **kwargs):
+            proc = process(*args, **kwargs)
+            started.append(proc)
+            return proc
+
+        monkeypatch.setattr(ctx, "Process", make)
+        return ctx
+
+    monkeypatch.setattr(text.multiprocessing, "get_context", recording_context)
+    with pytest.raises(text.PdfTimeout):
+        text.read_pdf_isolated(pdf_bytes(["page"]), timeout=0.001)
+    [proc] = started
+    assert not proc.is_alive()
+    assert proc.exitcode is not None and proc.exitcode != 0
+
+
+# --- text encodings: UTF-8, UTF-16 with a BOM, GBK / GB18030 ---------------------------------
+
+CHAT = "房东：明天来修\nTenant: the ceiling still leaks\n"
+
+
+@pytest.mark.parametrize("data", [
+    CHAT.encode("utf-8"),
+    CHAT.encode("utf-8-sig"),
+    CHAT.encode("utf-16"),  # with a BOM, as Windows "Unicode" exports
+    b"\xfe\xff" + CHAT.encode("utf-16-be"),
+    CHAT.encode("gbk"),
+    CHAT.encode("gb18030"),
+])
+def test_text_in_common_chat_export_encodings_is_accepted_and_read(data):
+    assert sniff.sniff(data) == sniff.TEXT
+    assert text.read_txt(data) == [
+        {"locator": "message 1", "text": "房东：明天来修"},
+        {"locator": "message 2", "text": "Tenant: the ceiling still leaks"},
+    ]
+
+
+def test_utf16_without_a_bom_is_not_text():
+    assert sniff.sniff("hello".encode("utf-16-le")) is None  # NUL bytes
+
+
+@pytest.mark.parametrize("data", [
+    # Each of these also decodes as GBK, into Chinese characters, and would be filed garbled.
+    "Landlord: I’ll send someone Monday, don’t worry".encode("cp1252"),
+    "Le propriétaire viendra demain, après le déjeuner".encode("cp1252"),
+    "大家さんに連絡しました".encode("shift_jis"),
+])
+def test_legacy_non_chinese_encodings_are_refused_not_read_as_gbk(data):
+    assert sniff.sniff(data) is None
+
+
+def test_a_utf16_chat_with_emoji_newer_than_pythons_unicode_tables_is_text():
+    chat = "Tenant: thanks \U0001fae9\n"  # U+1FAE9, Unicode 16: unassigned to Python 3.12
+    assert sniff.sniff(chat.encode("utf-16")) == sniff.TEXT
+
+
+# --- UploadBodyLimit, at the ASGI level (TestClient sends a chunked body as one message) -----
+
+
+def _run_limited(chunks: list[bytes], limit: int, monkeypatch) -> tuple[list[dict], int, bytes]:
+    """Send `chunks` through UploadBodyLimit to an app that reads the whole body, then
+    answers 200. Returns the messages sent, how many chunks were read, and what the app got."""
+    import asyncio
+
+    from app.services.evidence import http
+
+    monkeypatch.setattr(http, "body_limit", lambda: limit)
+    pulled = 0
+    seen = bytearray()
+    sent: list[dict] = []
+
+    async def receive():
+        nonlocal pulled
+        pulled += 1
+        return {"type": "http.request", "body": chunks[pulled - 1],
+                "more_body": pulled < len(chunks)}
+
+    async def send(message):
+        sent.append(message)
+
+    async def app(scope, receive, send):
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                await send({"type": "http.response.start", "status": 400, "headers": []})
+                await send({"type": "http.response.body", "body": b"client left"})
+                return
+            seen.extend(message["body"])
+            if not message.get("more_body"):
+                break
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    scope = {"type": "http", "method": "POST", "path": "/api/intake/t/files", "headers": []}
+    asyncio.run(http.UploadBodyLimit(app)(scope, receive, send))
+    return sent, pulled, bytes(seen)
+
+
+def test_upload_limit_counts_across_chunks_and_stops_reading_at_the_limit(monkeypatch):
+    sent, pulled, _ = _run_limited([b"a" * 40] * 10, limit=100, monkeypatch=monkeypatch)
+    statuses = [m["status"] for m in sent if m["type"] == "http.response.start"]
+    assert statuses == [413]  # the app's own 400 is replaced, and only one answer goes out
+    assert pulled == 3  # 120 bytes > 100: nothing read after that
+
+
+def test_upload_limit_passes_a_body_within_the_limit_through(monkeypatch):
+    sent, pulled, seen = _run_limited([b"a" * 40] * 2, limit=100, monkeypatch=monkeypatch)
+    assert [m["status"] for m in sent if m["type"] == "http.response.start"] == [200]
+    assert pulled == 2 and seen == b"a" * 80
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no setrlimit")
+def test_pdf_child_limits_memory_and_cpu():
+    probe = ("import resource; from app.services.evidence import text; "
+             "text.limit_child_resources(); "
+             "print(resource.getrlimit(resource.RLIMIT_AS)[0], "
+             "resource.getrlimit(resource.RLIMIT_CPU)[0])")
+    out = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True,
+                         check=True, cwd=Path(__file__).resolve().parent.parent).stdout.split()
+    assert int(out[0]) <= text.PDF_CHILD_MEMORY
+    assert int(out[1]) <= int(text.PDF_HARD_SECONDS) + 5

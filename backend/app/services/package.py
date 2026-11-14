@@ -142,13 +142,18 @@ def evidence_files(ev: EvidenceRow) -> list[EvidenceFile]:
 
 
 def _rendition(ev: EvidenceRow, stem: str) -> EvidenceFile | None:
+    if ev.processing == "failed":
+        return None  # couldn't be read at ingest (corrupt, or over the pixel limit): don't decode
     try:
         if ev.mime == sniff.HEIC:
             data = heic_to_jpeg(storage.read(ev.sha256))
             return EvidenceFile(ev.label, f"{stem}.jpg", _sha(data),
                                 f"JPG made from the HEIC original ({ev.filename})", data)
         if ev.mime == sniff.TEXT:
-            data = text_to_pdf(ev, storage.read(ev.sha256).decode("utf-8-sig"))
+            decoded = sniff.decode_text(storage.read(ev.sha256))
+            if decoded is None:  # not reachable for a file the type check accepted
+                return None
+            data = text_to_pdf(ev, decoded)
             return EvidenceFile(ev.label, f"{stem}.pdf", _sha(data),
                                 f"PDF made from the text file ({ev.filename})", data)
     except Exception as exc:  # the original is still filed; a missing copy must not block

@@ -166,6 +166,9 @@ def _process(data: bytes, mime: str) -> _Processed:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             return _process_unchecked(data, mime)
+    except text.PdfTimeout:
+        log.warning("evidence processing timed out for %s", mime)
+        return _Processed(processing="failed", error="Reading the text took too long.")
     except Exception as exc:  # any decoder error: keep the original, flag it, never fail
         log.warning("evidence processing failed for %s: %s", mime, type(exc).__name__)
         return _Processed(processing="failed", error="This file could not be read.")
@@ -173,7 +176,7 @@ def _process(data: bytes, mime: str) -> _Processed:
 
 def _process_unchecked(data: bytes, mime: str) -> _Processed:
     if mime == sniff.PDF:
-        pdf = text.read_pdf(data)
+        pdf = text.read_pdf_isolated(data)  # a child process with a hard time limit
         return _Processed(
             metadata={**exif.NO_META.as_dict(), "software": pdf.software},
             pages=pdf.pages,
@@ -236,10 +239,26 @@ def _new_row(
         id=f"ev_{uuid.uuid4().hex[:16]}", case_id=case_id, position=position,
         label=f"E-{position + 1:02d}", filename=upload.filename, kind=_KIND[upload.mime],
         mime=upload.mime, size_bytes=upload.size, sha256=item.sha256, received_at=now,
-        uploaded_by=uploaded_by, format_check=dict(_FORMAT[upload.mime]),
+        uploaded_by=uploaded_by, format_check=_format_check(upload.mime, done.processing),
         metadata_=done.metadata, metadata_stripped_for_ai=done.processing == "done",
         processing=done.processing, error=done.error, stripped_sha256=done.stripped_sha256,
     )
+
+
+_NO_COPY = {
+    sniff.HEIC: "HEIC isn't an accepted format, and this file couldn't be read, so the package "
+                "can't add a JPG copy. Ask for the photo as a JPG.",
+    sniff.TEXT: "Text messages must be submitted digitally or printed. This file couldn't be "
+                "read, so the package can't add a PDF copy.",
+}
+
+
+def _format_check(mime: str, processing: str) -> dict[str, Any]:
+    """The package makes no copy of a file that failed (package._rendition), so don't promise
+    one: HEIC and TXT then aren't in a format the tribunal takes."""
+    if processing == "failed" and mime in _NO_COPY:
+        return {"accepted": False, "action": "none", "note": _NO_COPY[mime]}
+    return dict(_FORMAT[mime])
 
 
 def _after_new_evidence(
@@ -252,5 +271,12 @@ def _after_new_evidence(
     if uploaded_by == "tenant":
         case.intake_status = "files_received"
         case.intake_last_upload_at = now
+        if case.tenant_attested_genuine:
+            # The confirmation covered the files sent before it. The intake page sends the
+            # files and then the confirmation again; until then the package can't be built.
+            case.tenant_attested_genuine = False
+            case.tenant_attested_at = None
+            activity.log(session, case.id, "tenant", case.tenant_name,
+                         "New files arrived after the confirmation, so it must be given again")
     case.updated_at = now
     session.add(case)

@@ -354,6 +354,21 @@ def test_corrupt_pdf_is_kept_as_failed(fresh_db, client, session):
     assert pages_of(session, evidence_rows(session)[-1]) == []
 
 
+def test_a_pdf_that_runs_past_the_hard_limit_is_kept_as_failed(
+    fresh_db, client, session, monkeypatch
+):
+    from app.services.evidence import text
+
+    monkeypatch.setattr(text, "PDF_HARD_SECONDS", 0.001)  # the child can't even start in time
+    data = pdf_with_text(["Notice of entry"])
+    [item] = upload(client, ("notice.pdf", data, "application/pdf")).json()
+    assert item["processing"] == "failed"
+    [row] = [r for r in evidence_rows(session) if r.id == item["id"]]
+    assert row.error == "Reading the text took too long."
+    assert storage.read(row.sha256) == data  # the original is still kept
+    assert pages_of(session, row) == []
+
+
 def test_pdf_upload_writes_one_evidence_page_per_page(fresh_db, client, session):
     data = pdf_with_text(["Leak in the kitchen", "Landlord was told on Aug 20"])
 
@@ -519,10 +534,13 @@ def test_tenant_upload_records_files_and_marks_files_received(
     after = intake(client)
     assert after["status"] == "files_received"
     assert after["last_upload_at"] is not None
-    acts = activity(client)[:2]
-    assert [a["actor"] for a in acts] == ["tenant", "tenant"]
+    assert after["tenant_attested_genuine"] is False  # new files: the seeded confirmation lapses
+    acts = activity(client)[:3]
+    assert [a["actor"] for a in acts] == ["tenant", "tenant", "tenant"]
     assert {a["actor_name"] for a in acts} == {tenant_name}
-    assert [a["action"] for a in acts] == ["Uploaded E-09 (two.jpg)", "Uploaded E-08 (one.jpg)"]
+    assert [a["action"] for a in acts] == [
+        "New files arrived after the confirmation, so it must be given again",
+        "Uploaded E-09 (two.jpg)", "Uploaded E-08 (one.jpg)"]
     assert client.get(f"/api/cases/{CASE}/runs/latest").json()["stale"] is True
 
 
@@ -698,6 +716,7 @@ def test_a_tenant_uploaded_text_file_is_in_the_package_as_txt(
     chat = b"Tenant: the ceiling leaks\n"
     assert anon_client.post(files_url(token), files=files(
         ("chat.txt", chat, "text/plain"))).status_code == 200
+    tenant_confirms(anon_client, token)  # the intake page sends files, then the confirmation
     make_ready(client)
     client.post(BUILD, json=ATTESTATIONS)
 
@@ -707,6 +726,68 @@ def test_a_tenant_uploaded_text_file_is_in_the_package_as_txt(
     manifest = json.loads(entries["manifest.json"])
     item = next(e for e in manifest["evidence"] if e["label"] == "E-08")
     assert item["rendition"]["path"] == "evidence/E-08.pdf"
+
+
+def test_a_gbk_chat_export_is_accepted_read_and_filed_as_is(fresh_db, client, session):
+    chat = "房东：明天来修\nTenant: OK\n"  # landlord: fixing it tomorrow
+    data = chat.encode("gbk")
+    [item] = upload(client, ("wechat.txt", data, "text/plain")).json()
+    assert item["mime"] == "text/plain" and item["processing"] == "done"
+    [row] = [r for r in evidence_rows(session) if r.id == item["id"]]
+    assert storage.read(row.sha256) == data  # the original bytes, not re-encoded
+    assert pages_of(session, row) == [("message 1", "房东：明天来修"),
+                                      ("message 2", "Tenant: OK")]
+
+
+def test_a_gbk_chat_export_gets_a_readable_pdf_copy_in_the_package(fresh_db, client):
+    from pypdf import PdfReader
+
+    data = "房东：明天来修\nTenant: OK\n".encode("gbk")
+    upload(client, ("wechat.txt", data, "text/plain"))
+    make_ready(client)
+    client.post(BUILD, json=ATTESTATIONS)
+
+    entries = unzip(client.get(DOWNLOAD).content)
+    assert entries["evidence/E-08.txt"] == data
+    copy = PdfReader(io.BytesIO(entries["evidence/E-08.pdf"]))
+    assert "房东" in "".join(page.extract_text() for page in copy.pages)
+    manifest = json.loads(entries["manifest.json"])
+    item = next(e for e in manifest["evidence"] if e["label"] == "E-08")
+    assert item["rendition"]["path"] == "evidence/E-08.pdf"
+
+
+def tenant_confirms(anon_client, token: str) -> None:
+    r = anon_client.post(f"/api/intake/{token}/submit",
+                         json={"attest_genuine": True, "consent_share": True})
+    assert r.status_code == 200, r.text
+
+
+def test_new_tenant_files_clear_an_earlier_confirmation_until_it_is_given_again(
+    fresh_db, token, anon_client, client
+):
+    assert intake(client)["tenant_attested_genuine"] is True  # the seeded case is confirmed
+    make_ready(client)
+    assert anon_client.post(files_url(token), files=files(
+        ("later.txt", b"Tenant: it leaked again\n", "text/plain"))).status_code == 200
+
+    after = intake(client)
+    assert after["tenant_attested_genuine"] is False and after["tenant_attested_at"] is None
+    assert client.post(BUILD, json=ATTESTATIONS).status_code == 409
+
+    tenant_confirms(anon_client, token)
+    assert intake(client)["tenant_attested_genuine"] is True
+    assert client.post(BUILD, json=ATTESTATIONS).status_code == 200
+
+
+def test_caseworker_files_and_tenant_duplicates_keep_the_confirmation(
+    fresh_db, token, anon_client, client
+):
+    note = ("note.txt", b"Caseworker: called the landlord\n", "text/plain")
+    assert upload(client, note).status_code == 200
+    assert intake(client)["tenant_attested_genuine"] is True
+    # The tenant re-sending a file the case already has adds nothing, so nothing to confirm.
+    assert anon_client.post(files_url(token), files=files(note)).status_code == 200
+    assert intake(client)["tenant_attested_genuine"] is True
 
 
 # --- HEIC (iPhone default) ----------------------------------------------------------------
@@ -771,6 +852,35 @@ def test_heic_original_goes_in_the_package_as_heic(fresh_db, client):
     assert listed["evidence/E-08.jpg"]["sha256"] == sha(entries["evidence/E-08.jpg"])
 
 
+
+def test_a_heic_that_failed_processing_is_filed_without_a_jpg_copy(
+    fresh_db, client, session, monkeypatch
+):
+    """Over the pixel limit at ingest: the original is kept and filed, but the package must
+    not decode it at full size to make the JPG copy."""
+    from app.services import package
+    from app.services.evidence import strip
+
+    monkeypatch.setattr(strip, "MAX_PIXELS", 100)  # the 64 x 32 test HEIC is now "too big"
+    original = heic_with_gps()
+    [item] = upload(client, ("IMG_4412.HEIC", original, "image/heic")).json()
+    assert item["processing"] == "failed"
+    # No copy will be made, so none is promised: the caseworker is told to ask for a JPG.
+    assert item["format_check"]["accepted"] is False
+    assert item["format_check"]["action"] == "none"
+    assert "Ask for the photo as a JPG" in item["format_check"]["note"]
+    decoded = []
+    monkeypatch.setattr(package, "heic_to_jpeg", lambda data: decoded.append(data) or b"")
+    make_ready(client)
+
+    client.post(BUILD, json=ATTESTATIONS)
+
+    entries = unzip(client.get(DOWNLOAD).content)
+    assert entries["evidence/E-08.heic"] == original
+    assert "evidence/E-08.jpg" not in entries
+    assert decoded == []
+
+
 # --- request limits -----------------------------------------------------------------------
 
 
@@ -788,3 +898,21 @@ def test_a_declared_body_over_the_limit_is_refused_before_it_is_read(fresh_db, c
             "content-type": "multipart/form-data; boundary=x", "content-length": huge})
         assert r.status_code == 413, url
         assert r.json() == {"detail": {"reasons": ["The upload is too large"]}}
+
+
+def test_a_chunked_body_over_the_limit_is_stopped_before_the_token_check(
+    fresh_db, client, monkeypatch
+):
+    """No Content-Length: the body is counted as it arrives. An unknown token still gets
+    413, not 404, because the token is only checked after the body has been read."""
+    monkeypatch.setattr(get_settings(), "max_upload_bytes", 2048)
+
+    def body():
+        yield b"--x\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\n\r\n"
+        for _ in range(64):  # 4 MB in all, well over 20 x 2 KB + 1 MB of slack
+            yield b"a" * 65536
+
+    r = client.post("/api/intake/not-a-real-token/files", content=body(),
+                    headers={"content-type": "multipart/form-data; boundary=x"})
+    assert r.status_code == 413
+    assert r.json() == {"detail": {"reasons": ["The upload is too large"]}}

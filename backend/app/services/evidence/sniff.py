@@ -4,6 +4,7 @@ Pure Python on purpose: python-magic needs the native libmagic library, which Wi
 don't have without a system-wide install (AGENTS.md forbids those). Five allowed types need
 only their signatures."""
 
+import unicodedata
 from typing import BinaryIO
 
 JPEG = "image/jpeg"
@@ -51,11 +52,52 @@ def _by_signature(head: bytes) -> str | None:
 
 
 def _is_text(data: bytes) -> bool:
-    """UTF-8 text with no binary control characters. Empty files are not evidence."""
+    return decode_text(data) is not None
+
+
+# Byte-order marks: UTF-8 from some editors, UTF-16 from Windows "Unicode" exports.
+_BOMS = ((b"\xef\xbb\xbf", "utf-8-sig"), (b"\xff\xfe", "utf-16"), (b"\xfe\xff", "utf-16"))
+_LENIENT = ("utf-16", "gb18030")
+
+
+def decode_text(data: bytes) -> str | None:
+    """A text file's contents, or None if it isn't text. UTF-16 only with a byte-order mark;
+    without one, UTF-8, then GB18030 (GBK, which Chinese chat exports often use).
+    Binary control characters mean it isn't text, whatever decoded. UTF-16 and GB18030 decode
+    almost any bytes, so for them private-use and unassigned characters (what binary data
+    turns into) mean it isn't text either. Empty files are not evidence.
+
+    The GB18030 result must also fit GB2312 (simplified Chinese): Windows-1252 English or
+    French ("don't" with a curly apostrophe, "propriétaire") and Shift-JIS decode as GBK too,
+    into Chinese characters, and would be filed garbled. Those are refused (415, re-save as
+    UTF-8), as are GBK files with characters outside GB2312. Korean EUC-KR still passes."""
     if not data:
-        return False
-    try:
-        text = data.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        return False
-    return not any(ord(c) < 0x20 and ord(c) not in _TEXT_CONTROLS or c == "\x7f" for c in text)
+        return None
+    codecs = next(((codec,) for bom, codec in _BOMS if data.startswith(bom)),
+                  ("utf-8", "gb18030"))
+    for codec in codecs:
+        try:
+            text = data.decode(codec)
+            if codec == "gb18030":
+                text.encode("gb2312")
+        except UnicodeError:
+            continue
+        return text if text and _plain(text, codec in _LENIENT) else None
+    return None
+
+
+def _plain(text: str, lenient_codec: bool) -> bool:
+    for c in text:
+        if ord(c) < 0x20 and ord(c) not in _TEXT_CONTROLS or c == "\x7f":
+            return False
+        if lenient_codec and ord(c) > 0x7F and _binary_like(c):
+            return False
+    return True
+
+
+def _binary_like(c: str) -> bool:
+    """Private use and surrogates anywhere; unassigned only in the BMP, since emoji newer than
+    Python's Unicode tables are unassigned to it, and binary data almost never decodes past
+    the BMP."""
+    category = unicodedata.category(c)
+    return category in ("Co", "Cs") or (category == "Cn" and ord(c) <= 0xFFFF)
