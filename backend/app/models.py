@@ -79,7 +79,11 @@ class IntakeTokenRow(SQLModel, table=True):
 
 
 class EvidenceRow(SQLModel, table=True):
+    """`sha256` is of the original bytes and is also its storage key (chain of custody).
+    The same file uploaded twice to one case is one row."""
+
     __tablename__ = "evidence"
+    __table_args__ = (UniqueConstraint("case_id", "sha256"),)
     id: str = Field(primary_key=True)
     case_id: str = Field(foreign_key="tenant_case.id", index=True)
     position: int = 0
@@ -96,6 +100,9 @@ class EvidenceRow(SQLModel, table=True):
     metadata_stripped_for_ai: bool = False
     processing: str = "done"
     error: str | None = None
+    # Storage key of the copy with EXIF/GPS removed (images only). Only this copy may reach
+    # the model; null when there is nothing to strip or stripping failed.
+    stripped_sha256: str | None = None
 
 
 class EvidencePageRow(SQLModel, table=True):

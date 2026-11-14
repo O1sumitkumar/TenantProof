@@ -19,7 +19,10 @@ class Settings(BaseSettings):
     rate_limit_storage_uri: str | None = None
     login_rate_limit: str = "10/minute"
     submit_rate_limit: str = "20/minute"
-    # Content-addressed blob store (package zips now, evidence in M2).
+    # Evidence uploads: per-file size cap, and a rate limit per client IP on both upload routes.
+    max_upload_bytes: int = 25 * 1024 * 1024
+    upload_rate_limit: str = "30/minute"
+    # Content-addressed blob store: package zips, original evidence files and stripped copies.
     storage_dir: str = "./data/storage"
     web_dir: str = "../web"
     public_base_url: str = "http://localhost:8000"
