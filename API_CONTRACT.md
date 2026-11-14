@@ -72,7 +72,7 @@ When the agent needs something only a person knows, a step becomes `needs_input`
   - For `hearing_date`, the server parses the answer into a date: `YYYY-MM-DD`, or an English month name with day and year (`Nov 21, 2026`, `21 November 2026`). It must be a real calendar date from 2020-01-01 to 2099-12-31. It is stored as `Case.hearing_date` (ISO date) and logged in the activity log. The agent is told the date in the stored form.
   - An answer that does not parse is a 422 with a plain reason (`Enter the date like 2026-11-21 or Nov 21, 2026`). The run stays paused and the same question can be answered again.
   - For any other key, or none, the answer is kept as text and goes only to the agent. It is not written to the case.
-- **Not in this endpoint.** Setting `hearing_date` does not change `Case.stage` or `next_deadline`; a later change derives those.
+- **What setting the date changes.** Besides `Case.hearing_date`, the server sets `Case.stage` to `hearing_scheduled` and `Case.next_deadline` to `{ date: the hearing date minus 5 days, label: "Evidence due · hearing <hearing date>" }` (evidence is due 5 days before the hearing, Evidence Policy #42; the label uses the ISO date like the seeded cases). The caseload priority then follows the existing rules. The activity entry names both dates. An answer to a question with any other key changes nothing on the case.
 
 ### Tenant intake (no account; access by link token)
 
