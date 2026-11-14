@@ -2,6 +2,7 @@
 EXIF reading, metadata stripping and text extraction. Every image and PDF is built here."""
 
 import io
+import multiprocessing
 import subprocess
 import sys
 from pathlib import Path
@@ -600,5 +601,27 @@ def test_pdf_child_limits_memory_and_cpu():
              "resource.getrlimit(resource.RLIMIT_CPU)[0])")
     out = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True,
                          check=True, cwd=Path(__file__).resolve().parent.parent).stdout.split()
-    assert int(out[0]) <= text.PDF_CHILD_MEMORY
+    if sys.platform.startswith("linux"):  # macOS refuses a limit on the address space
+        assert int(out[0]) <= text.PDF_CHILD_MEMORY
     assert int(out[1]) <= int(text.PDF_HARD_SECONDS) + 5
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no setrlimit")
+@pytest.mark.parametrize("error", [OSError("not permitted"), ValueError("current limit exceeds")])
+def test_pdf_child_still_reads_the_pdf_when_the_os_refuses_the_limits(monkeypatch, error):
+    """macOS can refuse setrlimit(RLIMIT_AS). The child entry point runs here, in the test
+    process, because read_pdf_isolated starts its child in a separate fork-server process that a
+    patch here cannot reach. A refused limit is skipped and the PDF is still read."""
+    import resource
+
+    def refuse(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(resource, "setrlimit", refuse)
+    data = pdf_bytes(["Notice of entry"])
+    receive, send = multiprocessing.Pipe(duplex=False)
+    text._read_pdf_child(data, send)
+    ok, value = receive.recv()
+    assert ok is True and value == text.read_pdf(data)
+    assert value.pages and "Notice of entry" in value.pages[0]["text"]
+    assert text.read_pdf_isolated(data) == value  # and the real child path still works
