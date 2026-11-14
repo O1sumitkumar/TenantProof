@@ -50,6 +50,7 @@ v0.1 (individual-tenant version) is kept as `API_CONTRACT-v1-individual.md`.
 | POST | `/cases/{case_id}/runs` | `Run` | Starts analysis, returns immediately with `status: "running"`. |
 | GET | `/cases/{case_id}/runs/latest` | `Run` | 404 if none. |
 | GET | `/runs/{run_id}` | `Run` | UI polls every ~1 s until `status` is not `running`. |
+| POST | `/runs/{run_id}/answer` | `Run` | Body: `{ answer }`, a string of 1 to 500 characters. Resumes a run paused by `ask_caseworker` and returns it with `status: "running"`. 404 for an unknown run or another org's run, 409 when the run is not `needs_input` or this pause was already answered, 422 `{ detail: { reasons } }` when the answer is not a valid date for a date question (the run stays paused). See "Answering a paused run". |
 | GET | `/cases/{case_id}/timeline` | `TimelineEvent[]` | Sorted by date. |
 | PATCH | `/timeline/{event_id}` | `TimelineEvent` | Body: `{ review_status, title?, description?, date?, caseworker_note? }` |
 | GET | `/cases/{case_id}/gaps` | `Gap[]` | |
@@ -60,6 +61,18 @@ v0.1 (individual-tenant version) is kept as `API_CONTRACT-v1-individual.md`.
 | PATCH | `/form-draft/fields/{key}` | `FormField` | Body: `{ value }` → `user_entered`. |
 | GET | `/cases/{case_id}/activity` | `ActivityEntry[]` | Newest first. |
 | POST | `/cases/{case_id}/package` | `Package` | Body: `{ attestations }`. 409 if blocking gaps open or tenant hasn't attested. |
+
+### Answering a paused run
+
+When the agent needs something only a person knows, a step becomes `needs_input`, the run's `status` becomes `needs_review`, and the step's `summary` holds the question for the caseworker. Nothing else runs until `POST /runs/{run_id}/answer`.
+
+- **Who and where.** The run comes from the path and must belong to the signed-in caseworker's org (404 otherwise, the same answer as an unknown id). The answer is trimmed; empty or over 500 characters is a 422 with the usual `{ detail: { reasons } }`.
+- **One answer per pause.** The first answer moves the run to `running` and the step resumes. A second answer for the same pause, or an answer to a run that is not `needs_input`, is a 409.
+- **A question can name a field.** The agent's question may carry a field key. Only `hearing_date` is defined. The key is never part of the `Run` response; the server keeps it with the paused step.
+  - For `hearing_date`, the server parses the answer into a date: `YYYY-MM-DD`, or an English month name with day and year (`Nov 21, 2026`, `21 November 2026`). It must be a real calendar date from 2020-01-01 to 2099-12-31. It is stored as `Case.hearing_date` (ISO date) and logged in the activity log. The agent is told the date in the stored form.
+  - An answer that does not parse is a 422 with a plain reason (`Enter the date like 2026-11-21 or Nov 21, 2026`). The run stays paused and the same question can be answered again.
+  - For any other key, or none, the answer is kept as text and goes only to the agent. It is not written to the case.
+- **Not in this endpoint.** Setting `hearing_date` does not change `Case.stage` or `next_deadline`; a later change derives those.
 
 ### Tenant intake (no account; access by link token)
 
@@ -140,7 +153,7 @@ type RunStep = {
   key: "ingest" | "extract" | "timeline" | "rules" | "gaps" | "draft";
   label: string;
   status: "pending" | "running" | "done" | "failed" | "needs_input";
-  summary: string | null;
+  summary: string | null;               // for `needs_input`: the question for the caseworker
   tool_calls: { tool: string; input: string; output: string }[];
 };
 type Run = { id: string; case_id: string; status: "running" | "needs_review" | "done" | "failed";
