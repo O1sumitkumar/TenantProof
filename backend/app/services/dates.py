@@ -2,6 +2,7 @@
 
 The model proposes date candidates; this module picks one and decides the flags."""
 
+import re
 from datetime import date
 
 from app.schemas import EventDate
@@ -59,3 +60,36 @@ def exif_matches(candidate: EventDate, captured_times: list[str]) -> bool:
         return False
     size = 10 if candidate.precision == "day" else 7
     return any(t[:size] == candidate.value for t in captured_times)
+
+
+# --------------------------------------------------------------------------- hearing date
+
+_MONTH_NAMES = (
+    ("january", "jan"), ("february", "feb"), ("march", "mar"), ("april", "apr"), ("may",),
+    ("june", "jun"), ("july", "jul"), ("august", "aug"), ("september", "sept", "sep"),
+    ("october", "oct"), ("november", "nov"), ("december", "dec"),
+)
+_MONTHS = {name: i for i, names in enumerate(_MONTH_NAMES, start=1) for name in names}
+HEARING_FIRST, HEARING_LAST = date(2020, 1, 1), date(2099, 12, 31)
+_ISO = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+_MONTH_FIRST = re.compile(r"^([a-z]{3,9})\.? (\d{1,2})(?:st|nd|rd|th)?,? (\d{4})$")
+_DAY_FIRST = re.compile(r"^(\d{1,2})(?:st|nd|rd|th)? ([a-z]{3,9})\.?,? (\d{4})$")
+
+
+def parse_hearing_date(text: str) -> date | None:
+    """A caseworker's typed hearing date: `2026-11-21`, `Nov 21, 2026` or `21 November 2026`
+    (English month names, any case). A real calendar date from 2020 to 2099, else None. No
+    relative dates ("next Friday") and no guessing between day and month."""
+    value = " ".join(text.lower().split())
+    try:
+        if m := _ISO.match(value):
+            parsed = date(int(m[1]), int(m[2]), int(m[3]))
+        elif m := _MONTH_FIRST.match(value):
+            parsed = date(int(m[3]), _MONTHS[m[1]], int(m[2]))
+        elif m := _DAY_FIRST.match(value):
+            parsed = date(int(m[3]), _MONTHS[m[2]], int(m[1]))
+        else:
+            return None
+    except (KeyError, ValueError):  # not a month name, or not a calendar date
+        return None
+    return parsed if HEARING_FIRST <= parsed <= HEARING_LAST else None

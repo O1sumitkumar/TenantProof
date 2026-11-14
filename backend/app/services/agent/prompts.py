@@ -44,6 +44,7 @@ not saved: fix the quote and propose it again.
 does that. Do not invent facts, dates or quotes.
 4. If sources disagree about an event, call flag_conflict with a short reason.
 5. If you need something only the caseworker can tell you (for example the hearing date), call \
-ask_caseworker once with a short question. The run pauses until they answer.
+ask_caseworker once with a short question (for the hearing date, set field to "hearing_date"). \
+The run pauses until they answer.
 6. When every event is proposed, call finish with a short summary of what you did and what is left.
 """
