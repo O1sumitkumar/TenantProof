@@ -4,7 +4,7 @@ refuse a second answer. FixtureProvider only, so nothing reaches the network."""
 import asyncio
 import json
 from collections.abc import Iterator
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from sqlmodel import Session, select
@@ -16,7 +16,7 @@ from app.routers import runs as runs_router
 from app.services.agent import llm, runner
 from app.services.agent import tools as t
 from app.services.agent.evidence_text import InMemoryTextStore
-from app.services.dates import parse_hearing_date
+from app.services.dates import evidence_deadline, parse_hearing_date
 from tests.agent_support import CASE, RecordingProvider, blocks, tool_use, turn
 
 URL = "/api/runs/{}/answer"
@@ -48,6 +48,13 @@ def resume() -> Iterator[RecordingProvider]:
     api.dependency_overrides[runs_router.provider_dep] = lambda: provider
     yield provider
     api.dependency_overrides.pop(runs_router.provider_dep, None)
+
+
+def case_row(session: Session) -> CaseRow:
+    session.expire_all()
+    case = session.get(CaseRow, CASE)
+    assert case is not None
+    return case
 
 
 def hearing(session: Session) -> str | None:
@@ -123,7 +130,7 @@ def test_a_hearing_date_is_saved_and_logged(
     assert client.post(URL.format(run.id), json={"answer": typed}).status_code == 200
     assert hearing(session) == "2026-11-21"
     lines = activity_lines(session)
-    assert "Set the hearing date to 2026-11-21" in lines
+    assert "Set the hearing date to 2026-11-21 (evidence due 2026-11-16)" in lines
     assert f"Answered the agent's question on {run.id}" in lines
 
 
@@ -132,11 +139,13 @@ def test_a_bad_date_is_422_changes_nothing_and_the_run_stays_paused(
 ) -> None:
     run = paused_run(session)
     before = activity_lines(session)
+    before_case = (case_row(session).stage, case_row(session).next_deadline)
     r = client.post(URL.format(run.id), json={"answer": "next Friday"})
     assert r.status_code == 422
     assert r.json()["detail"]["reasons"] == ["Enter the date like 2026-11-21 or Nov 21, 2026"]
     assert status_of(session, run.id) == ("needs_review", "needs_input")
     assert hearing(session) is None and activity_lines(session) == before
+    assert (case_row(session).stage, case_row(session).next_deadline) == before_case
     assert resume.requests == []
     # The same question can be answered again.
     assert client.post(URL.format(run.id), json={"answer": "Nov 21, 2026"}).status_code == 200
@@ -150,6 +159,7 @@ def test_a_question_without_a_field_keeps_the_answer_as_text_and_writes_nothing(
     run = paused_run(session, field=None)
     assert client.post(URL.format(run.id), json={"answer": "Not a date at all"}).status_code == 200
     assert hearing(session) is None
+    assert case_row(session).stage != "hearing_scheduled"
     block = next(b for b in blocks(resume.requests[0].messages[-1]) if b["tool_use_id"] == "u1")
     assert "Not a date at all" in block["content"]
     assert not any(line.startswith("Set the hearing date") for line in activity_lines(session))
@@ -194,6 +204,7 @@ def test_two_answers_that_race_for_one_pause_only_one_wins_and_only_it_writes(
     assert loser.status_code == 409
     assert loser.json()["detail"]["reasons"] == ["This question has already been answered"]
     assert hearing(session) == "2026-11-21"
+    assert case_row(session).next_deadline == evidence_deadline(date(2026, 11, 21))
     lines = activity_lines(session)
     assert sum(line.startswith("Set the hearing date") for line in lines) == 1
     assert sum(line.startswith("Answered the agent") for line in lines) == 1
@@ -273,3 +284,54 @@ def test_a_long_text_answer_is_422_and_the_limit_is_500_characters(
     assert client.post(URL.format(run.id), json={"answer": "x" * 501}).status_code == 422
     assert status_of(session, run.id) == ("needs_review", "needs_input")
     assert client.post(URL.format(run.id), json={"answer": "x" * 500}).status_code == 200
+
+
+# --------------------------------------------------------------------------- deadline
+
+
+def test_a_hearing_date_sets_the_stage_and_the_evidence_deadline(
+    fresh_db, client, session: Session, resume: RecordingProvider
+) -> None:
+    run = paused_run(session)
+    assert case_row(session).stage != "hearing_scheduled"
+    assert client.post(URL.format(run.id), json={"answer": "2026-11-21"}).status_code == 200
+    case = case_row(session)
+    assert case.stage == "hearing_scheduled"  # and the resumed run's stage refresh kept it
+    assert case.next_deadline == {
+        "date": "2026-11-16", "label": "Evidence due · hearing 2026-11-21"}
+
+
+def test_the_caseload_follows_the_new_deadline(
+    fresh_db, client, session: Session, resume: RecordingProvider
+) -> None:
+    """A hearing 8 days away puts the evidence deadline 3 days away: high priority, with that
+    reason. The demo case also has required items open, so a far hearing is still high for
+    that reason (the existing rule), but without a deadline in the reason."""
+    near = date.today() + timedelta(days=8)
+    run = paused_run(session)
+    client.post(URL.format(run.id), json={"answer": near.isoformat()})
+    [mine] = [c for c in client.get("/api/cases").json() if c["id"] == CASE]
+    assert mine["stage"] == "hearing_scheduled" and mine["priority"] == "high"
+    assert mine["next_deadline"]["date"] == (near - timedelta(days=5)).isoformat()
+    assert "Evidence due in 3 days" in mine["priority_reason"]
+
+
+def test_a_far_hearing_is_scheduled_without_a_deadline_warning(
+    fresh_db, client, session: Session, resume: RecordingProvider
+) -> None:
+    far = date.today() + timedelta(days=60)
+    run = paused_run(session)
+    client.post(URL.format(run.id), json={"answer": far.isoformat()})
+    [mine] = [c for c in client.get("/api/cases").json() if c["id"] == CASE]
+    assert mine["stage"] == "hearing_scheduled"
+    assert "Evidence due in" not in mine["priority_reason"]
+    assert "open with a hearing scheduled" in mine["priority_reason"]  # existing rule 2
+
+
+@pytest.mark.parametrize(("hearing_day", "due"), [
+    (date(2026, 11, 21), "2026-11-16"), (date(2026, 3, 3), "2026-02-26"),
+    (date(2026, 1, 3), "2025-12-29"), (date(2028, 3, 3), "2028-02-27"),
+])
+def test_evidence_is_due_five_days_before_the_hearing(hearing_day: date, due: str) -> None:
+    assert evidence_deadline(hearing_day) == {
+        "date": due, "label": f"Evidence due · hearing {hearing_day.isoformat()}"}

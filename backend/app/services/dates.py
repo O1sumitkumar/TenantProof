@@ -3,7 +3,7 @@
 The model proposes date candidates; this module picks one and decides the flags."""
 
 import re
-from datetime import date
+from datetime import date, timedelta
 
 from app.schemas import EventDate
 
@@ -93,3 +93,13 @@ def parse_hearing_date(text: str) -> date | None:
     except (KeyError, ValueError):  # not a month name, or not a calendar date
         return None
     return parsed if HEARING_FIRST <= parsed <= HEARING_LAST else None
+
+
+EVIDENCE_DAYS_BEFORE_HEARING = 5  # Evidence Policy #42
+
+
+def evidence_deadline(hearing: date) -> dict[str, str]:
+    """`Case.next_deadline` for a hearing: evidence is due 5 days before it. The label has the
+    ISO hearing date in it, like the seeded cases."""
+    due = hearing - timedelta(days=EVIDENCE_DAYS_BEFORE_HEARING)
+    return {"date": due.isoformat(), "label": f"Evidence due · hearing {hearing.isoformat()}"}

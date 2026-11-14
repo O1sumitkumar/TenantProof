@@ -14,7 +14,7 @@ from app.schemas import Run
 from app.services import activity
 from app.services.agent import llm, runner
 from app.services.agent.evidence_text import SqlTextStore
-from app.services.dates import parse_hearing_date
+from app.services.dates import evidence_deadline, parse_hearing_date
 from app.services.mappers import to_run
 
 router = APIRouter()
@@ -97,10 +97,14 @@ def answer_run(
     case = session.get(CaseRow, row.case_id)
     assert case is not None  # load_owned checked it
     if hearing is not None:
+        deadline = evidence_deadline(hearing)
         case.hearing_date = hearing.isoformat()
+        case.stage = "hearing_scheduled"  # compute_stage keeps it from here on
+        case.next_deadline = deadline  # what the caseload priority reads
         session.add(case)
         activity.log(session, case.id, "caseworker", user.name,
-                     f"Set the hearing date to {hearing.isoformat()}")
+                     f"Set the hearing date to {hearing.isoformat()} "
+                     f"(evidence due {deadline['date']})")
     activity.log(session, case.id, "caseworker", user.name,
                  f"Answered the agent's question on {row.id}")
     try:
