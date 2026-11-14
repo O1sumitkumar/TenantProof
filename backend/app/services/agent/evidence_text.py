@@ -1,12 +1,17 @@
 """Where the agent's tools get evidence text and extracted facts.
 
-Nothing in the database stores them yet (WS1 ingest writes the text, the extract step writes the
-facts), so the tools read through this protocol. Only stripped content is ever served: no EXIF,
-no GPS, never the original file. The real store comes with WS1 or a later `schema:` PR;
-`InMemoryTextStore` is for tests and for building the loop before then."""
+The tools read through the `EvidenceTextStore` protocol. `SqlTextStore` serves the
+`evidence_page` and `evidence_fact` tables (WS1 ingest writes the pages, the extract step writes
+the facts); `InMemoryTextStore` is for tests. Only stripped content is ever served: no EXIF,
+no GPS, never the original file. Every query filters on `case_id`, so an evidence id from
+another case answers with nothing, the same as an id that does not exist."""
 
 from dataclasses import dataclass, field
 from typing import Protocol
+
+from sqlmodel import Session, col, select
+
+from app.models import EvidenceFactRow, EvidencePageRow
 
 
 @dataclass(frozen=True)
@@ -50,3 +55,29 @@ class InMemoryTextStore:
 
     def facts(self, case_id: str) -> list[Fact]:
         return list(self._facts.get(case_id, []))
+
+
+class SqlTextStore:
+    """Reads the `evidence_page` and `evidence_fact` tables through the caller's session.
+    Read-only: it never writes. Pages come back in `position` order, facts in evidence
+    then `position` order, so the same rows always give the same answer."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def pages(self, case_id: str, evidence_id: str) -> list[Page]:
+        rows = self._session.exec(
+            select(EvidencePageRow)
+            .where(EvidencePageRow.case_id == case_id, EvidencePageRow.evidence_id == evidence_id)
+            .order_by(col(EvidencePageRow.position), col(EvidencePageRow.locator))
+        ).all()
+        return [Page(r.locator, r.text) for r in rows]
+
+    def facts(self, case_id: str) -> list[Fact]:
+        rows = self._session.exec(
+            select(EvidenceFactRow)
+            .where(EvidenceFactRow.case_id == case_id)
+            .order_by(col(EvidenceFactRow.evidence_id), col(EvidenceFactRow.position),
+                      col(EvidenceFactRow.id))
+        ).all()
+        return [Fact(r.evidence_id, r.locator, r.text) for r in rows]
