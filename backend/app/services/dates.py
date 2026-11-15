@@ -103,8 +103,9 @@ def hearing_has_passed(hearing: date, today: date) -> bool:
 EVIDENCE_DAYS_BEFORE_HEARING = 5  # Evidence Policy #42
 
 
-def evidence_deadline(hearing: date) -> dict[str, str]:
-    """`Case.next_deadline` for a hearing: evidence is due 5 days before it. The label has the
-    ISO hearing date in it, like the seeded cases."""
-    due = hearing - timedelta(days=EVIDENCE_DAYS_BEFORE_HEARING)
+def evidence_deadline(hearing: date, days: int = EVIDENCE_DAYS_BEFORE_HEARING) -> dict[str, str]:
+    """`Case.next_deadline` for a hearing: evidence is due `days` before it. The label has the
+    ISO hearing date in it, like the seeded cases. The rules step passes the number the legal
+    corpus carries, so a change to the policy moves this deadline with it."""
+    due = hearing - timedelta(days=days)
     return {"date": due.isoformat(), "label": f"Evidence due · hearing {hearing.isoformat()}"}

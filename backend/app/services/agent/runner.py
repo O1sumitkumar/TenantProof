@@ -9,10 +9,11 @@ Crash safety: the loop commits once per turn, and the runner writes the step (to
 and a checkpoint of the conversation) in that same commit. A killed worker loses at most the
 open turn together with its rows, and `execute_run` on that run continues from the checkpoint.
 
-The `extract` and `timeline` steps exist so far. `extract` runs first, at the start of a run,
-so it needs nothing from ingest: it reads the `evidence_page` rows that ingest wrote. `ingest`
-needs WS1, `rules` and `gaps` need WS4, and `draft` is deterministic and comes next; those steps
-stay `pending` here.
+The `extract`, `timeline` and `rules` steps exist so far. `extract` runs first, at the start of a
+run, so it needs nothing from ingest: it reads the `evidence_page` rows that ingest wrote. `rules`
+is deterministic (WS4): it gives the case the corpus sources and the evidence deadline, and it
+runs after `timeline` because the hearing date it needs comes from there. `ingest` needs WS1,
+`gaps` needs WS4, and `draft` is deterministic and comes next; those steps stay `pending` here.
 
 Pause and resume: when the agent calls ask_caseworker the step becomes `needs_input` and the
 conversation is saved in the step's `checkpoint` key (the API never returns it). Call
@@ -48,6 +49,7 @@ from app.services.agent.loop import (
     run_agent_loop,
 )
 from app.services.agent.tools import AGENT_ACTOR, ProposeEventOutput, ToolContext, new_nonce
+from app.services.legal import rules as legal_rules
 from app.services.mappers import case_counts
 from app.services.stage import refresh_stage
 
@@ -59,7 +61,7 @@ STEP_LABELS = {
     "gaps": "Find missing information",
     "draft": "Draft form",
 }
-IMPLEMENTED_STEPS = ("extract", "timeline")
+IMPLEMENTED_STEPS = ("extract", "timeline", "rules")
 HEARING_QUESTION = "What is the hearing date? It is not in the evidence."
 log = logging.getLogger(__name__)
 
@@ -351,6 +353,23 @@ async def execute_run(
                     done = await extract.extract_case(
                         session, case.id, case.org_id, texts, provider, ctx.nonce, on_item)
                     _write_extract(step, state, "done", done.text)
+                    current = None
+                    run.steps = copy.deepcopy(all_steps)
+                    session.commit()
+                    continue
+                if key == "rules":
+                    # Deterministic, no model call: one go, no checkpoint to resume from.
+                    state = StepState(messages=[])
+                    current = (step, state)
+                    step["nonce"] = ctx.nonce
+                    _write_extract(step, state, "running", None)
+                    run.steps = copy.deepcopy(all_steps)
+                    session.commit()
+                    result = legal_rules.run(session, case)
+                    state.tool_calls.append(
+                        ToolCall(tool="rules", input="{}", output=result.tool_call_output())
+                    )
+                    _write_extract(step, state, "done", result.summary)
                     current = None
                     run.steps = copy.deepcopy(all_steps)
                     session.commit()

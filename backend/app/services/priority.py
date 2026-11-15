@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from datetime import date
 
+from app.services.legal.corpus import EVIDENCE_DAYS_BEFORE_HEARING
+
 EVIDENCE_WINDOW_DAYS = 7
 
 
@@ -36,7 +38,10 @@ def compute_priority(case: PriorityInput, today: date) -> PriorityResult:
 
     if days is not None and days <= EVIDENCE_WINDOW_DAYS:
         priority = "high"
-        reason = f"Evidence due in {_plural(days, 'day')} (5 days before hearing)"
+        reason = (
+            f"Evidence due in {_plural(days, 'day')} "
+            f"({EVIDENCE_DAYS_BEFORE_HEARING} days before hearing)"
+        )
     if case.open_blocking and case.stage == "hearing_scheduled":
         priority = "high"
         blocked = f"{case.open_blocking} required item open with a hearing scheduled"
