@@ -533,6 +533,41 @@ def test_legacy_non_chinese_encodings_are_refused_not_read_as_gbk(data):
     assert sniff.sniff(data) is None
 
 
+def test_big5_is_refused_and_the_415_asks_for_utf8():
+    """A Big5 file decodes as GB18030 into private-use characters, and no byte pattern tells the
+    two code pages apart, so it is refused rather than guessed at."""
+    data = "房東說明天會來修\n".encode("big5")
+    assert sniff.sniff(data) is None
+    with pytest.raises(UploadRejected) as err:
+        check(spooled(("chat.txt", data)), 25 * MB)
+    assert err.value.status_code == 415
+    assert err.value.reasons == [
+        "File 1 is text in an encoding this app can't read. Re-save it as UTF-8"]
+
+
+def test_gbk_outside_gb2312_is_refused_and_the_415_asks_for_utf8():
+    data = "房东：明天来修喆\n".encode("gbk")  # 喆 is in GBK, not in GB2312
+    assert sniff.sniff(data) is None
+    with pytest.raises(UploadRejected) as err:
+        check(spooled(("chat.txt", data)), 25 * MB)
+    assert err.value.status_code == 415
+    assert "Re-save it as UTF-8" in err.value.reasons[0]
+
+
+def test_a_binary_file_keeps_the_accepted_types_message():
+    with pytest.raises(UploadRejected) as err:
+        check(spooled(("photo.jpg", b"MZ\x00\x00")), 25 * MB)
+    assert "PDF" in err.value.reasons[0] and "UTF-8" not in err.value.reasons[0]
+
+
+def test_looks_like_text_tells_text_in_another_encoding_from_binary():
+    assert sniff.looks_like_text("房東".encode("big5"))
+    assert sniff.looks_like_text(b"plain ascii\twith a tab\r\n")
+    assert not sniff.looks_like_text(b"MZ\x00\x00")  # NUL
+    assert not sniff.looks_like_text(b"\x01\x02")  # control characters
+    assert not sniff.looks_like_text(b"")
+
+
 def test_a_utf16_chat_with_emoji_newer_than_pythons_unicode_tables_is_text():
     chat = "Tenant: thanks \U0001fae9\n"  # U+1FAE9, Unicode 16: unassigned to Python 3.12
     assert sniff.sniff(chat.encode("utf-16")) == sniff.TEXT

@@ -55,6 +55,24 @@ def _is_text(data: bytes) -> bool:
     return decode_text(data) is not None
 
 
+def looks_like_text(data: bytes) -> bool:
+    """True when the bytes are printable in some 8-bit encoding: no NUL and no control
+    character other than tab, line feed, form feed and carriage return. A file that looks like
+    this and that `decode_text` refuses is text in an encoding we can't read (see there), which
+    needs a different 415 reason than a binary file. It is still refused."""
+    if not data:
+        return False
+    return all((byte >= 0x20 and byte != 0x7F) or byte in _TEXT_CONTROLS for byte in data)
+
+
+def looks_like_text_file(source: BinaryIO, max_bytes: int) -> bool:
+    """looks_like_text() over a file, reading at most max_bytes. Rewinds."""
+    source.seek(0)
+    looks = looks_like_text(source.read(max_bytes))
+    source.seek(0)
+    return looks
+
+
 # Byte-order marks: UTF-8 from some editors, UTF-16 from Windows "Unicode" exports.
 _BOMS = ((b"\xef\xbb\xbf", "utf-8-sig"), (b"\xff\xfe", "utf-16"), (b"\xfe\xff", "utf-16"))
 _LENIENT = ("utf-16", "gb18030")
@@ -70,7 +88,12 @@ def decode_text(data: bytes) -> str | None:
     The GB18030 result must also fit GB2312 (simplified Chinese): Windows-1252 English or
     French ("don't" with a curly apostrophe, "propriétaire") and Shift-JIS decode as GBK too,
     into Chinese characters, and would be filed garbled. Those are refused (415, re-save as
-    UTF-8), as are GBK files with characters outside GB2312. Korean EUC-KR still passes."""
+    UTF-8), as are GBK files with characters outside GB2312. Korean EUC-KR still passes.
+
+    Big5 is refused as well. A Big5 file decodes as GB18030 into private-use characters, and
+    nothing in the bytes tells the two code pages apart (both allow trail bytes from 0x40), so
+    a guess would file traditional Chinese as different characters. Every refused encoding gets
+    the same 415 reason: re-save the file as UTF-8, which always reads back exactly."""
     if not data:
         return None
     codecs = next(((codec,) for bom, codec in _BOMS if data.startswith(bom)),
