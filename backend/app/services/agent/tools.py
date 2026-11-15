@@ -8,8 +8,10 @@ Rules every tool follows:
 - Bad model input comes back as a `ToolError` the model can read, it does not raise.
 
 Every lookup goes through `ctx` (case, org) and answers `not_found()` for an id that is missing
-or belongs to another case or org. Text and facts come from `ctx.texts`; the legal-source
-excerpt is empty until WS4 stores one. Nothing here calls the network.
+or belongs to another case or org. Text and facts come from `ctx.texts`. A legal source's excerpt
+comes from the corpus (`services/legal/corpus.py`) through the row's URL, never from the model;
+an entry nobody has confirmed has no excerpt and says so by returning "". Nothing here calls the
+network.
 WS4 builds against the Input/Output models and the registry in this file.
 """
 
@@ -30,6 +32,7 @@ from app.schemas import EventDate, Language, SourceRef, ToolCall
 from app.services import activity
 from app.services.agent.evidence_text import EvidenceTextStore, Page
 from app.services.dates import choose_date, date_mismatch, exif_matches
+from app.services.legal import corpus
 from app.services.strength import SourceFacts, compute_strength, event_flags
 from app.services.verifier import verify_citation
 
@@ -666,7 +669,8 @@ class LegalHit(BaseModel):
     source_id: str
     title: str
     kind: Literal["statute", "policy", "form"]
-    excerpt: str
+    locator: str  # where the excerpt sits in the document, for a citation
+    excerpt: str  # verbatim official text, or "" when nobody has confirmed the entry
     verify_status: Literal["unchanged", "changed", "unreachable", "unverified"]
 
 
@@ -676,7 +680,10 @@ class SearchLegalSourcesOutput(BaseModel):
 
 class SearchLegalSources(BaseTool):
     name = "search_legal_sources"
-    description = "Search the curated corpus of official sources. Returns stored excerpts only."
+    description = (
+        "Search the curated corpus of official sources. Returns stored excerpts only, never "
+        "text the model wrote."
+    )
     effect: ClassVar[Effect] = "read"
     input_model = SearchLegalSourcesInput
     output_model = SearchLegalSourcesOutput
@@ -688,15 +695,21 @@ class SearchLegalSources(BaseTool):
             return not_found(self.name, "Case")
         stmt = select(LegalSourceRow).where(LegalSourceRow.case_id == ctx.case_id)
         words = _words(args.query)
-        hits = [
-            {
-                "source_id": r.id, "title": r.title, "kind": r.kind,
-                "excerpt": "",  # WS4 stores the official excerpt; nothing is invented here
-                "verify_status": r.verify_status,
-            }
-            for r in ctx.session.exec(stmt.order_by(col(LegalSourceRow.position))).all()
-            if _matches(words, f"{r.title} {r.used_for}")
-        ][: args.limit]  # fmt: skip
+        hits: list[dict[str, Any]] = []
+        for row in ctx.session.exec(stmt.order_by(col(LegalSourceRow.position))).all():
+            entry = corpus.entry_for(row.url, row.title)
+            # The corpus's search words are what let "mould" find the repair condition.
+            keywords = " ".join(entry.keywords) if entry is not None else ""
+            if not _matches(words, f"{row.title} {row.used_for} {keywords}"):
+                continue
+            hits.append({
+                "source_id": row.id, "title": row.title, "kind": row.kind,
+                "locator": entry.locator if entry else "",
+                "excerpt": entry.excerpt if entry else "",
+                "verify_status": row.verify_status,
+            })
+            if len(hits) >= args.limit:
+                break
         return SearchLegalSourcesOutput.model_validate({"hits": hits})
 
 

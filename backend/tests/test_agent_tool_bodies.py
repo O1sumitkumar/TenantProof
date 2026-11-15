@@ -6,6 +6,7 @@ from sqlmodel import Session, select
 
 from app.models import ActivityRow, EvidenceRow, GapRow, TimelineEventRow
 from app.services.agent import tools as t
+from app.services.legal import corpus
 from tests.agent_support import (
     CAPTION,
     CASE,
@@ -483,8 +484,12 @@ def test_list_form_fields(session: Session) -> None:
 def test_search_legal_sources_returns_rows_and_never_invents_an_excerpt(session: Session) -> None:
     res = call("search_legal_sources", make_ctx(session), {"query": "residential tenancies"})
     assert isinstance(res, t.SearchLegalSourcesOutput) and res.hits
-    assert all(h.excerpt == "" for h in res.hits)
+    # WS4: an excerpt is the corpus's own text or nothing. Never written by the model.
+    stored = {entry.excerpt for entry in corpus.CORPUS}
+    assert all(h.excerpt == "" or h.excerpt in stored for h in res.hits)
+    assert any(h.excerpt for h in res.hits), "the corpus supplies an excerpt for the RTA"
     assert res.hits[0].verify_status == "unverified"
+    assert res.hits[0].locator, "a hit says where its excerpt sits"
     assert call("search_legal_sources", make_ctx(session), {"query": "zzzz"}).hits == []
     limited = call("search_legal_sources", make_ctx(session), {"query": "a", "limit": 1})
     assert len(limited.hits) == 1
