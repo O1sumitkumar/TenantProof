@@ -237,3 +237,6 @@ data/
 tenantproof-*.zip
 .tools/
 backend/data/
+
+# Demo photo (stock image, kept out of the repo for licensing reasons; see demo/README.md)
+demo/local/
