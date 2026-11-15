@@ -38,6 +38,11 @@ services:
       PUBLIC_BASE_URL: http://localhost:8000
       # Plain http on localhost: browsers drop Secure cookies there. Keep true everywhere else.
       COOKIE_SECURE: "false"
+      # Runs without an API key by default: `fixture` replays recorded model replies (none are
+      # recorded yet, so a run ends failed, but nothing errors at start-up). For a real run:
+      #   LLM_MODE=live ANTHROPIC_API_KEY=... make up
+      LLM_MODE: ${LLM_MODE:-fixture}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       SEED_PASSWORD: ${SEED_PASSWORD:-tenantproof-demo}
       STORAGE_DIR: /data/storage
     volumes: [blobs:/data]
