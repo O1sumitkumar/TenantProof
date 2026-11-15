@@ -177,6 +177,27 @@ def _final_status(session: Session, run: RunRow) -> str:
     return "done"
 
 
+def paused_question(run: RunRow) -> dict[str, Any] | None:
+    """The saved pause of a run waiting for the caseworker: the ask_caseworker tool_use id, the
+    other calls' results and the question's field key (or None). None when nothing the runner
+    can resume is waiting, for example a seeded run whose gaps step says `needs_input`."""
+    if run.status != "needs_review":
+        return None
+    for step in run.steps:
+        if step["key"] in IMPLEMENTED_STEPS and step["status"] == "needs_input":
+            pending = (step.get("checkpoint") or {}).get("pending")
+            if pending:
+                return pending
+    return None
+
+
+def claim_pause(session: Session, run: RunRow) -> None:
+    """Move a paused run to running, once. Of two answers for one pause only one gets through;
+    the other raises RunNotWaiting. Rolls back anything the caller staged in the session, and
+    commits it together with the claim when it succeeds. Pass `claimed=True` to execute_run."""
+    _claim(session, run, IMPLEMENTED_STEPS)
+
+
 def _claim(session: Session, run: RunRow, steps: tuple[str, ...]) -> None:
     """Move a paused run to running. The row is locked and re-read first, so of two answers sent
     for the same pause only one resumes it; the other finds the step no longer waiting."""
@@ -216,6 +237,7 @@ async def execute_run(
     deadline_s: float = RUN_BUDGET_S,
     answer: str | None = None,
     steps: tuple[str, ...] = IMPLEMENTED_STEPS,
+    claimed: bool = False,
 ) -> RunRow:
     """Run the given steps that are not done yet. The deadline covers all of them together; on a
     resume it is what is left of the budget after the time earlier calls already used. The
@@ -235,7 +257,8 @@ async def execute_run(
     if nonce is not None and stored is not None and nonce != stored:
         raise ValueError("this run already uses a different evidence nonce")
     if waiting:
-        _claim(session, run, steps)
+        if not claimed:  # the answer route already claimed the pause (claim_pause)
+            _claim(session, run, steps)
         all_steps = copy.deepcopy(run.steps)  # re-read under the lock
     ctx = ToolContext(
         session=session, org_id=case.org_id, case_id=case.id, run_id=run.id, texts=texts,

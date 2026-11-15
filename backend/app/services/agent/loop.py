@@ -196,7 +196,9 @@ async def run_agent_loop(
                 finished = _short(str(use.input.get("summary", "")))
         if asked is not None:
             use, question = asked
-            pending = {"tool_use_id": use.id, "results": results}
+            pending = {
+                "tool_use_id": use.id, "results": results, "field": use.input.get("field"),
+            }
             _end_turn(ctx, state, on_turn, pending)
             return LoopResult("needs_input", question, pending=pending)
         if finished is not None or cut:
