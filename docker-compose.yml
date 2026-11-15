@@ -43,6 +43,8 @@ services:
       #   LLM_MODE=live ANTHROPIC_API_KEY=... make up
       LLM_MODE: ${LLM_MODE:-fixture}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       SEED_PASSWORD: ${SEED_PASSWORD:-tenantproof-demo}
       STORAGE_DIR: /data/storage
     volumes: [blobs:/data]
