@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from app.config import Settings
 
 MODEL = "claude-sonnet-5-5"
+ANTHROPIC_API_URL = "https://api.anthropic.com"  # used when ANTHROPIC_BASE_URL is empty or unset
 RUN_BUDGET_S = 60.0  # the run target
 # One total deadline per call (asyncio.timeout), equal to the run budget. The httpx timeout
 # (per phase) is set to the same value, so a timed-out attempt has used the whole budget and
@@ -246,14 +247,16 @@ class AnthropicProvider:
         deadline_s: float = RUN_BUDGET_S,
         base_url: str | None = None,
     ) -> None:
-        """`base_url` points the client at an Anthropic-compatible API (None: Anthropic's own,
-        or the SDK's own ANTHROPIC_BASE_URL). The key and the evidence text go to that host."""
+        """`base_url` points the client at an Anthropic-compatible API (empty or None:
+        Anthropic's own). It is always passed to the client: the SDK reads ANTHROPIC_BASE_URL
+        itself and treats an empty value (which compose passes when it is unset) as the address
+        "", so every call fails to connect. The key and the evidence text go to that host."""
         self.model = model
         self.effort = effort
         self.deadline_s = deadline_s
         self.client = client or anthropic.AsyncAnthropic(
             api_key=api_key, timeout=CALL_TIMEOUT_S, max_retries=MAX_RETRIES,
-            base_url=base_url or None,
+            base_url=base_url or ANTHROPIC_API_URL,
         )
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
