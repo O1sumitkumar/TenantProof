@@ -31,6 +31,12 @@ TAG = f"evidence-{N}"
 FIRST = {"value": "2026-05-01", "precision": "day", "basis": "document_text"}
 
 
+def execute_timeline(*args, **kwargs):
+    """These tests are about the timeline step; the extract step has its own tests."""
+    kwargs.setdefault("steps", ("timeline",))
+    return runner.execute_run(*args, **kwargs)
+
+
 def new_events(session: Session) -> list[TimelineEventRow]:
     """Events the agent added: seeded ids are te_01.., agent ids are te_ plus 10 hex chars."""
     session.expire_all()
@@ -45,7 +51,7 @@ def new_run(session: Session) -> RunRow:
 
 
 def execute(session: Session, run_row: RunRow, provider: llm.FixtureProvider, **kw) -> RunRow:
-    return run(runner.execute_run(session, run_row, provider, demo_store(), nonce=N, **kw))
+    return run(execute_timeline(session, run_row, provider, demo_store(), nonce=N, **kw))
 
 
 def propose(tool_id: str, excerpt: str = LEASE, title: str = "Tenancy starts") -> dict:
@@ -135,7 +141,7 @@ def test_a_run_without_a_given_nonce_picks_a_random_one(fresh_db: None, session:
     for _ in range(2):
         finish = turn(tool_use("finish", "u1", summary="s"))
         provider = RecordingProvider({"timeline-turn1": finish})
-        row = run(runner.execute_run(session, new_run(session), provider, demo_store()))
+        row = run(execute_timeline(session, new_run(session), provider, demo_store()))
         step = next(s for s in row.steps if s["key"] == "timeline")
         assert f"evidence-{step['nonce']}" in provider.requests[0].system_run
         tags.add(step["nonce"])
@@ -153,7 +159,7 @@ def test_injected_evidence_is_data_and_changes_nothing(fresh_db: None, session: 
     provider = RecordingProvider(script)
     before = {e.id: e.review_status for e in session.exec(select(TimelineEventRow))}
     gaps_before = {g.id: g.status for g in session.exec(select(GapRow))}
-    row = run(runner.execute_run(session, new_run(session), provider, store, nonce=N))
+    row = run(execute_timeline(session, new_run(session), provider, store, nonce=N))
     result = json.loads(blocks(provider.requests[1].messages[-1])[0]["content"])
     block = result["block"]
     assert block["tag"] != TAG  # the document wrote this run's tag, so the block got a new one
@@ -182,14 +188,14 @@ def test_recorded_fixtures_replay_whatever_the_nonce_and_a_changed_prompt_is_cau
     assert next(s for s in row.steps if s["key"] == "timeline")["status"] == "done"
     assert [e.title for e in new_events(session)].count("Tenancy starts") == 2
 
-    other = run(runner.execute_run(
+    other = run(execute_timeline(
         session, new_run(session), replay, demo_store(), nonce="aaaaaaaaaaaaaaaa"
     ))
     assert next(s for s in other.steps if s["key"] == "timeline")["status"] == "done"
 
     original = prompts.timeline_system
     monkeypatch.setattr(prompts, "timeline_system", lambda: original() + " Be brief.")
-    stale = run(runner.execute_run(session, new_run(session), replay, demo_store(), nonce=N))
+    stale = run(execute_timeline(session, new_run(session), replay, demo_store(), nonce=N))
     step = next(s for s in stale.steps if s["key"] == "timeline")
     assert step["status"] == "failed" and "re-record" in step["summary"]
 
@@ -478,7 +484,7 @@ def test_the_run_is_visible_to_its_org_only(
 
 def test_unimplemented_steps_are_refused(fresh_db: None, session: Session) -> None:
     with pytest.raises(ValueError, match="not implemented"):
-        execute(session, new_run(session), RecordingProvider({}), steps=("extract",))
+        execute(session, new_run(session), RecordingProvider({}), steps=("ingest",))
 
 
 def test_a_message_and_a_receipt_are_what_the_store_serves() -> None:
@@ -608,18 +614,18 @@ def test_the_nonce_is_kept_for_the_whole_run_across_a_pause(
     fresh_db: None, session: Session
 ) -> None:
     first = RecordingProvider(ask_script())
-    row = run(runner.execute_run(session, new_run(session), first, demo_store()))  # random nonce
+    row = run(execute_timeline(session, new_run(session), first, demo_store()))  # random nonce
     nonce = next(s for s in row.steps if s["key"] == "timeline")["nonce"]
     assert f"`evidence-{nonce}`" in first.requests[0].system_run
 
     second = RecordingProvider({"timeline-turn2": ask_script()["timeline-turn2"]})
-    run(runner.execute_run(session, row, second, demo_store(), answer="March 3"))  # none given
+    run(execute_timeline(session, row, second, demo_store(), answer="March 3"))  # none given
     assert f"`evidence-{nonce}`" in second.requests[0].system_run  # same tag as the blocks before
 
-    other = run(runner.execute_run(session, new_run(session), RecordingProvider(ask_script()),
+    other = run(execute_timeline(session, new_run(session), RecordingProvider(ask_script()),
                                    demo_store()))  # fmt: skip
     with pytest.raises(ValueError, match="different evidence nonce"):
-        run(runner.execute_run(session, other, RecordingProvider({}), demo_store(),
+        run(execute_timeline(session, other, RecordingProvider({}), demo_store(),
                                nonce="aaaaaaaaaaaaaaaa", answer="x"))  # fmt: skip
 
 
@@ -633,7 +639,7 @@ def test_a_second_answer_for_the_same_pause_is_refused(fresh_db: None, session: 
         resumed = RecordingProvider({"timeline-turn2": ask_script()["timeline-turn2"]})
         execute(session, row, resumed, answer="first answer")
         with pytest.raises(runner.RunNotWaiting):
-            run(runner.execute_run(other, stale, RecordingProvider({}), demo_store(),
+            run(execute_timeline(other, stale, RecordingProvider({}), demo_store(),
                                    answer="second answer"))  # fmt: skip
     assert len(new_events(session)) == 1  # the step did not run twice
 
@@ -673,7 +679,7 @@ def test_a_model_that_follows_the_injection_still_changes_nothing(
                      for e in session.exec(select(TimelineEventRow))}  # fmt: skip
     before_gaps = {g.id: (g.status, g.tenant_request) for g in session.exec(select(GapRow))}
     provider = RecordingProvider(script)
-    row = run(runner.execute_run(session, new_run(session), provider, store, nonce=N))
+    row = run(execute_timeline(session, new_run(session), provider, store, nonce=N))
     session.expire_all()
     assert {e.id: (e.review_status, e.strength_reasons, e.sources)
             for e in session.exec(select(TimelineEventRow))} == before_events  # fmt: skip

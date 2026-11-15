@@ -48,14 +48,14 @@ Workstream WS1: evidence ingest and tenant uploads (BUILD_PLAN.md section 5 "ing
 Branch: <github-username>/m2-evidence-ingest. Plan first, wait for my approval.
 
 Build:
-1. POST /cases/{case_id}/evidence (caseworker) and POST /intake/{token}/files (tenant, repeatable `file` field). 25 MB cap, MIME sniffing with python-magic against an allowlist (jpeg, png, heic, pdf, txt), filenames never used as paths.
+1. POST /cases/{case_id}/evidence (caseworker) and POST /intake/{token}/files (tenant, repeatable `file` field). 25 MB cap, type checked from the file's bytes against an allowlist (jpeg, png, heic, pdf, txt) by signature in services/evidence/sniff.py (python-magic was the first plan, but it needs the native libmagic, which Windows lacks without a system-wide install), filenames never used as paths.
 2. Content-addressed storage through storage.py: sha256 of the ORIGINAL bytes, stored once.
 3. services/evidence/: exif.py (captured_at, gps_present, device, software), strip.py (re-encode image without EXIF/GPS, HEIC to JPEG via pillow-heif, stored as a separate derived blob), text.py (pypdf text per page with page locators).
 4. EvidenceItem fields per the contract, including format_check, metadata, metadata_stripped_for_ai, processing.
 5. Flip UPLOADS_ENABLED to true in web/index.html. Tenant upload shows in the caseworker evidence list and the activity log (actor tenant).
 6. Package zip now includes original evidence files; manifest sha256 matches.
 
-Allowed paths: backend/app/services/evidence/, backend/app/routers/evidence.py, backend/app/routers/intake.py, backend/app/services/package.py (evidence inclusion only), web/index.html (upload flag and picker only), backend/pyproject.toml and backend/uv.lock (python-magic, pillow-heif, pillow, pypdf as runtime dependencies), backend/Dockerfile (install libmagic only), backend/tests/.
+Allowed paths: backend/app/services/evidence/, backend/app/routers/evidence.py, backend/app/routers/intake.py, backend/app/services/package.py (evidence inclusion only), web/index.html (upload flag and picker only), backend/pyproject.toml and backend/uv.lock (pillow-heif, pillow, pypdf as runtime dependencies), backend/tests/. No Dockerfile change is needed (no libmagic).
 Needs schema changes? Open a `schema:` PR first (see team rules).
 
 Done when:
