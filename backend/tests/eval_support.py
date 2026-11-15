@@ -105,8 +105,10 @@ def run_eval(
     case_row = session.get(CaseRow, CASE)
     assert case_row is not None
     row = runner.create_run(session, case_row)
+    # The timeline step only: these evals are about its prompt and tools. (The extract step
+    # sends evidence in wrapped blocks too and has its own tests in test_agent_extract.py.)
     row = asyncio.run(runner.execute_run(
-        session, row, provider, SqlTextStore(session), nonce=NONCE))
+        session, row, provider, SqlTextStore(session), nonce=NONCE, steps=("timeline",)))
     session.expire_all()
     added = [e for e in session.exec(
         select(TimelineEventRow).where(TimelineEventRow.case_id == CASE)) if e.id not in before]
