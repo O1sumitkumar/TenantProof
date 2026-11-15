@@ -183,7 +183,9 @@ class EventDate(BaseModel):
 
 
 class EventFlag(BaseModel):
-    type: Literal["no_metadata", "edited_software", "date_inferred", "date_mismatch"]
+    type: Literal[
+        "no_metadata", "edited_software", "date_inferred", "date_mismatch", "conflict"
+    ]
     message: str
 
 

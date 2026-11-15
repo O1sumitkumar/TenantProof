@@ -389,6 +389,34 @@ def test_flag_conflict_adds_a_reason_to_a_pending_event(fresh_db: None, session:
     assert row.review_status == "pending"
 
 
+def test_flag_conflict_adds_a_conflict_flag_and_keeps_the_note(
+    fresh_db: None, session: Session, client
+) -> None:
+    ctx = make_ctx(session)
+    event_id = call("propose_event", ctx, good_event()).event_id
+    session.commit()
+    before = session.get(TimelineEventRow, event_id)
+    assert before is not None
+    strength = before.strength
+    call("flag_conflict", ctx, {"event_id": event_id, "reason": "Photo date and message differ"})
+    call("flag_conflict", ctx, {"event_id": event_id, "reason": "The notice is undated"})
+    session.commit()
+    session.expire_all()
+    row = session.get(TimelineEventRow, event_id)
+    assert row is not None
+    conflicts = [f for f in row.flags if f["type"] == "conflict"]
+    assert [f["message"] for f in conflicts] == [
+        "Sources disagree: Photo date and message differ",
+        "Sources disagree: The notice is undated",
+    ]
+    assert row.strength_reasons[-2:] == [
+        "Conflict noted: Photo date and message differ", "Conflict noted: The notice is undated"
+    ]
+    assert row.strength == strength  # a conflict note never changes the rules' strength
+    event = next(e for e in client.get(f"/api/cases/{CASE}/timeline").json() if e["id"] == event_id)
+    assert [f["type"] for f in event["flags"]].count("conflict") == 2  # the API accepts the type
+
+
 def test_flag_conflict_cannot_touch_a_reviewed_event(fresh_db: None, session: Session) -> None:
     res = call("flag_conflict", make_ctx(session), {"event_id": "te_01", "reason": "r"})
     assert isinstance(res, t.ToolError) and res.kind == "invalid_input"

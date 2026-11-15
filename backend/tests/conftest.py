@@ -139,6 +139,19 @@ def fresh_db() -> Iterator[None]:
     _reseed()
 
 
+@pytest.fixture
+def hearing_known(fresh_db: None, session) -> None:
+    """The demo case with a hearing date set, so a run ends without the runner's own hearing-date
+    question (tests/test_hearing_ask.py covers that question). Use it with
+    `pytestmark = pytest.mark.usefixtures("hearing_known")`."""
+    from app.models import CaseRow
+
+    case = session.get(CaseRow, "case_demo_001")
+    case.hearing_date = "2026-11-24"
+    session.add(case)
+    session.commit()
+
+
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",

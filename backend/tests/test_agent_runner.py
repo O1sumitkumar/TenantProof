@@ -26,6 +26,8 @@ from tests.agent_support import (
     turn,
 )
 
+pytestmark = pytest.mark.usefixtures("hearing_known")
+
 N = "0123456789abcdef"
 TAG = f"evidence-{N}"
 FIRST = {"value": "2026-05-01", "precision": "day", "basis": "document_text"}

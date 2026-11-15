@@ -169,7 +169,7 @@ type TimelineEvent = {
   sources: SourceRef[];
   strength: "corroborated" | "single_source" | "needs_support";
   strength_reasons: string[];
-  flags: { type: "no_metadata" | "edited_software" | "date_inferred" | "date_mismatch"; message: string }[];
+  flags: { type: "no_metadata" | "edited_software" | "date_inferred" | "date_mismatch" | "conflict"; message: string }[];
   review_status: "pending" | "accepted" | "edited" | "rejected";
   caseworker_note: string | null;        // internal, never shown to the tenant or put in the form
   reviewed_by: string | null;

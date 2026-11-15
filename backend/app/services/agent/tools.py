@@ -606,8 +606,11 @@ class FlagConflict(BaseTool):
                 tool=self.name, kind="invalid_input",
                 message="Only an event that is still pending can be flagged.",
             )  # fmt: skip
-        note = f"Conflict noted: {_clean_label(args.reason)}"
+        reason = _clean_label(args.reason)
+        note = f"Conflict noted: {reason}"
         event.strength_reasons = [*event.strength_reasons, note]
+        # A new list, so the JSON column is saved. The flag is what the review screen shows.
+        event.flags = [*event.flags, {"type": "conflict", "message": f"Sources disagree: {reason}"}]
         ctx.session.add(event)
         activity.log(
             ctx.session, ctx.case_id, "agent", AGENT_ACTOR,

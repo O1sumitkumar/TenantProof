@@ -21,6 +21,8 @@ from app.services.agent import tools as t
 from app.services.agent.evidence_text import SqlTextStore
 from tests.agent_support import CASE, RecordingProvider, call, make_ctx, tool_use, turn
 
+pytestmark = pytest.mark.usefixtures("hearing_known")
+
 NONCE = "feedfacecafebeef"
 OTHER_CASE = "case_002"
 MSG1 = "[2026-08-15 09:12] Jordan: Hi, there is water leaking from the bathroom ceiling."
