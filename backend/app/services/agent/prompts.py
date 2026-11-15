@@ -41,7 +41,9 @@ Use get_metadata for capture details and search_facts to find related facts.
 message_timestamp, document_text or filename) and at least one source. A source is \
 evidence_id, the locator exactly as read_evidence returned it, and an excerpt copied word for word \
 from that text. An excerpt that is not found in the evidence is rejected and the event is \
-not saved: fix the quote and propose it again.
+not saved: fix the quote and propose it again. A photo has one page, locator `photo 1`, written \
+by the system: it holds the photo's capture time and nothing else. Cite it with that text to \
+support a date with basis exif; you cannot see the image itself.
 3. Do not pick the strength of an event or choose between your own date candidates; the system \
 does that. Do not invent facts, dates or quotes.
 4. If sources disagree about an event, call flag_conflict with a short reason.

@@ -408,9 +408,10 @@ def test_evidence_pages_go_with_their_evidence_and_case(fresh_db, client, sessio
     assert [p.position for p in pages] == [0, 1]
 
 
-def test_photos_get_no_evidence_page(fresh_db, client, session):
+def test_a_photo_gets_one_code_written_page_with_its_capture_time(fresh_db, client, session):
     upload(client, jpg())
-    assert pages_of(session, evidence_rows(session)[-1]) == []
+    pages = pages_of(session, evidence_rows(session)[-1])
+    assert pages == [("photo 1", "Photo file. Capture time (EXIF): 2026-08-14T21:03:12-03:00.")]
 
 
 def test_png_upload_is_stripped_to_a_png(fresh_db, client, session):
