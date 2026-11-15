@@ -102,13 +102,21 @@ def check(files: Sequence[tuple[str | None, BinaryIO]], max_bytes: int) -> list[
     for n, ((name, source), size) in enumerate(zip(files, sizes, strict=True), 1):
         mime = sniff.sniff_file(source, max_bytes)
         if mime is None:
-            wrong_type.append(f"File {n} is not an accepted type ({sniff.ALLOWED_LABEL})")
+            wrong_type.append(_wrong_type(n, source, max_bytes))
         else:
             uploads.append(Upload(filename=display_name(name), mime=mime, size=size,
                                   source=source))
     if wrong_type:
         raise UploadRejected(415, wrong_type)
     return uploads
+
+
+def _wrong_type(n: int, source: BinaryIO, max_bytes: int) -> str:
+    """A file we can't read as text is still a TXT, so don't answer "not an accepted type" and
+    send the tenant hunting for a format: say what fixes it. Re-saving as UTF-8 does."""
+    if sniff.looks_like_text_file(source, max_bytes):
+        return f"File {n} is text in an encoding this app can't read. Re-save it as UTF-8"
+    return f"File {n} is not an accepted type ({sniff.ALLOWED_LABEL})"
 
 
 def ingest(

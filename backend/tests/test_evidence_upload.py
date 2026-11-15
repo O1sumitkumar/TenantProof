@@ -565,6 +565,21 @@ def test_tenant_upload_of_a_bad_type_is_415_and_changes_nothing(
     assert intake(client)["status"] == "sent"
 
 
+def test_tenant_upload_of_a_big5_chat_asks_for_utf8(
+    fresh_db, token, client, anon_client, session
+):
+    """The file is a TXT, so the reason must not send the tenant looking for another format.
+    Re-saving as UTF-8 reads it back exactly."""
+    set_intake_sent(session)
+    r = anon_client.post(files_url(token), files=files(
+        ("chat.txt", "房東說明天會來修\n".encode("big5"), "text/plain")))
+    assert r.status_code == 415
+    assert reasons_of(r) == [
+        "File 1 is text in an encoding this app can't read. Re-save it as UTF-8"]
+    assert len(evidence_rows(session)) == SEEDED
+    assert intake(client)["status"] == "sent"
+
+
 def test_tenant_upload_over_the_cap_is_413(fresh_db, token, anon_client, session, monkeypatch):
     monkeypatch.setattr(get_settings(), "max_upload_bytes", 2048)
     r = anon_client.post(files_url(token), files=files(("big.txt", b"a" * 4000, "text/plain")))

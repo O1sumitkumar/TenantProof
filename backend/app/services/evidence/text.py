@@ -13,7 +13,7 @@ import re
 import sys
 import time
 from dataclasses import dataclass
-from multiprocessing.connection import Connection
+from typing import Any, Protocol
 
 from pypdf import PdfReader
 from pypdf.generic import ArrayObject, IndirectObject
@@ -122,7 +122,16 @@ def limit_child_resources() -> None:
             log.debug("PDF child: %s not set (%s)", name, type(exc).__name__)  # type only
 
 
-def _read_pdf_child(data: bytes, conn: Connection) -> None:
+class _PipeEnd(Protocol):
+    """The sending end of multiprocessing.Pipe(). Typeshed calls it Connection on POSIX and
+    PipeConnection on Windows, and PipeConnection doesn't exist at runtime off Windows, so
+    neither class can be named here."""
+
+    def send(self, obj: Any, /) -> None: ...
+    def close(self) -> None: ...
+
+
+def _read_pdf_child(data: bytes, conn: _PipeEnd) -> None:
     try:
         limit_child_resources()
         conn.send((True, read_pdf(data)))
