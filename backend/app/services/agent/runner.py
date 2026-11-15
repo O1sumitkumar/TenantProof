@@ -9,8 +9,10 @@ Crash safety: the loop commits once per turn, and the runner writes the step (to
 and a checkpoint of the conversation) in that same commit. A killed worker loses at most the
 open turn together with its rows, and `execute_run` on that run continues from the checkpoint.
 
-Only the `timeline` step exists so far. `ingest` and `extract` need WS1, `rules` and `gaps`
-need WS4, and `draft` is deterministic and comes next; those steps stay `pending` here.
+The `extract` and `timeline` steps exist so far. `extract` runs first, at the start of a run,
+so it needs nothing from ingest: it reads the `evidence_page` rows that ingest wrote. `ingest`
+needs WS1, `rules` and `gaps` need WS4, and `draft` is deterministic and comes next; those steps
+stay `pending` here.
 
 Pause and resume: when the agent calls ask_caseworker the step becomes `needs_input` and the
 conversation is saved in the step's `checkpoint` key (the API never returns it). Call
@@ -18,6 +20,7 @@ conversation is saved in the step's `checkpoint` key (the API never returns it).
 
 import asyncio
 import copy
+import json
 import logging
 import time
 import uuid
@@ -29,7 +32,7 @@ from sqlmodel import Session, select
 from app.models import CaseRow, RunRow
 from app.schemas import ToolCall
 from app.services import activity
-from app.services.agent import prompts
+from app.services.agent import extract, prompts
 from app.services.agent.evidence_text import EvidenceTextStore
 from app.services.agent.llm import RUN_BUDGET_S, LLMProvider, Message, Usage, estimate_cost_usd
 from app.services.agent.loop import (
@@ -51,7 +54,7 @@ STEP_LABELS = {
     "gaps": "Find missing information",
     "draft": "Draft form",
 }
-IMPLEMENTED_STEPS = ("timeline",)
+IMPLEMENTED_STEPS = ("extract", "timeline")
 log = logging.getLogger(__name__)
 
 
@@ -122,6 +125,11 @@ def _write_step(
 
 
 def _tally(state: StepState) -> str:
+    if any(c.tool == extract.STEP_TOOL for c in state.tool_calls):
+        outs = [json.loads(c.output) for c in state.tool_calls if c.tool == extract.STEP_TOOL]
+        saved = sum(o.get("saved", 0) for o in outs)
+        dropped = sum(o.get("dropped", 0) for o in outs)
+        return f"{saved} facts saved, {dropped} dropped"
     accepted = rejected = 0
     for call in state.tool_calls:
         if call.tool != "propose_event":
@@ -133,6 +141,18 @@ def _tally(state: StepState) -> str:
         accepted += out.accepted
         rejected += len(out.rejected_reasons)
     return f"{accepted} events proposed, {rejected} citations rejected"
+
+
+def _write_extract(
+    step: dict[str, Any], state: StepState, status: str, summary: str | None
+) -> None:
+    """The extract step has no conversation to checkpoint: each item is committed with its
+    facts, and a resume runs the step again (finished items are cache hits)."""
+    step["status"] = status
+    step["summary"] = summary
+    step["tool_calls"] = [c.model_dump() for c in state.tool_calls]
+    step["usage"] = state.usage.model_dump()
+    step.pop("checkpoint", None)
 
 
 _STEP_STATUS = {
@@ -278,6 +298,30 @@ async def execute_run(
                 step = _step(all_steps, key)
                 if step["status"] == "done":
                     continue  # a resume skips finished steps
+                if key == "extract":
+                    state = StepState(messages=[])
+                    current = (step, state)
+                    step["nonce"] = ctx.nonce
+                    _write_extract(step, state, "running", None)
+                    run.steps = copy.deepcopy(all_steps)
+                    session.commit()
+
+                    def on_item(item: extract.ItemResult, step=step, state=state) -> None:
+                        state.tool_calls.append(ToolCall(
+                            tool=extract.STEP_TOOL, input=item.tool_call_input(),
+                            output=item.tool_call_output()))
+                        state.usage = state.usage + item.usage
+                        _write_extract(step, state, "running", None)
+                        run.steps = copy.deepcopy(all_steps)
+                        session.commit()  # this item's facts and the step, together
+
+                    done = await extract.extract_case(
+                        session, case.id, case.org_id, texts, provider, ctx.nonce, on_item)
+                    _write_extract(step, state, "done", done.text)
+                    current = None
+                    run.steps = copy.deepcopy(all_steps)
+                    session.commit()
+                    continue
                 state = _load_state(step, answer)
                 current = (step, state)
                 step["nonce"] = ctx.nonce
