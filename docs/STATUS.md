@@ -21,7 +21,16 @@ Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to 
 
 ## In progress
 
-Nothing on `dev`. Workstreams WS1 to WS5 (table below) are unassigned.
+Open draft PRs into `dev` (2026-11-12). Merge order for the evidence work: #6, then #7, then #8.
+
+| PR | Workstream | What | Depends on |
+|---|---|---|---|
+| #5 | WS3 | Tool bodies, agent loop, step runner | none (reads text through `EvidenceTextStore`) |
+| #6 | shared (`schema:`) | `evidence_page`, `evidence_fact` tables | none |
+| #7 | shared (`schema:`) | `EvidenceRow.stripped_sha256`, unique `(case_id, sha256)`, upload settings | #6 |
+| #8 | WS1 | Uploads, type check, metadata, stripped copy, `evidence_page` rows, evidence in the zip | #7 |
+
+Issue #4 tracks WS3 follow-ups from the PR #2 review. WS2, WS4 and WS5 are unassigned.
 
 ## Known issues
 
@@ -31,7 +40,7 @@ Nothing on `dev`. Workstreams WS1 to WS5 (table below) are unassigned.
 - **Expired sessions are never purged** (WS2).
 - **Font size:** the bundled Noto Sans SC adds about 10 MB to the repo and image.
 - **`docker compose up --scale api=2` does not work yet:** the api service publishes fixed host port 8000. WS2 needs a proxy service.
-- **Zip contains no evidence files yet** (only two PDFs and `manifest.json`); evidence joins in WS1.
+- **Zip contains no evidence files on `dev` yet** (only two PDFs and `manifest.json`); WS1 (#8) adds the originals plus JPG/PDF copies.
 - **Verified by an agent on 2026-11-06 (Playwright + rendered pages, see the PR #1 comments):** Chinese glyphs render in the built PDF, second-org isolation in two separate browser contexts, `?mock=1`, the empty-caseload state. **Electron 45 window (2026-11-06, Windows, against `web/index.html?mock=1` over the DevTools protocol):** the mock UI renders, the renderer has no Node, `window.open` is denied, off-origin navigation is blocked. **Electron 45 window against the real API (2026-11-07, Windows 11, NineJZ356, PR #1):** `npm install`, `node check.js` and `npm start` work, login works in the window, the renderer has no Node, `window.open` is denied. **Mac: pending Lameda12's check by eye** (`make desktop` starts the window; install and `check.js` pass).
 - **Throughput work is deferred:** `WEB_CONCURRENCY` and gzip belong to WS2; the load re-benchmark (`backend/bench/load.py`, p50/p95/p99 on the compose stack) to WS5. `GET /api/cases` already runs a fixed number of queries (query-count test).
 - **UI routes don't include the case id** (`#timeline`), so a case can't be deep-linked or shared.
@@ -76,7 +85,7 @@ Prompts: `docs/NEXT_PROMPTS.md`.
 
 | Workstream | Owner | Branch | Status | Blocked by |
 |---|---|---|---|---|
-| WS1 Evidence ingest + tenant uploads (M2) | TODO | `<github-username>/m2-evidence-ingest` | not started | none |
+| WS1 Evidence ingest + tenant uploads (M2) | opoeci6 | `opoeci6/m2-evidence-ingest` | draft PR #8: upload routes, type check, metadata, stripped copy, text as `evidence_page` rows, evidence in the zip | #7 (`schema:`), which builds on #6 |
 | WS2 Hosted deploy + infra hardening (M2) | TODO | `<github-username>/m2-deploy` | not started | none (S3 adapter test and QR demo need WS1 for uploads) |
 | WS3 Agent runtime (M3) | Lameda12 | `Lameda12/m3-agent-runtime` | day 1 in draft PR: `services/agent/tools.py` (Tool protocol, 12 typed stubs, `wrap_evidence`, `ToolError`) and `llm.py` (`LLMProvider`, `AnthropicProvider`, `FixtureProvider`). Next: worker, steps, loop, verifier | none for day 1; full run needs WS1 |
 | WS4 Legal sources, rules, gaps agent (M3) | TODO | `<github-username>/m3-legal-gaps` | not started | WS3 day-1 `tools.py` protocol |
