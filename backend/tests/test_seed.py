@@ -87,6 +87,7 @@ def test_seed_creates_the_live_case_with_nothing_in_it(fresh_db, session):
     demo = session.get(CaseRow, CASE)
     assert case is not None and demo is not None
     assert (case.tenant_name, case.tenant_language) == ("Mei Chen", "zh")
+    assert case.title == "Water leak and mould on bathroom wall"  # matches the demo photo
     assert (case.org_id, case.assigned_to_id) == (demo.org_id, demo.assigned_to_id)
     assert case.synthetic is True and case.stage == "waiting_tenant"
     assert case.next_deadline is None and case.hearing_date is None

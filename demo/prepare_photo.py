@@ -1,4 +1,4 @@
-"""Build demo/local/ceiling_stain.jpg from the downloaded stock photo (see demo/README.md).
+"""Build demo/local/wall_stain.jpg from the downloaded stock photo (see demo/README.md).
 
     uv run --directory backend python ../demo/prepare_photo.py /path/to/downloaded.jpg
 
@@ -13,7 +13,7 @@ from PIL import Image
 
 MAX_SIDE = 1600
 CAPTURED = "2026:08:14 21:03:12"  # set by hand: the photo is not from a real tenant
-OUT = Path(__file__).resolve().parent / "local" / "ceiling_stain.jpg"
+OUT = Path(__file__).resolve().parent / "local" / "wall_stain.jpg"
 
 
 def main(source: str) -> None:
