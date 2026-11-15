@@ -7,6 +7,7 @@ calls read_pdf_isolated, which runs read_pdf in a child process and kills it at
 PDF_HARD_SECONDS, since one hostile page could run past the between-pages check."""
 
 import io
+import logging
 import multiprocessing
 import re
 import sys
@@ -26,6 +27,8 @@ PDF_SECONDS = 10.0
 PDF_HARD_SECONDS = PDF_SECONDS + 5.0  # plus starting the child process and returning the text
 PDF_CHILD_MEMORY = 2 * 1024**3  # address space of the PDF child, where the OS can cap it
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0e-\x1f\x7f]")
+
+log = logging.getLogger(__name__)
 
 Pages = list[dict[str, str]]
 
@@ -102,16 +105,21 @@ def read_pdf_isolated(data: bytes, timeout: float | None = None) -> PdfText:
 
 def limit_child_resources() -> None:
     """Cap the PDF child's memory and CPU where the OS allows it (not Windows), so a hostile
-    PDF fails in its own process (MemoryError, or killed) instead of starving the server."""
+    PDF fails in its own process (MemoryError, or killed) instead of starving the server.
+    A limit the OS refuses (setrlimit is unreliable for the address space on macOS) is skipped,
+    since the hard timeout still bounds the child; the PDF is read either way."""
     if sys.platform == "win32":  # no setrlimit: the hard timeout is the only limit
         return
     import resource
 
-    for limit, value in ((resource.RLIMIT_AS, PDF_CHILD_MEMORY),
-                         (resource.RLIMIT_CPU, int(PDF_HARD_SECONDS) + 5)):
-        _, hard = resource.getrlimit(limit)
-        resource.setrlimit(limit, (value if hard == resource.RLIM_INFINITY
-                                   else min(value, hard), hard))
+    for name, limit, value in (("RLIMIT_AS", resource.RLIMIT_AS, PDF_CHILD_MEMORY),
+                               ("RLIMIT_CPU", resource.RLIMIT_CPU, int(PDF_HARD_SECONDS) + 5)):
+        try:
+            _, hard = resource.getrlimit(limit)
+            resource.setrlimit(limit, (value if hard == resource.RLIM_INFINITY
+                                       else min(value, hard), hard))
+        except (OSError, ValueError) as exc:
+            log.debug("PDF child: %s not set (%s)", name, type(exc).__name__)  # type only
 
 
 def _read_pdf_child(data: bytes, conn: Connection) -> None:
