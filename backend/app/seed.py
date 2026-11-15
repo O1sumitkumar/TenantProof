@@ -141,6 +141,8 @@ def seed(session: Session) -> None:
     demo_case = s["case"]
     demo_case["stage"] = "needs_review"
     add_case(demo_case, demo=True)
+    live_case = s["liveCase"]  # synthetic, empty: the live demo uploads its evidence
+    add_case(live_case, demo=True)
     for other in s["otherCases"]:
         other["updated_at"] = shift_day(other["updated_at"], delta) + other["updated_at"][10:]
         add_case(other, demo=False)
@@ -198,6 +200,9 @@ def seed(session: Session) -> None:
     link = issue_token(session, case_id, settings.intake_token_ttl_days)
     session.commit()
     print(f"demo intake link (shown once): {settings.public_base_url}/i/{link}")
+    live_link = issue_token(session, live_case["id"], settings.intake_token_ttl_days)
+    session.commit()
+    print(f"live intake link (shown once): {settings.public_base_url}/i/{live_link}")
 
 
 def is_empty(session: Session) -> bool:

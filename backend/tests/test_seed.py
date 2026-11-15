@@ -52,3 +52,73 @@ def test_seed_needs_a_password_only_when_it_will_seed(fresh_db, monkeypatch):
     seed_module.main([])  # database has data: skipped, no password needed
     with pytest.raises(SystemExit):
         seed_module.main(["--force"])
+
+
+# --- case_live_001: the synthetic, empty case for the live demo run ----------------------------
+
+LIVE = "case_live_001"
+
+
+def _live_link(capsys) -> str:
+    seed_module.main(["--force"])
+    out = capsys.readouterr().out
+    line = next(ln for ln in out.splitlines() if ln.startswith("live intake link"))
+    return line.rsplit("/", 1)[1]
+
+
+def test_seed_creates_the_live_case_with_nothing_in_it(fresh_db, session):
+    from sqlmodel import func, select
+
+    from app.models import (
+        ActivityRow,
+        CaseRow,
+        EvidencePageRow,
+        EvidenceRow,
+        FormFieldRow,
+        GapRow,
+        IntakeTokenRow,
+        LegalSourceRow,
+        RunRow,
+        TimelineEventRow,
+    )
+
+    session.expire_all()
+    case = session.get(CaseRow, LIVE)
+    demo = session.get(CaseRow, CASE)
+    assert case is not None and demo is not None
+    assert (case.tenant_name, case.tenant_language) == ("Mei Chen", "zh")
+    assert (case.org_id, case.assigned_to_id) == (demo.org_id, demo.assigned_to_id)
+    assert case.synthetic is True and case.stage == "waiting_tenant"
+    assert case.next_deadline is None and case.hearing_date is None
+
+    for table in (EvidenceRow, EvidencePageRow, TimelineEventRow, GapRow, RunRow, FormFieldRow,
+                  LegalSourceRow, ActivityRow):
+        count = session.exec(
+            select(func.count()).select_from(table).where(table.case_id == LIVE)  # type: ignore[attr-defined]
+        ).one()
+        assert count == 0, table.__name__
+
+    tokens = session.exec(select(IntakeTokenRow).where(IntakeTokenRow.case_id == LIVE)).all()
+    assert [t.revoked for t in tokens] == [False]  # its own single active token
+
+
+def test_the_live_case_is_in_the_caseload_with_no_evidence(fresh_db, client, capsys):
+    cases = {c["id"]: c for c in client.get("/api/cases").json()}
+    assert cases[LIVE]["tenant_name"] == "Mei Chen" and cases[LIVE]["has_demo_data"] is True
+    assert client.get(f"/api/cases/{LIVE}/evidence").json() == []
+    assert client.get(f"/api/cases/{LIVE}/timeline").json() == []
+    assert client.get(f"/api/cases/{LIVE}/runs/latest").status_code == 404
+
+
+def test_the_live_case_has_its_own_intake_link_that_is_not_the_demo_cases(
+    fresh_db, anon_client, capsys
+):
+    live = _live_link(capsys)
+    view = anon_client.get(f"/api/intake/{live}")
+    assert view.status_code == 200 and view.json()["tenant_first_name"] == "Mei"
+    assert view.json()["language"] == "zh"
+
+
+def test_the_demo_case_is_unchanged_by_the_live_case(fresh_db, client):
+    assert len(client.get(f"/api/cases/{CASE}/evidence").json()) == 7
+    assert len(client.get(f"/api/cases/{CASE}/timeline").json()) == 9
