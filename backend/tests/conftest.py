@@ -137,3 +137,11 @@ def fresh_db() -> Iterator[None]:
     _reseed()
     yield
     _reseed()
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers",
+        "live_eval: runs an eval against the real model (needs RUN_LIVE_EVALS=1 and "
+        "ANTHROPIC_API_KEY; skipped by default)",
+    )
