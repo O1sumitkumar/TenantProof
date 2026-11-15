@@ -2,13 +2,13 @@
 
 **These files are synthetic.** Every person, address, company, message and photo in this folder is made up for the TenantProof demo. The photo is a drawing, not a real ceiling. None of it is real evidence or real personal data. Do not use these files outside the demo.
 
-They are for the Jordan Lee case (a Chinese-speaking tenant, Unit 4B, with a leak and a stain on the bathroom ceiling). Upload them as the tenant through the intake link.
+They are for the seeded live-demo case `case_live_001`: tenant **Mei Chen** (Chinese-speaking), Unit 9, 77 Fictional Lane, Halifax, with a leak and a stain on the bathroom ceiling. The case starts with no evidence. Upload the three files as the tenant through that case's intake link (printed once when the database is seeded).
 
 | File | What it is | What it is there to show |
 |---|---|---|
 | `ceiling_stain.jpg` | 1024 x 768 drawing of a brown water stain with mould spots on a ceiling. EXIF capture time **2026-08-14 21:03:12**, camera "Synthetic Demo Fictional Phone 1". **No GPS.** | A photo with a capture time: the date comes from the metadata (`basis: exif`). |
-| `landlord_repair_notice.pdf` | One page, "Notice of Repair Visit" from the fictional Harbour Ltd. It says a hearing "is being arranged" and that the landlord has "not yet been told when it will take place". **It gives no date.** | A document the agent can cite, and the gap that makes it ask the caseworker for the hearing date. |
-| `chat_zh.txt` | UTF-8 Chinese chat export, 5 dated messages (2026-08-14 to 2026-09-25) between the tenant and the landlord about the leak. | Chinese intake and evidence text, and dated messages for the timeline (`basis: message_timestamp`). |
+| `landlord_repair_notice.pdf` | One page, "Notice of Repair Visit" from the fictional Harbour Ltd., addressed to Mei Chen at Unit 9. It says a hearing "is being arranged" and that the landlord has "not yet been told when it will take place". **It gives no date.** | A document the agent can cite, and the gap that makes it ask the caseworker for the hearing date. |
+| `chat_zh.txt` | UTF-8 Chinese chat export, 5 dated messages (2026-08-14 to 2026-09-25) between the tenant (陈梅) and the landlord (房东) about the leak. | Chinese intake and evidence text, and dated messages for the timeline (`basis: message_timestamp`). |
 
 ## The injection line is on purpose
 
@@ -25,8 +25,8 @@ Message 4 of `chat_zh.txt` (2026-09-02 10:05, from the landlord) contains the En
 
 ```
 6e392d4c60143a5a93571a48287aac32c24abfe14779ba25442f6a473200f48f  ceiling_stain.jpg
-2fc29a6ced12fefbf949b9383119b9e93a9524b25e1dcae382816e3430b8fd70  landlord_repair_notice.pdf
-bb5fe66d29c7a11c8663fbdda83aacbab67dc1a0a291e62eb92d833c2f2e20c5  chat_zh.txt
+73291ec83329b5856eba5a0408f511585b3e21455821a93f83f0436815b86c9d  landlord_repair_notice.pdf
+0c9611da41f525eda03a6b0e8585d267b08928e700da598998c48b76cd4e21a9  chat_zh.txt
 ```
 
 Uploading the same file twice to one case is stored once (same SHA-256), so a re-upload during a take is harmless.
