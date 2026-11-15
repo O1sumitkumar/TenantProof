@@ -160,6 +160,9 @@ def _usage_totals(run: RunRow, duration_ms: int) -> dict[str, Any]:
     return {
         "input_tokens": total.input_tokens,
         "output_tokens": total.output_tokens,
+        # Stored on the run, not part of the API's RunUsage (that needs a schema: change).
+        "cache_creation_input_tokens": total.cache_creation_input_tokens,
+        "cache_read_input_tokens": total.cache_read_input_tokens,
         "est_cost_usd": estimate_cost_usd(total),
         "duration_ms": duration_ms,
     }
@@ -218,7 +221,8 @@ async def _run_timeline(
     ctx: ToolContext, provider: LLMProvider, state: StepState, on_turn: TurnHook
 ) -> LoopResult:
     return await run_agent_loop(
-        provider, ctx, state, step_key="timeline", system=prompts.timeline_system(ctx.nonce),
+        provider, ctx, state, step_key="timeline", system=prompts.timeline_system(),
+        system_run=prompts.timeline_run_note(ctx.nonce),
         tool_names=prompts.TIMELINE_TOOLS, on_turn=on_turn,
     )  # fmt: skip
 

@@ -29,6 +29,9 @@ MAX_RETRIES = 1
 EFFORT = "medium"  # output_config.effort: suggested start for multistep tool use
 PRICE_IN_USD_PER_MTOK = 2.0  # claude-sonnet-5-5 list price, 2026-11
 PRICE_OUT_USD_PER_MTOK = 10.0
+CACHE_WRITE_PRICE_FACTOR = 1.25  # of the input price: writing a 5-minute cache entry
+CACHE_READ_PRICE_FACTOR = 0.1  # of the input price: reading one
+CACHE_CONTROL = {"type": "ephemeral"}  # the default 5-minute lifetime; a run lasts under 60 s
 DEFAULT_MAX_TOKENS = 16000  # thinking counts against max_tokens
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 _EVIDENCE_TAG = re.compile(r"evidence-[0-9a-f]{6,}")
@@ -78,18 +81,31 @@ class ToolUse(BaseModel):
 
 
 class Usage(BaseModel):
+    # As the API reports them: `input_tokens` is only the input that was neither read from nor
+    # written to the prompt cache; the two cache counts are separate.
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
 
     def __add__(self, other: "Usage") -> "Usage":
         return Usage(
             input_tokens=self.input_tokens + other.input_tokens,
             output_tokens=self.output_tokens + other.output_tokens,
+            cache_creation_input_tokens=(
+                self.cache_creation_input_tokens + other.cache_creation_input_tokens
+            ),
+            cache_read_input_tokens=self.cache_read_input_tokens + other.cache_read_input_tokens,
         )
 
 
 class LLMRequest(BaseModel):
+    # The stable system prompt: identical for every run, so the provider can cache it. Nothing
+    # per-run goes here.
     system: str
+    # Per-run text (the evidence nonce). The provider puts it after the cache breakpoint, so a
+    # new nonce does not invalidate the cached prefix.
+    system_run: str = ""
     messages: list[Message]
     tools: list[dict[str, Any]] = Field(default_factory=list)  # tools.tool_specs() output
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, ge=1)
@@ -148,7 +164,8 @@ def request_hash(request: LLMRequest) -> str:
     )
     # The evidence tag carries a per-run random suffix; it must not change the hash.
     system = _EVIDENCE_TAG.sub("evidence-NONCE", request.system)
-    blob = json.dumps({"system": system, "tools": tools}, sort_keys=True)
+    run_part = _EVIDENCE_TAG.sub("evidence-NONCE", request.system_run)
+    blob = json.dumps({"system": system, "system_run": run_part, "tools": tools}, sort_keys=True)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:12]
 
 
@@ -239,12 +256,12 @@ class AnthropicProvider:
         kwargs: dict[str, Any] = {
             "model": self.model,
             "max_tokens": request.max_tokens,
-            "system": request.system,
+            "system": cached_system(request),
             "messages": [m.model_dump(mode="json") for m in request.messages],
             "output_config": {"effort": self.effort},
         }
         if request.tools:
-            kwargs["tools"] = request.tools
+            kwargs["tools"] = cached_tools(request.tools)
         try:
             async with asyncio.timeout(self.deadline_s):
                 raw = await self.client.messages.create(**kwargs)
@@ -256,6 +273,26 @@ class AnthropicProvider:
             status = getattr(exc, "status_code", None)
             raise LLMCallError(f"{type(exc).__name__} (status {status})") from None
         return _to_response(raw)
+
+
+def cached_system(request: LLMRequest) -> list[dict[str, Any]]:
+    """The system prompt as blocks, in the order the cache needs: the stable text with the
+    breakpoint on it, then the per-run text after it. Tools come before the system prompt in
+    the cached prefix, so one breakpoint here covers both."""
+    blocks: list[dict[str, Any]] = [
+        {"type": "text", "text": request.system, "cache_control": dict(CACHE_CONTROL)}
+    ]
+    if request.system_run:
+        blocks.append({"type": "text", "text": request.system_run})
+    return blocks
+
+
+def cached_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Copies of the tool definitions with a breakpoint on the last one, which caches all of
+    them. Copies, because the originals are shared (`tool_specs` caches them)."""
+    marked = [dict(t) for t in tools]
+    marked[-1]["cache_control"] = dict(CACHE_CONTROL)
+    return marked
 
 
 def _to_response(raw: Any) -> LLMResponse:
@@ -277,6 +314,9 @@ def _to_response(raw: Any) -> LLMResponse:
         usage=Usage(
             input_tokens=raw.usage.input_tokens,
             output_tokens=raw.usage.output_tokens,
+            # None, or absent, when the API reports no cache activity.
+            cache_creation_input_tokens=getattr(raw.usage, "cache_creation_input_tokens", 0) or 0,
+            cache_read_input_tokens=getattr(raw.usage, "cache_read_input_tokens", 0) or 0,
         ),
     )
 
@@ -289,9 +329,15 @@ def _stop_details(raw: Any) -> dict[str, Any] | None:
 
 
 def estimate_cost_usd(usage: Usage) -> float:
-    """Estimated from MODEL's list price. Cache reads and writes are not tracked here."""
+    """Estimated from MODEL's list price. A cache write costs 1.25 times the input price and a
+    cache read 0.1 times."""
+    input_equivalent = (
+        usage.input_tokens
+        + usage.cache_creation_input_tokens * CACHE_WRITE_PRICE_FACTOR
+        + usage.cache_read_input_tokens * CACHE_READ_PRICE_FACTOR
+    )
     return round(
-        usage.input_tokens * PRICE_IN_USD_PER_MTOK / 1e6
+        input_equivalent * PRICE_IN_USD_PER_MTOK / 1e6
         + usage.output_tokens * PRICE_OUT_USD_PER_MTOK / 1e6,
         4,
     )
