@@ -179,6 +179,13 @@ main{min-width:0;display:flex;flex-direction:column;gap:20px}
 @media (prefers-reduced-motion: reduce){.rs-running .rs-ico{animation:none}}
 .rs-title{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-weight:600}
 .rs-sum{color:var(--ink-2);font-size:13.5px;margin:2px 0 0}
+.ask{margin:0 0 14px;border-left:3px solid var(--warn)}
+.ask h2{margin:0 0 6px;font-size:16px}
+.ask-q{margin:0 0 12px;font-size:15px}
+.ask label{display:block;font-weight:600;font-size:13.5px;margin-bottom:4px}
+.ask-row{display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}
+.ask-row .field{flex:1 1 260px}
+.ask-err{color:var(--bad);font-size:13.5px;margin:8px 0 0;min-height:1.3em}
 .tools{grid-column:2;margin-top:6px}
 .tools summary{cursor:pointer;font-size:12.5px;color:var(--accent);font-weight:600}
 .tool-calls{margin:8px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
@@ -418,7 +425,7 @@ async function uploadFiles(path, files) {
 const ENDPOINTS = {
   cases: ["GET /me", "GET /cases"],
   evidence: ["GET /cases/{id}/evidence", "POST /cases/{id}/evidence (multipart)", "POST /cases/{id}/intake-link"],
-  run: ["POST /cases/{id}/runs", "GET /cases/{id}/runs/latest", "GET /runs/{run_id}  (poll)"],
+  run: ["POST /cases/{id}/runs", "GET /cases/{id}/runs/latest", "GET /runs/{run_id}  (poll)", "POST /runs/{run_id}/answer"],
   timeline: ["GET /cases/{id}/timeline", "PATCH /timeline/{event_id}"],
   gaps: ["GET /cases/{id}/gaps", "PATCH /gaps/{gap_id}", "POST /gaps/{gap_id}/tenant-request", "GET /cases/{id}/sources"],
   form: ["GET /cases/{id}/form-draft", "PATCH /cases/{id}/form-draft/fields/{key}"],
@@ -567,6 +574,7 @@ function mockRoute(method, path, body) {
   if (method === "POST" && path === `${C}/runs`) { const r = makeRun(false); db.latestRun = r.id; log("caseworker", `Started ${r.id}`); return clone(r); }
   if (method === "GET" && path === `${C}/runs/latest`) return clone(db.runs[db.latestRun]);
   if (method === "GET" && (m = path.match(/^\/runs\/(run_\d+)$/))) return clone(db.runs[m[1]]);
+  if (method === "POST" && (m = path.match(/^\/runs\/(run_\d+)\/answer$/))) { const r = db.runs[m[1]]; const st = r && r.steps.find(x => x.status === "needs_input"); if (!st) throw Object.assign(new Error("This run is not waiting for an answer"), { status: 409 }); log("caseworker", `Answered the agent's question on ${r.id}`); return clone(r); }
   if (method === "GET" && path === `${C}/timeline`) return clone(db.timeline);
   if (method === "PATCH" && (m = path.match(/^\/timeline\/(te_\w+)$/))) {
     const e = db.timeline.find(x => x.id === m[1]); Object.assign(e, body);
@@ -668,6 +676,8 @@ const I18N = {
 const S = { me: null, cases: [], case: null, evidence: [], run: null, timeline: [], gaps: [], sources: [], form: null, activity: [], pkg: null, editing: null, drafting: null,
   attest: { reviewed_fields: false, remedy_confirmed_with_tenant: false, explained_not_legal_advice: false }, pkgError: null,
   intake: { view: null, lang: null, files: [], attest: false, consent: false, sent: false } };
+const RESUMABLE = ["extract", "timeline"];  // steps the runner can resume after an answer (the others' needs_input is not a question)
+S.askError = ""; S.askDraft = ""; S.answering = false;
 const UPLOAD_SOON = { en: "Uploading files is coming soon. For now, confirm below and send.", zh: "文件上传功能即将推出。现在请先勾选下面的确认并发送。", fr: "Le téléversement de fichiers arrive bientôt. Pour l'instant, confirmez ci-dessous et envoyez.", es: "La subida de archivos llegará pronto. Por ahora, confirme abajo y envíe." };
 const CASE_ROUTES = ["evidence", "run", "timeline", "gaps", "form", "package"];
 const ROUTES = ["cases", "intake", ...CASE_ROUTES];
@@ -816,10 +826,19 @@ function viewRun() {
   const steps = run.steps.map((s, i) => `<li class="run-step rs-${s.status}"><span class="rs-ico">${ico[s.status] || i + 1}</span>
       <div><div class="rs-title">${i + 1}. ${esc(s.label)} ${pill[s.status]}</div>${s.summary ? `<p class="rs-sum">${esc(s.summary)}</p>` : ""}</div>
       ${s.tool_calls.length ? `<details class="tools"${s.status === "needs_input" ? " open" : ""}><summary>${s.tool_calls.length} tool calls</summary><ul class="tool-calls">${s.tool_calls.map(t => `<li><span class="t">${esc(t.tool)}</span><span class="io"><b>${esc(t.input)}</b> → ${esc(t.output)}</span></li>`).join("")}</ul></details>` : ""}</li>`).join("");
-  const waiting = run.status === "needs_review" ? `<div class="note warn"><span class="note-ico">!</span><span>The agent stopped at <b>Find missing information</b>. It drafted requests to the tenant in their language but sends nothing until you approve. It never decides the remedy. <a href="#gaps">Go to missing info</a></span></div>` : "";
+  const asking = run.steps.find(s => s.status === "needs_input" && RESUMABLE.includes(s.key));
+  const ask = asking ? `<form class="panel panel-pad ask" data-action="answer" aria-labelledby="ask-title" novalidate>
+      <h2 id="ask-title">The agent has a question for you</h2>
+      <p class="ask-q" id="ask-q">${esc(asking.summary || "The agent needs your answer to carry on.")}</p>
+      <label for="ask-a">Your answer</label>
+      <div class="ask-row"><input class="field" id="ask-a" name="answer" type="text" maxlength="500" autocomplete="off" aria-describedby="ask-q ask-help ask-err" aria-invalid="${S.askError ? "true" : "false"}" value="${esc(S.askDraft)}"><button class="btn primary" type="submit"${S.answering ? " disabled" : ""}>${S.answering ? "Sending…" : "Send"}</button></div>
+      <p class="muted" id="ask-help">Plain words are fine. If it asks for a date, write it like 2026-11-21 or Nov 21, 2026.</p>
+      <p class="ask-err" id="ask-err" role="alert">${esc(S.askError)}</p>
+    </form>` : "";
+  const waiting = run.status === "needs_review" && !asking ? `<div class="note warn"><span class="note-ico">!</span><span>The agent stopped at <b>Find missing information</b>. It drafted requests to the tenant in their language but sends nothing until you approve. It never decides the remedy. <a href="#gaps">Go to missing info</a></span></div>` : "";
   return `<div class="view-head"><div><h1>Agent run</h1><p>What the agent did, step by step, and which tools it used.</p></div><button class="btn" data-action="run" ${run.status === "running" ? "disabled" : ""}>Run analysis again</button></div>
     <div class="panel panel-pad run-head"><div class="btn-row"><span class="mono">${esc(run.id)}</span>${runPill}</div><div class="run-meta"><span>Started ${fmtTime(run.started_at)}</span><span>Finished ${fmtTime(run.finished_at)}</span></div></div>
-    ${waiting}<ol class="panel run-steps">${steps}</ol>${contract("run", run)}`;
+    ${ask}${waiting}<ol class="panel run-steps">${steps}</ol>${contract("run", run)}`;
 }
 
 function viewTimeline() {
@@ -1015,12 +1034,18 @@ async function refresh(parts) {
   render();
 }
 
+const focusAsk = () => { const el = $("#ask-a"); if (el) el.focus(); };
 let poller = null;
 function pollRun() {
   clearInterval(poller);
   poller = setInterval(async () => {
     S.run = await request("GET", `/runs/${S.run.id}`);
-    if (S.run.status !== "running") { clearInterval(poller); toast("Analysis finished. Required items need your input."); await refresh(["timeline", "gaps", "form", "evidence"]); return; }
+    if (S.run.status !== "running") {
+      clearInterval(poller);
+      const asked = S.run.steps.some(s => s.status === "needs_input" && RESUMABLE.includes(s.key));
+      toast(asked ? "The agent has a question for you." : "Analysis finished. Required items need your input.");
+      await refresh(["timeline", "gaps", "form", "evidence"]); if (asked && route() === "run") focusAsk(); return;
+    }
     if (route() === "run") $("#view").innerHTML = viewRun();
     renderChrome();
   }, 700);
@@ -1069,6 +1094,24 @@ document.addEventListener("submit", async ev => {
     const fd = new FormData(f);
     try { S.me = await request("POST", "/auth/login", { email: fd.get("email"), password: fd.get("password") }); S.needLogin = false; await ensureCase(); await refresh(); location.hash = "cases"; }
     catch (err) { showLogin(err.status === 429 ? "Too many attempts. Wait a minute and try again." : err.message); }
+    return;
+  }
+  if (a === "answer") {
+    if (S.answering || !S.run) return;
+    const answer = new FormData(f).get("answer").trim();
+    S.askDraft = answer;
+    if (!answer) { S.askError = "Type an answer first."; $("#view").innerHTML = viewRun(); focusAsk(); return; }
+    S.answering = true; S.askError = ""; $("#view").innerHTML = viewRun();
+    try {
+      S.run = await request("POST", `/runs/${S.run.id}/answer`, { answer });
+      S.askDraft = ""; toast("Answer sent. The agent is carrying on.");
+      S.answering = false; render(); pollRun();
+    } catch (err) {
+      S.answering = false;
+      if (err.status === 409) { S.askError = ""; toast("That question was already answered."); try { S.run = await request("GET", `/runs/${S.run.id}`); } catch {} render(); if (S.run && S.run.status === "running") pollRun(); return; }
+      S.askError = err.status === 422 ? err.message : "Could not send your answer. Check your connection and try again.";
+      $("#view").innerHTML = viewRun(); focusAsk();
+    }
     return;
   }
   if (a === "save-edit") {
