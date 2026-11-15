@@ -81,6 +81,27 @@ def test_defaults_give_the_built_in_model_and_anthropics_own_api() -> None:
     assert str(p.client.base_url).rstrip("/") == "https://api.anthropic.com"
 
 
+@pytest.mark.parametrize("env_value", [None, "", "   "])
+def test_an_empty_or_unset_base_url_means_anthropics_own_api(
+    monkeypatch: pytest.MonkeyPatch, env_value: str | None
+) -> None:
+    """Compose passes ANTHROPIC_BASE_URL as an empty string when it is not set. The SDK would
+    take that as the address "" and every live call would fail to connect."""
+    if env_value is not None:
+        monkeypatch.setenv("ANTHROPIC_BASE_URL", env_value)
+    p = llm.get_provider(Settings(llm_mode="live", _env_file=None))  # type: ignore[call-arg]
+    assert isinstance(p, llm.AnthropicProvider)
+    assert str(p.client.base_url).rstrip("/") == "https://api.anthropic.com"
+
+
+def test_the_provider_does_not_depend_on_the_sdks_own_env_handling(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "")
+    direct = llm.AnthropicProvider("k")  # no base_url argument at all
+    assert str(direct.client.base_url).rstrip("/") == "https://api.anthropic.com"
+
+
 def test_the_configured_model_and_base_url_reach_the_client() -> None:
     p = provider(llm_model="deepseek-chat", anthropic_base_url="https://api.example.com/anthropic")
     assert p.model == "deepseek-chat"

@@ -1,8 +1,8 @@
 """Harness for the end-to-end runner evals. A case is data (tests/fixtures/evals/*.json): the
 evidence text, and the scripted model replies for each turn. The provider is swappable: the
 default replays the script through FixtureProvider (no network); with RUN_LIVE_EVALS=1 and
-ANTHROPIC_API_KEY set, the same case runs against the real model, where the tests keep only the
-checks that must hold whatever the model says."""
+ANTHROPIC_API_KEY set (and optionally LLM_MODEL), the same case runs against the real model,
+where the tests keep only the checks that must hold whatever the model says."""
 
 import asyncio
 import json
@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlmodel import Session, select
 
+from app.config import Settings
 from app.models import CaseRow, EvidencePageRow, RunRow, TimelineEventRow
 from app.services.agent import llm, runner
 from app.services.agent.evidence_text import SqlTextStore
@@ -61,7 +62,9 @@ class RecordingProvider:
 
 def make_provider(mode: str, case: EvalCase) -> RecordingProvider:
     if mode == "live":
-        return RecordingProvider(llm.AnthropicProvider(api_key=os.environ["ANTHROPIC_API_KEY"]))
+        # The same provider the app builds: honours LLM_MODEL and ANTHROPIC_BASE_URL, so a key
+        # that only has one model (or an Anthropic-compatible endpoint) works.
+        return RecordingProvider(llm.get_provider(Settings(llm_mode="live")))
     return RecordingProvider(llm.FixtureProvider(scripted=case.scripted()))
 
 
