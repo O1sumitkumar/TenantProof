@@ -719,6 +719,8 @@ class CreateGapInput(ToolInput):
     why: str = Field(min_length=1, max_length=1000)
     how_to_fix: str = Field(min_length=1, max_length=1000)
     field_key: str | None = Field(default=None, max_length=64)
+    # The source the gap rests on, from search_legal_sources: this case's row, never another's.
+    source_id: str | None = Field(default=None, max_length=64)
 
 
 class CreateGapOutput(BaseModel):
@@ -727,7 +729,10 @@ class CreateGapOutput(BaseModel):
 
 class CreateGap(BaseTool):
     name = "create_gap"
-    description = "Record something missing from the evidence or form. It starts open."
+    description = (
+        "Record something missing from the evidence or form, with the source it rests on. It "
+        "starts open. A gap with the same title is never created twice."
+    )
     effect: ClassVar[Effect] = "draft"
     input_model = CreateGapInput
     output_model = CreateGapOutput
@@ -744,13 +749,23 @@ class CreateGap(BaseTool):
                 tool=self.name, kind="invalid_input",
                 message="field_key is not a field of this case's form. Use list_form_fields.",
             )  # fmt: skip
+        source: LegalSourceRow | None = None
+        if args.source_id is not None:
+            found = ctx.session.get(LegalSourceRow, args.source_id)
+            if found is None or found.case_id != case.id:
+                return ToolError(
+                    tool=self.name, kind="invalid_input",
+                    message="source_id is not a source of this case. Use search_legal_sources.",
+                )  # fmt: skip
+            source = found
         existing = list(ctx.session.exec(select(GapRow).where(GapRow.case_id == case.id)).all())
-        for gap in existing:  # the same call twice (a retry) makes one gap
-            if gap.status == "open" and gap.title.casefold() == args.title.casefold():
+        for gap in existing:  # a retry, or a gap the caseworker dismissed, is not a new gap
+            if gap.title.casefold() == args.title.casefold():
                 return CreateGapOutput(gap_id=gap.id)
         gap = GapRow(
             id=_new_id("gap"), case_id=case.id, position=len(existing), severity=args.severity,
             title=args.title, why=args.why, how_to_fix=args.how_to_fix, status="open",
+            source_id=source.id if source is not None else None,
             input=(
                 {"type": "text", "field_key": args.field_key, "placeholder": ""}
                 if args.field_key is not None else None

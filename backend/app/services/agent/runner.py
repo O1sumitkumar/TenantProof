@@ -9,11 +9,13 @@ Crash safety: the loop commits once per turn, and the runner writes the step (to
 and a checkpoint of the conversation) in that same commit. A killed worker loses at most the
 open turn together with its rows, and `execute_run` on that run continues from the checkpoint.
 
-The `extract`, `timeline` and `rules` steps exist so far. `extract` runs first, at the start of a
-run, so it needs nothing from ingest: it reads the `evidence_page` rows that ingest wrote. `rules`
-is deterministic (WS4): it gives the case the corpus sources and the evidence deadline, and it
-runs after `timeline` because the hearing date it needs comes from there. `ingest` needs WS1,
-`gaps` needs WS4, and `draft` is deterministic and comes next; those steps stay `pending` here.
+The `extract`, `timeline`, `rules` and `gaps` steps exist so far. `extract` runs first, at the
+start of a run, so it needs nothing from ingest: it reads the `evidence_page` rows that ingest
+wrote. `rules` is deterministic (WS4): it gives the case the corpus sources and the evidence
+deadline, and it runs after `timeline` because the hearing date it needs comes from there. `gaps`
+(WS4) writes the deterministic gaps first, then runs an agent loop that reads the evidence and
+drafts requests to the tenant. `ingest` needs WS1 and `draft` is deterministic and comes next;
+those steps stay `pending` here.
 
 Pause and resume: when the agent calls ask_caseworker the step becomes `needs_input` and the
 conversation is saved in the step's `checkpoint` key (the API never returns it). Call
@@ -30,6 +32,8 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -48,7 +52,15 @@ from app.services.agent.loop import (
     answer_block,
     run_agent_loop,
 )
-from app.services.agent.tools import AGENT_ACTOR, ProposeEventOutput, ToolContext, new_nonce
+from app.services.agent.tools import (
+    AGENT_ACTOR,
+    CreateGapOutput,
+    DraftTenantMessageOutput,
+    ProposeEventOutput,
+    ToolContext,
+    new_nonce,
+)
+from app.services.legal import gaps
 from app.services.legal import rules as legal_rules
 from app.services.mappers import case_counts
 from app.services.stage import refresh_stage
@@ -61,7 +73,7 @@ STEP_LABELS = {
     "gaps": "Find missing information",
     "draft": "Draft form",
 }
-IMPLEMENTED_STEPS = ("extract", "timeline", "rules")
+IMPLEMENTED_STEPS = ("extract", "timeline", "rules", "gaps")
 HEARING_QUESTION = "What is the hearing date? It is not in the evidence."
 log = logging.getLogger(__name__)
 
@@ -91,11 +103,11 @@ def create_run(session: Session, case: CaseRow) -> RunRow:
 # --------------------------------------------------------------------------- step state
 
 
-def _load_state(step: dict[str, Any], answer: str | None) -> StepState:
+def _load_state(step: dict[str, Any], answer: str | None, kickoff: str) -> StepState:
     """A fresh state, or the saved one: after a pause (needs the answer) or after a crash."""
     checkpoint = step.get("checkpoint")
     if checkpoint is None:
-        return StepState(messages=[Message(role="user", content=prompts.TIMELINE_KICKOFF)])
+        return StepState(messages=[Message(role="user", content=kickoff)])
     messages = [Message.model_validate(m) for m in checkpoint["messages"]]
     pending = checkpoint.get("pending")
     if pending is not None:
@@ -151,6 +163,20 @@ def _tally(state: StepState) -> str:
     return f"{accepted} events proposed, {rejected} citations rejected"
 
 
+def _tally_gaps(state: StepState) -> str:
+    added = drafts = 0
+    for call in state.tool_calls:
+        try:
+            if call.tool == "create_gap":
+                CreateGapOutput.model_validate_json(call.output)
+                added += 1
+            elif call.tool == "draft_tenant_message":
+                drafts += DraftTenantMessageOutput.model_validate_json(call.output).saved
+        except ValueError:
+            continue  # the call was a ToolError, so it changed nothing
+    return f"{added} gaps added, {drafts} tenant drafts"
+
+
 def _write_extract(
     step: dict[str, Any], state: StepState, status: str, summary: str | None
 ) -> None:
@@ -169,11 +195,13 @@ _STEP_STATUS = {
 }  # fmt: skip
 
 
-def _apply_result(step: dict[str, Any], state: StepState, result: LoopResult) -> None:
+def _apply_result(
+    step: dict[str, Any], state: StepState, result: LoopResult, tally: Callable[[StepState], str]
+) -> None:
     status = _STEP_STATUS[result.status]
     summary = result.summary
     if status != "needs_input":
-        summary = f"{summary} ({_tally(state)})"
+        summary = f"{summary} ({tally(state)})"
     _write_step(step, state, status, summary, result.pending)
 
 
@@ -245,13 +273,40 @@ def _claim(session: Session, run: RunRow, steps: tuple[str, ...]) -> None:
     session.commit()
 
 
-async def _run_timeline(
-    ctx: ToolContext, provider: LLMProvider, state: StepState, on_turn: TurnHook
-) -> LoopResult:
+@dataclass(frozen=True)
+class AgentStep:
+    """The four things that differ between the agent-loop steps: how the conversation starts, the
+    cached system prompt, the per-run note after it, and the tools. `tally` summarises what the
+    step changed for the run page."""
+
+    kickoff: str
+    system: str
+    run_note: str
+    tools: list[str]
+    tally: Callable[[StepState], str]
+
+
+def _agent_step(key: str, ctx: ToolContext, kickoff: str) -> AgentStep:
+    if key == "gaps":
+        return AgentStep(
+            kickoff=kickoff, system=prompts.gaps_system(),
+            run_note=prompts.gaps_run_note(ctx.nonce), tools=prompts.GAPS_TOOLS,
+            tally=_tally_gaps,
+        )  # fmt: skip
+    return AgentStep(
+        kickoff=prompts.TIMELINE_KICKOFF, system=prompts.timeline_system(),
+        run_note=prompts.timeline_run_note(ctx.nonce), tools=prompts.TIMELINE_TOOLS,
+        tally=_tally,
+    )  # fmt: skip
+
+
+async def _run_agent_step(
+    step: AgentStep, key: str, ctx: ToolContext, provider: LLMProvider, state: StepState,
+    on_turn: TurnHook,
+) -> LoopResult:  # fmt: skip
     return await run_agent_loop(
-        provider, ctx, state, step_key="timeline", system=prompts.timeline_system(),
-        system_run=prompts.timeline_run_note(ctx.nonce),
-        tool_names=prompts.TIMELINE_TOOLS, on_turn=on_turn,
+        provider, ctx, state, step_key=key, system=step.system, system_run=step.run_note,
+        tool_names=step.tools, on_turn=on_turn,
     )  # fmt: skip
 
 
@@ -375,7 +430,15 @@ async def execute_run(
                     session.commit()
                     continue
                 saved = (step.get("checkpoint") or {}).get("pending") or {}
-                state = _load_state(step, answer)
+                kickoff = prompts.TIMELINE_KICKOFF
+                if key == "gaps":
+                    # The deterministic gaps are written before the agent reads anything, so it
+                    # is told what already exists instead of inventing duplicates.
+                    prepared = gaps.prepare(session, case)
+                    session.commit()
+                    kickoff = prompts.gaps_kickoff(prepared.open_gaps, prepared.language)
+                spec = _agent_step(key, ctx, kickoff)
+                state = _load_state(step, answer, spec.kickoff)
                 current = (step, state)
                 step["nonce"] = ctx.nonce
                 if saved.get("synthetic"):  # the hearing-date answer: the step is complete
@@ -392,9 +455,9 @@ async def execute_run(
                     _write_step(step, st, "running", None, pending)
                     run.steps = copy.deepcopy(all_steps)
 
-                result = await _run_timeline(ctx, provider, state, on_turn)
-                _apply_result(step, state, result)
-                if _needs_hearing_ask(case, state, result):
+                result = await _run_agent_step(spec, key, ctx, provider, state, on_turn)
+                _apply_result(step, state, result, spec.tally)
+                if key == "timeline" and _needs_hearing_ask(case, state, result):
                     result = _hearing_pause(step, state)
                 current = None
                 run.steps = copy.deepcopy(all_steps)
