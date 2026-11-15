@@ -97,3 +97,19 @@ def _captured_at(value: object, offset: object) -> str | None:
     iso = stamp.isoformat()
     zone = _clean(offset)
     return iso + zone if zone and _OFFSET.fullmatch(zone) else iso
+
+
+PHOTO_LOCATOR = "photo 1"
+
+
+def photo_page(captured_at: str | None) -> dict[str, str]:
+    """The one `evidence_page` a photo gets, written by code, never read from the file: a model
+    can cite it for the photo's capture date (the agent never sees the image). It takes only the
+    capture time, which `_captured_at` has already parsed to digits, so GPS, device and software
+    cannot reach it."""
+    if captured_at:
+        text = f"Photo file. Capture time (EXIF): {captured_at}."
+    else:
+        text = "Photo file. No capture time in the file."
+    return {"locator": PHOTO_LOCATOR, "text": text}
+

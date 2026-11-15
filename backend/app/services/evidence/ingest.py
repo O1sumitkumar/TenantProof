@@ -195,7 +195,10 @@ def _process_unchecked(data: bytes, mime: str) -> _Processed:
     with Image.open(io.BytesIO(data)) as img:
         meta = exif.read_meta(img).as_dict()  # before strip_image changes the image
         clean, _ = strip.strip_image(img, mime)
-    return _Processed(metadata=meta, stripped_sha256=storage.put(clean).key)
+    return _Processed(
+        metadata=meta, stripped_sha256=storage.put(clean).key,
+        pages=[exif.photo_page(meta["captured_at"])],  # so the agent can cite the capture date
+    )
 
 
 def _insert(
