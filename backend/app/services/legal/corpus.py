@@ -153,6 +153,10 @@ def by_url(url: str | None) -> CorpusEntry | None:
     return next((e for e in CORPUS if e.url is not None and e.url == url), None)
 
 
+def by_id(entry_id: str) -> CorpusEntry | None:
+    return next((e for e in CORPUS if e.id == entry_id), None)
+
+
 def by_title(title: str) -> CorpusEntry | None:
     wanted = title.strip().casefold()
     return next((e for e in CORPUS if e.title.casefold() == wanted), None)

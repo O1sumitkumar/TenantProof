@@ -57,7 +57,7 @@ def new_row_id(case_id: str, entry: CorpusEntry) -> str:
     return f"src_{digest}"
 
 
-def _row_for(rows: list[LegalSourceRow], entry: CorpusEntry) -> LegalSourceRow | None:
+def row_for(rows: list[LegalSourceRow], entry: CorpusEntry) -> LegalSourceRow | None:
     """The case's row for an entry: by URL, then by title. The title fallback is what keeps the
     seeded Form J row (`src_03`, stored without a URL) from being duplicated."""
     for row in rows:
@@ -65,6 +65,19 @@ def _row_for(rows: list[LegalSourceRow], entry: CorpusEntry) -> LegalSourceRow |
             return row
     wanted = entry.title.casefold()
     return next((r for r in rows if r.title.casefold() == wanted), None)
+
+
+def source_ids(session: Session, case: CaseRow) -> dict[str, str]:
+    """Corpus entry id -> this case's LegalSourceRow id, for the gaps that cite a source."""
+    rows = list(
+        session.exec(select(LegalSourceRow).where(LegalSourceRow.case_id == case.id)).all()
+    )
+    out: dict[str, str] = {}
+    for entry in CORPUS:
+        row = row_for(rows, entry)
+        if row is not None:
+            out[entry.id] = row.id
+    return out
 
 
 def _verified_copy(session: Session, entry: CorpusEntry) -> tuple[str, datetime | None]:
@@ -97,7 +110,7 @@ def ensure_case_sources(session: Session, case: CaseRow) -> tuple[int, int, int]
     position = max((r.position for r in rows), default=-1)
     added = 0
     for entry in CORPUS:
-        row = _row_for(rows, entry)
+        row = row_for(rows, entry)
         if row is not None:
             row.title = entry.title
             row.used_for = entry.used_for
