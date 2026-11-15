@@ -166,14 +166,44 @@ def test_fixture_stores_and_replays_raw_blocks(tmp_path: Path) -> None:
     assert res.content == blocks and res.assistant_message().content == blocks
 
 
-def test_anthropic_provider_omits_empty_tools_and_maps_unknown_stop_reason() -> None:
+def test_refusal_keeps_its_stop_details() -> None:
+    details = SimpleNamespace(
+        model_dump=lambda **_: {"type": "refusal", "category": "cyber", "explanation": "x"}
+    )
+    raw = SimpleNamespace(
+        content=[], stop_reason="refusal", stop_details=details,
+        usage=SimpleNamespace(input_tokens=1, output_tokens=0),
+    )  # fmt: skip
+    res = run(llm.AnthropicProvider("k", client=fake_client(raw)).complete(req()))
+    assert res.stop_reason == "refusal" and (res.stop_details or {})["category"] == "cyber"
+
+
+@pytest.mark.parametrize(
+    ("raw_reason", "mapped"),
+    [("pause_turn", "pause_turn"), ("stop_sequence", "other"), ("end_turn", "end_turn")],
+)
+def test_other_stop_reasons(raw_reason: str, mapped: str) -> None:
+    raw = SimpleNamespace(
+        content=[], stop_reason=raw_reason, usage=SimpleNamespace(input_tokens=1, output_tokens=0)
+    )
+    res = run(llm.AnthropicProvider("k", client=fake_client(raw)).complete(req()))
+    assert res.stop_reason == mapped and res.stop_details is None
+
+
+def test_estimated_cost_uses_the_list_price() -> None:
+    usage = llm.Usage(input_tokens=1_000_000, output_tokens=500_000)
+    assert llm.estimate_cost_usd(usage) == 2.0 + 5.0
+    assert llm.estimate_cost_usd(llm.Usage()) == 0.0
+
+
+def test_anthropic_provider_omits_empty_tools_and_maps_a_refusal() -> None:
     raw = SimpleNamespace(
         content=[], stop_reason="refusal", usage=SimpleNamespace(input_tokens=1, output_tokens=0)
     )
     client = fake_client(raw)
     request = req().model_copy(update={"tools": []})
     res = run(llm.AnthropicProvider("k", client=client).complete(request))
-    assert res.stop_reason == "other" and "tools" not in client.messages.calls[0]
+    assert res.stop_reason == "refusal" and "tools" not in client.messages.calls[0]
 
 
 # --- get_provider / key handling

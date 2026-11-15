@@ -7,7 +7,9 @@ Rules every tool follows:
 - Evidence text reaches the model only through `wrap_evidence`: a delimited data block.
 - Bad model input comes back as a `ToolError` the model can read, it does not raise.
 
-Bodies are stubs: `run` raises NotImplementedError until WS3 wires them to the database.
+Every lookup goes through `ctx` (case, org) and answers `not_found()` for an id that is missing
+or belongs to another case or org. Text and facts come from `ctx.texts`; the legal-source
+excerpt is empty until WS4 stores one. Nothing here calls the network.
 WS4 builds against the Input/Output models and the registry in this file.
 """
 
@@ -15,14 +17,21 @@ import html
 import json
 import re
 import secrets
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any, ClassVar, Literal, Protocol, Self, runtime_checkable
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError, model_validator
-from sqlmodel import Session
+from sqlmodel import Session, col, select
 
+from app.models import CaseRow, EvidenceRow, FormFieldRow, GapRow, LegalSourceRow, TimelineEventRow
 from app.schemas import EventDate, Language, SourceRef, ToolCall
+from app.services import activity
+from app.services.agent.evidence_text import EvidenceTextStore, Page
+from app.services.dates import choose_date, date_mismatch, exif_matches
+from app.services.strength import SourceFacts, compute_strength, event_flags
+from app.services.verifier import verify_citation
 
 Effect = Literal["read", "draft", "control"]
 # No "forbidden": another case's id must look exactly like a missing one (not_found).
@@ -40,8 +49,14 @@ def _clean_label(value: str) -> str:
     """For short strings that come from evidence (labels, EXIF): no control characters,
     no angle brackets. Cleans first, then cuts to SAFE_STR_MAX, so the bound holds after
     escaping and long input is truncated, not rejected."""
+    return clean_text(value, SAFE_STR_MAX)
+
+
+def clean_text(value: str, limit: int) -> str:
+    """Model- or document-derived text for a summary or a log line: no control characters, no
+    angle brackets, at most `limit` characters after escaping."""
     cleaned = _CONTROL_CHARS.sub(" ", value).translate(_ANGLE_LOOKALIKES).strip()
-    return cleaned[:SAFE_STR_MAX].rstrip()
+    return cleaned[:limit].rstrip()
 
 
 # Short untrusted text shown to the model outside an evidence block.
@@ -59,6 +74,8 @@ class ToolContext:
     org_id: str
     case_id: str
     run_id: str
+    texts: EvidenceTextStore
+    nonce: str  # one per run; names the evidence tag in the system prompt
 
 
 class ToolError(BaseModel):
@@ -175,8 +192,8 @@ class Tool(Protocol):
     async def run(self, ctx: ToolContext, args: Any) -> BaseModel: ...
 
 
-class StubTool:
-    """Base for the stubs below. Subclasses set the class attributes and, in WS3, `run`."""
+class BaseTool:
+    """Base for the tools below. Subclasses set the class attributes and implement `run`."""
 
     name: ClassVar[str]
     description: ClassVar[str]
@@ -185,7 +202,7 @@ class StubTool:
     output_model: ClassVar[type[BaseModel]]
 
     async def run(self, ctx: ToolContext, args: Any) -> BaseModel:
-        raise NotImplementedError(f"tool {self.name!r} is a stub; WS3 wires it up")
+        raise NotImplementedError
 
 
 def not_found(tool: str, what: str) -> ToolError:
@@ -222,6 +239,46 @@ def to_tool_call(name: str, args: object, result: BaseModel | ToolError) -> Tool
     )
 
 
+# --------------------------------------------------------------------------- scope helpers
+
+AGENT_ACTOR = "TenantProof agent"
+MAX_READ_CHARS = 20_000  # one read_evidence call never returns more than this much text
+
+
+def _new_id(prefix: str) -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:10]}"
+
+
+def _case(ctx: ToolContext) -> CaseRow | None:
+    """The run's case, only if it belongs to the run's org."""
+    case = ctx.session.get(CaseRow, ctx.case_id)
+    return case if case is not None and case.org_id == ctx.org_id else None
+
+
+def _evidence(ctx: ToolContext, evidence_id: str) -> EvidenceRow | None:
+    """An evidence item of this case. A missing id and another case's id look the same."""
+    row = ctx.session.get(EvidenceRow, evidence_id)
+    if row is None or row.case_id != ctx.case_id or _case(ctx) is None:
+        return None
+    return row
+
+
+def _case_evidence(ctx: ToolContext) -> list[EvidenceRow]:
+    if _case(ctx) is None:
+        return []
+    stmt = select(EvidenceRow).where(EvidenceRow.case_id == ctx.case_id)
+    return list(ctx.session.exec(stmt.order_by(col(EvidenceRow.position))).all())
+
+
+def _words(query: str) -> list[str]:
+    return query.casefold().split()
+
+
+def _matches(words: list[str], haystack: str) -> bool:
+    low = haystack.casefold()
+    return all(w in low for w in words)
+
+
 # --------------------------------------------------------------------------- read tools
 
 
@@ -237,12 +294,25 @@ class ListEvidenceOutput(BaseModel):
     items: list[EvidenceSummary]
 
 
-class ListEvidence(StubTool):
+class ListEvidence(BaseTool):
     name = "list_evidence"
     description = "List the evidence items in this case (id, label, kind, processing state)."
     effect: ClassVar[Effect] = "read"
     input_model = NoInput
     output_model = ListEvidenceOutput
+
+
+    async def run(self, ctx: ToolContext, args: Any) -> BaseModel:
+        if _case(ctx) is None:
+            return not_found(self.name, "Case")
+        items = [
+            {
+                "id": r.id, "label": r.label, "kind": r.kind, "processing": r.processing,
+                "page_count": len(ctx.texts.pages(ctx.case_id, r.id)) or None,
+            }
+            for r in _case_evidence(ctx)
+        ]  # fmt: skip
+        return ListEvidenceOutput.model_validate({"items": items})
 
 
 class ReadEvidenceInput(ToolInput):
@@ -259,7 +329,7 @@ class ReadEvidenceOutput(BaseModel):
     block: EvidenceBlock
 
 
-class ReadEvidence(StubTool):
+class ReadEvidence(BaseTool):
     name = "read_evidence"
     description = (
         "Read the text of one evidence item, one page or region at a time. The text comes back "
@@ -269,6 +339,53 @@ class ReadEvidence(StubTool):
     effect: ClassVar[Effect] = "read"
     input_model = ReadEvidenceInput
     output_model = ReadEvidenceOutput
+
+
+    async def run(self, ctx: ToolContext, args: Any) -> BaseModel:
+        assert isinstance(args, ReadEvidenceInput)
+        row = _evidence(ctx, args.evidence_id)
+        if row is None:
+            return not_found(self.name, "Evidence item")
+        if args.page is not None and args.region is not None:
+            return ToolError(
+                tool=self.name, kind="invalid_input", message="Give page or region, not both."
+            )
+        if row.processing != "done":
+            return ToolError(
+                tool=self.name, kind="unavailable", message="This item is not processed yet."
+            )
+        pages = ctx.texts.pages(ctx.case_id, row.id)
+        if not pages:
+            return ToolError(
+                tool=self.name, kind="unavailable", message="No text is available for this item."
+            )
+        page = self._pick(pages, args)
+        if page is None:
+            names = ", ".join(_clean_label(p.locator) for p in pages[:20])
+            return ToolError(
+                tool=self.name, kind="invalid_input",
+                message=f"No such page or region. Available: {names}.",
+            )  # fmt: skip
+        locator = _clean_label(page.locator)
+        text = page.text
+        if len(text) > MAX_READ_CHARS:
+            text = text[:MAX_READ_CHARS] + "\n[truncated]"
+        return ReadEvidenceOutput(
+            evidence_id=row.id, locator=locator,
+            block=EvidenceBlock.from_text(row.id, text, locator, nonce=ctx.nonce),
+        )  # fmt: skip
+
+    @staticmethod
+    def _pick(pages: list[Page], args: ReadEvidenceInput) -> Page | None:
+        """A region by name, a page by number, or the first page when neither is given."""
+        if args.region is not None:
+            wanted = args.region.strip().casefold()
+            return next((p for p in pages if p.locator.strip().casefold() == wanted), None)
+        number = args.page or 1
+        named = next((p for p in pages if p.locator.strip().casefold() == f"page {number}"), None)
+        if named is not None:
+            return named
+        return pages[number - 1] if number <= len(pages) else None
 
 
 class GetMetadataInput(ToolInput):
@@ -284,12 +401,28 @@ class GetMetadataOutput(BaseModel):
     format_ok: bool
 
 
-class GetMetadata(StubTool):
+class GetMetadata(BaseTool):
     name = "get_metadata"
     description = "Metadata facts for one item: capture time, device, software, GPS present."
     effect: ClassVar[Effect] = "read"
     input_model = GetMetadataInput
     output_model = GetMetadataOutput
+
+
+    async def run(self, ctx: ToolContext, args: Any) -> BaseModel:
+        assert isinstance(args, GetMetadataInput)
+        row = _evidence(ctx, args.evidence_id)
+        if row is None:
+            return not_found(self.name, "Evidence item")
+        meta = row.metadata_  # only these fields: never coordinates or other raw EXIF
+        return GetMetadataOutput(
+            evidence_id=row.id,
+            captured_at=meta.get("captured_at"),
+            device=meta.get("device"),
+            software=meta.get("software"),
+            gps_present=bool(meta.get("gps_present")),
+            format_ok=bool(row.format_check.get("accepted")),
+        )
 
 
 class SearchFactsInput(ToolInput):
@@ -307,12 +440,31 @@ class SearchFactsOutput(BaseModel):
     hits: list[FactHit]
 
 
-class SearchFacts(StubTool):
+class SearchFacts(BaseTool):
     name = "search_facts"
     description = "Search the facts extracted from this case's evidence (keyword match)."
     effect: ClassVar[Effect] = "read"
     input_model = SearchFactsInput
     output_model = SearchFactsOutput
+
+
+    async def run(self, ctx: ToolContext, args: Any) -> BaseModel:
+        assert isinstance(args, SearchFactsInput)
+        if _case(ctx) is None:
+            return not_found(self.name, "Case")
+        ids = {r.id for r in _case_evidence(ctx)}
+        words = _words(args.query)
+        hits: list[FactHit] = []
+        for fact in ctx.texts.facts(ctx.case_id):
+            if fact.evidence_id in ids and _matches(words, fact.text):
+                locator = _clean_label(fact.locator)
+                block = EvidenceBlock.from_text(
+                    fact.evidence_id, fact.text, locator, nonce=ctx.nonce
+                )
+                hits.append(FactHit(evidence_id=fact.evidence_id, locator=locator, block=block))
+                if len(hits) >= args.limit:
+                    break
+        return SearchFactsOutput(hits=hits)
 
 
 # --------------------------------------------------------------------------- draft tools
@@ -361,7 +513,7 @@ class ProposeEventOutput(BaseModel):
     rejected_reasons: list[str] = Field(default_factory=list)
 
 
-class ProposeEvent(StubTool):
+class ProposeEvent(BaseTool):
     name = "propose_event"
     description = (
         "Propose a timeline event with date candidates and sources. Each source needs a locator "
@@ -370,6 +522,61 @@ class ProposeEvent(StubTool):
     effect: ClassVar[Effect] = "draft"
     input_model = ProposeEventInput
     output_model = ProposeEventOutput
+
+
+    async def run(self, ctx: ToolContext, args: Any) -> BaseModel:
+        assert isinstance(args, ProposeEventInput)
+        case = _case(ctx)
+        if case is None:
+            return not_found(self.name, "Case")
+        facts: list[SourceFacts] = []
+        refs: list[dict[str, Any]] = []
+        reasons: list[str] = []
+        for i, src in enumerate(args.sources, start=1):
+            row = _evidence(ctx, src.evidence_id)
+            if row is None:
+                reasons.append(f"source {i}: citation rejected: evidence not found in this case")
+                continue
+            pages = {p.locator: p.text for p in ctx.texts.pages(ctx.case_id, row.id)}
+            verdict = verify_citation(src.excerpt, src.locator, pages)
+            if not verdict.ok:
+                reasons.append(f"source {i}: {verdict.reason}")
+                continue
+            # Save the text found in the evidence and its own locator, not the model's strings.
+            refs.append(
+                {"evidence_id": row.id, "locator": verdict.locator, "excerpt": verdict.matched}
+            )
+            meta = row.metadata_
+            facts.append(
+                SourceFacts(
+                    evidence_id=row.id, kind=row.kind, uploaded_by=row.uploaded_by,
+                    captured_at=meta.get("captured_at"), software=meta.get("software"),
+                )
+            )  # fmt: skip
+        candidates = [d.to_event_date() for d in args.date_candidates]
+        captured = [f.captured_at for f in facts if f.captured_at]
+        for j, cand in enumerate(candidates, start=1):
+            if cand.basis == "exif" and not exif_matches(cand, captured):
+                reasons.append(
+                    f"date candidate {j}: basis exif does not match the capture time of the "
+                    "cited files"
+                )
+        if reasons:  # one bad citation drops the event; the model can fix it and propose again
+            return ProposeEventOutput(accepted=False, rejected_reasons=reasons)
+        chosen = choose_date(candidates)
+        mismatch = date_mismatch(candidates)
+        strength = compute_strength(facts, mismatch=mismatch)
+        event = TimelineEventRow(
+            id=_new_id("te"), case_id=case.id, date=chosen.model_dump(),
+            sort_key=chosen.value or "9", title=args.title, description=args.description,
+            actor=args.actor, sources=refs,
+            strength=strength.strength, strength_reasons=strength.reasons,
+            flags=[f.model_dump() for f in event_flags(facts, chosen, mismatch=mismatch)],
+            review_status="pending",
+        )  # fmt: skip
+        ctx.session.add(event)
+        activity.log(ctx.session, case.id, "agent", AGENT_ACTOR, f"Proposed event “{args.title}”")
+        return ProposeEventOutput(accepted=True, event_id=event.id)
 
 
 class FlagConflictInput(ToolInput):
@@ -381,12 +588,32 @@ class FlagConflictOutput(BaseModel):
     recorded: bool
 
 
-class FlagConflict(StubTool):
+class FlagConflict(BaseTool):
     name = "flag_conflict"
     description = "Note that sources disagree about an event you proposed."
     effect: ClassVar[Effect] = "draft"
     input_model = FlagConflictInput
     output_model = FlagConflictOutput
+
+
+    async def run(self, ctx: ToolContext, args: Any) -> BaseModel:
+        assert isinstance(args, FlagConflictInput)
+        event = ctx.session.get(TimelineEventRow, args.event_id)
+        if event is None or event.case_id != ctx.case_id or _case(ctx) is None:
+            return not_found(self.name, "Event")
+        if event.review_status != "pending":
+            return ToolError(
+                tool=self.name, kind="invalid_input",
+                message="Only an event that is still pending can be flagged.",
+            )  # fmt: skip
+        note = f"Conflict noted: {_clean_label(args.reason)}"
+        event.strength_reasons = [*event.strength_reasons, note]
+        ctx.session.add(event)
+        activity.log(
+            ctx.session, ctx.case_id, "agent", AGENT_ACTOR,
+            f"Noted a conflict on event “{event.title}”",
+        )  # fmt: skip
+        return FlagConflictOutput(recorded=True)
 
 
 class FormFieldSummary(BaseModel):
@@ -400,12 +627,27 @@ class ListFormFieldsOutput(BaseModel):
     fields: list[FormFieldSummary]
 
 
-class ListFormFields(StubTool):
+class ListFormFields(BaseTool):
     name = "list_form_fields"
     description = "List the application form fields and whether each is filled."
     effect: ClassVar[Effect] = "read"
     input_model = NoInput
     output_model = ListFormFieldsOutput
+
+
+    async def run(self, ctx: ToolContext, args: Any) -> BaseModel:
+        if _case(ctx) is None:
+            return not_found(self.name, "Case")
+        stmt = select(FormFieldRow).where(FormFieldRow.case_id == ctx.case_id)
+        rows = ctx.session.exec(stmt.order_by(col(FormFieldRow.position))).all()
+        return ListFormFieldsOutput.model_validate(
+            {
+                "fields": [
+                    {"key": r.key, "label": r.label, "required": r.required, "status": r.status}
+                    for r in rows
+                ]
+            }
+        )
 
 
 class SearchLegalSourcesInput(ToolInput):
@@ -425,12 +667,30 @@ class SearchLegalSourcesOutput(BaseModel):
     hits: list[LegalHit]
 
 
-class SearchLegalSources(StubTool):
+class SearchLegalSources(BaseTool):
     name = "search_legal_sources"
     description = "Search the curated corpus of official sources. Returns stored excerpts only."
     effect: ClassVar[Effect] = "read"
     input_model = SearchLegalSourcesInput
     output_model = SearchLegalSourcesOutput
+
+
+    async def run(self, ctx: ToolContext, args: Any) -> BaseModel:
+        assert isinstance(args, SearchLegalSourcesInput)
+        if _case(ctx) is None:
+            return not_found(self.name, "Case")
+        stmt = select(LegalSourceRow).where(LegalSourceRow.case_id == ctx.case_id)
+        words = _words(args.query)
+        hits = [
+            {
+                "source_id": r.id, "title": r.title, "kind": r.kind,
+                "excerpt": "",  # WS4 stores the official excerpt; nothing is invented here
+                "verify_status": r.verify_status,
+            }
+            for r in ctx.session.exec(stmt.order_by(col(LegalSourceRow.position))).all()
+            if _matches(words, f"{r.title} {r.used_for}")
+        ][: args.limit]  # fmt: skip
+        return SearchLegalSourcesOutput.model_validate({"hits": hits})
 
 
 class CreateGapInput(ToolInput):
@@ -445,12 +705,40 @@ class CreateGapOutput(BaseModel):
     gap_id: str
 
 
-class CreateGap(StubTool):
+class CreateGap(BaseTool):
     name = "create_gap"
     description = "Record something missing from the evidence or form. It starts open."
     effect: ClassVar[Effect] = "draft"
     input_model = CreateGapInput
     output_model = CreateGapOutput
+
+
+    async def run(self, ctx: ToolContext, args: Any) -> BaseModel:
+        assert isinstance(args, CreateGapInput)
+        case = _case(ctx)
+        if case is None:
+            return not_found(self.name, "Case")
+        key = args.field_key
+        if key is not None and ctx.session.get(FormFieldRow, (case.id, key)) is None:
+            return ToolError(
+                tool=self.name, kind="invalid_input",
+                message="field_key is not a field of this case's form. Use list_form_fields.",
+            )  # fmt: skip
+        existing = list(ctx.session.exec(select(GapRow).where(GapRow.case_id == case.id)).all())
+        for gap in existing:  # the same call twice (a retry) makes one gap
+            if gap.status == "open" and gap.title.casefold() == args.title.casefold():
+                return CreateGapOutput(gap_id=gap.id)
+        gap = GapRow(
+            id=_new_id("gap"), case_id=case.id, position=len(existing), severity=args.severity,
+            title=args.title, why=args.why, how_to_fix=args.how_to_fix, status="open",
+            input=(
+                {"type": "text", "field_key": args.field_key, "placeholder": ""}
+                if args.field_key is not None else None
+            ),
+        )  # fmt: skip
+        ctx.session.add(gap)
+        activity.log(ctx.session, case.id, "agent", AGENT_ACTOR, f"Added gap “{args.title}”")
+        return CreateGapOutput(gap_id=gap.id)
 
 
 class DraftTenantMessageInput(ToolInput):
@@ -467,7 +755,7 @@ class DraftTenantMessageOutput(BaseModel):
     saved: bool
 
 
-class DraftTenantMessage(StubTool):
+class DraftTenantMessage(BaseTool):
     name = "draft_tenant_message"
     description = (
         "Save a draft request to the tenant for a gap, in the tenant's language plus English. "
@@ -476,6 +764,37 @@ class DraftTenantMessage(StubTool):
     effect: ClassVar[Effect] = "draft"
     input_model = DraftTenantMessageInput
     output_model = DraftTenantMessageOutput
+
+
+    async def run(self, ctx: ToolContext, args: Any) -> BaseModel:
+        assert isinstance(args, DraftTenantMessageInput)
+        case = _case(ctx)
+        gap = ctx.session.get(GapRow, args.gap_id)
+        if case is None or gap is None or gap.case_id != case.id:
+            return not_found(self.name, "Gap")
+        if gap.status != "open":
+            return ToolError(
+                tool=self.name, kind="invalid_input", message="Only an open gap can get a draft."
+            )
+        if gap.tenant_request is not None:  # never replace text a caseworker may have seen
+            return ToolError(
+                tool=self.name, kind="invalid_input", message="This gap already has a draft."
+            )
+        if args.language.casefold() != case.tenant_language.casefold():
+            return ToolError(
+                tool=self.name, kind="invalid_input",
+                message=f"language must be the tenant's language ({case.tenant_language}).",
+            )  # fmt: skip
+        gap.tenant_request = {
+            "language": case.tenant_language, "message": args.message,
+            "message_en": args.message_en,
+        }  # fmt: skip
+        ctx.session.add(gap)
+        activity.log(
+            ctx.session, case.id, "agent", AGENT_ACTOR,
+            f"Drafted a tenant request for “{gap.title}”",
+        )  # fmt: skip
+        return DraftTenantMessageOutput(gap_id=gap.id, saved=True)
 
 
 # --------------------------------------------------------------------------- control tools
@@ -491,7 +810,7 @@ class AskCaseworkerOutput(BaseModel):
     paused: bool = True
 
 
-class AskCaseworker(StubTool):
+class AskCaseworker(BaseTool):
     name = "ask_caseworker"
     description = (
         "Ask the caseworker a question you cannot answer from the evidence. Pauses the run."
@@ -499,6 +818,10 @@ class AskCaseworker(StubTool):
     effect: ClassVar[Effect] = "control"
     input_model = AskCaseworkerInput
     output_model = AskCaseworkerOutput
+
+
+    async def run(self, ctx: ToolContext, args: Any) -> BaseModel:
+        return AskCaseworkerOutput()  # the loop sees the tool name and pauses the step
 
 
 class FinishInput(ToolInput):
@@ -509,12 +832,16 @@ class FinishOutput(BaseModel):
     done: bool = True
 
 
-class Finish(StubTool):
+class Finish(BaseTool):
     name = "finish"
     description = "End this step with a short summary of what you did and what is left."
     effect: ClassVar[Effect] = "control"
     input_model = FinishInput
     output_model = FinishOutput
+
+
+    async def run(self, ctx: ToolContext, args: Any) -> BaseModel:
+        return FinishOutput()  # the loop sees the tool name and ends the step
 
 
 # --------------------------------------------------------------------------- registry

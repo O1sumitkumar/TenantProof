@@ -1,4 +1,3 @@
-import asyncio
 import json
 import re
 from typing import get_args
@@ -45,12 +44,6 @@ def test_specs_are_valid_and_subsettable() -> None:
     assert [s["name"] for s in t.tool_specs(["finish", "create_gap"])] == ["finish", "create_gap"]
     with pytest.raises(KeyError):
         t.tool_specs(["send_email"])
-
-
-def test_stubs_raise_not_implemented() -> None:
-    tool = t.TOOLS["finish"]
-    with pytest.raises(NotImplementedError):
-        asyncio.run(tool.run(None, t.FinishInput(summary="x")))  # type: ignore[arg-type]
 
 
 # --- evidence data block
