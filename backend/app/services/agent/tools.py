@@ -873,15 +873,28 @@ TOOLS: Mapping[str, Tool] = {
 }
 
 
+_SPEC_CACHE: dict[tuple[str, str, type], dict[str, Any]] = {}
+
+
+def _spec(tool: Tool) -> dict[str, Any]:
+    """One tool's definition. The JSON schema is built once per tool: the key holds the name,
+    the description and the input model, so a changed tool is not served stale."""
+    key = (tool.name, tool.description, tool.input_model)
+    spec = _SPEC_CACHE.get(key)
+    if spec is None:
+        spec = {
+            "name": tool.name,
+            "description": tool.description,
+            "input_schema": tool.input_model.model_json_schema(),
+        }
+        _SPEC_CACHE[key] = spec
+    return spec
+
+
 def tool_specs(names: list[str] | None = None) -> list[dict[str, Any]]:
     """Tool definitions for the LLM: name, description, JSON schema. `names` picks a subset
-    (a step exposes only the tools it needs); unknown names raise KeyError."""
+    (a step exposes only the tools it needs); unknown names raise KeyError. Each call returns
+    new top-level dicts over the cached definitions: add a key to a dict freely, but do not
+    edit the `input_schema` inside."""
     selected = [TOOLS[n] for n in names] if names is not None else list(TOOLS.values())
-    return [
-        {
-            "name": t.name,
-            "description": t.description,
-            "input_schema": t.input_model.model_json_schema(),
-        }
-        for t in selected
-    ]
+    return [dict(_spec(t)) for t in selected]

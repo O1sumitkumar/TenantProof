@@ -139,6 +139,7 @@ async def run_agent_loop(
     *,
     step_key: str,
     system: str,
+    system_run: str = "",
     tool_names: list[str],
     budget: LoopBudget | None = None,
     on_turn: TurnHook | None = None,
@@ -152,7 +153,7 @@ async def run_agent_loop(
             return LoopResult("budget", f"Stopped early: the step reached its limit of {spent}.")
         state.turns += 1
         request = LLMRequest(
-            system=system, messages=list(state.messages), tools=specs,
+            system=system, system_run=system_run, messages=list(state.messages), tools=specs,
             fixture_key=f"{step_key}-turn{state.turns}",
         )  # fmt: skip
         try:

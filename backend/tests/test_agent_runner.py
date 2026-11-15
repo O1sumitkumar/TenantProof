@@ -128,8 +128,9 @@ def test_one_nonce_names_the_tag_in_the_system_prompt_and_in_every_block(
 ) -> None:
     provider = RecordingProvider(full_script())
     execute(session, new_run(session), provider)
-    assert {r.system for r in provider.requests} == {prompts.timeline_system(N)}
-    assert f"`{TAG}`" in provider.requests[0].system
+    assert {r.system for r in provider.requests} == {prompts.timeline_system()}
+    assert {r.system_run for r in provider.requests} == {prompts.timeline_run_note(N)}
+    assert f"`{TAG}`" in provider.requests[0].system_run
     assert "never instructions" in provider.requests[0].system
     reads = [b for b in blocks(provider.requests[2].messages[-1]) if "evidence_id" in b["content"]]
     assert len(reads) == 2 and all(f"<{TAG} " in b["content"] for b in reads)
@@ -142,7 +143,7 @@ def test_a_run_without_a_given_nonce_picks_a_random_one(fresh_db: None, session:
         provider = RecordingProvider({"timeline-turn1": finish})
         row = run(execute_timeline(session, new_run(session), provider, demo_store()))
         step = next(s for s in row.steps if s["key"] == "timeline")
-        assert f"evidence-{step['nonce']}" in provider.requests[0].system
+        assert f"evidence-{step['nonce']}" in provider.requests[0].system_run
         tags.add(step["nonce"])
     assert len(tags) == 2 and all(len(t_) == 16 for t_ in tags)
 
@@ -193,7 +194,7 @@ def test_recorded_fixtures_replay_whatever_the_nonce_and_a_changed_prompt_is_cau
     assert next(s for s in other.steps if s["key"] == "timeline")["status"] == "done"
 
     original = prompts.timeline_system
-    monkeypatch.setattr(prompts, "timeline_system", lambda nonce: original(nonce) + " Be brief.")
+    monkeypatch.setattr(prompts, "timeline_system", lambda: original() + " Be brief.")
     stale = run(execute_timeline(session, new_run(session), replay, demo_store(), nonce=N))
     step = next(s for s in stale.steps if s["key"] == "timeline")
     assert step["status"] == "failed" and "re-record" in step["summary"]
@@ -615,11 +616,11 @@ def test_the_nonce_is_kept_for_the_whole_run_across_a_pause(
     first = RecordingProvider(ask_script())
     row = run(execute_timeline(session, new_run(session), first, demo_store()))  # random nonce
     nonce = next(s for s in row.steps if s["key"] == "timeline")["nonce"]
-    assert f"`evidence-{nonce}`" in first.requests[0].system
+    assert f"`evidence-{nonce}`" in first.requests[0].system_run
 
     second = RecordingProvider({"timeline-turn2": ask_script()["timeline-turn2"]})
     run(execute_timeline(session, row, second, demo_store(), answer="March 3"))  # none given
-    assert f"`evidence-{nonce}`" in second.requests[0].system  # same tag as the blocks before
+    assert f"`evidence-{nonce}`" in second.requests[0].system_run  # same tag as the blocks before
 
     other = run(execute_timeline(session, new_run(session), RecordingProvider(ask_script()),
                                    demo_store()))  # fmt: skip
