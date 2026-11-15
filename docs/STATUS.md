@@ -61,7 +61,7 @@ Open issues: #9 (tell tenants that original photos, GPS included, go into the pa
 - `search_legal_sources` returns an empty `excerpt` until WS4 stores the official text.
 - One random evidence nonce per run, saved on the steps so a resume reuses it. `request_hash` masks it, so recordings replay under any nonce.
 - A photo has no text page, so it cannot be cited yet (the seeded "EXIF" locator is rejected); the store needs a metadata locator for photos. An `exif` date candidate must match a cited file's capture time.
-- `flag_conflict` appends to `strength_reasons`, which `web/index.html` shows only for events without flags (UI is outside WS3's paths).
+- `flag_conflict` adds a `conflict` flag (contract change #30) and still appends to `strength_reasons`; the review screen shows a "Conflict" badge with the note. The runner asks for the hearing date itself when the timeline step ends with none set and the model did not ask (the `ask_caseworker` pause, field `hearing_date`).
 
 ## Open decisions
 

@@ -16,7 +16,12 @@ stay `pending` here.
 
 Pause and resume: when the agent calls ask_caseworker the step becomes `needs_input` and the
 conversation is saved in the step's `checkpoint` key (the API never returns it). Call
-`execute_run(..., answer=...)` on that run to resume."""
+`execute_run(..., answer=...)` on that run to resume.
+
+The hearing date is asked by code, not left to the model: when the timeline step ends and the
+case has no hearing date and the model never asked anything, the runner pauses the step with
+the same ask_caseworker pause (field `hearing_date`). That pause is `synthetic`: there is no
+model turn to continue, so the answer just completes the step."""
 
 import asyncio
 import copy
@@ -55,6 +60,7 @@ STEP_LABELS = {
     "draft": "Draft form",
 }
 IMPLEMENTED_STEPS = ("extract", "timeline")
+HEARING_QUESTION = "What is the hearing date? It is not in the evidence."
 log = logging.getLogger(__name__)
 
 
@@ -251,6 +257,29 @@ def _step(all_steps: list[dict[str, Any]], key: str) -> dict[str, Any]:
     return next(s for s in all_steps if s["key"] == key)
 
 
+def _needs_hearing_ask(case: CaseRow, state: StepState, result: LoopResult) -> bool:
+    """Ask for the hearing date when the step ended normally, the case has none, and the model
+    did not ask anything itself (one question per step, not two)."""
+    if result.status not in ("finished", "budget") or case.hearing_date is not None:
+        return False
+    return not any(c.tool == "ask_caseworker" for c in state.tool_calls)
+
+
+def _hearing_pause(step: dict[str, Any], state: StepState) -> LoopResult:
+    """Pause the finished step with the ask_caseworker pause. The question is logged like a
+    model's call; the step's own summary is kept in the pause and restored on the answer."""
+    state.tool_calls.append(ToolCall(
+        tool="ask_caseworker",
+        input=json.dumps({"question": HEARING_QUESTION, "field": "hearing_date"}),
+        output='{"paused":true}'))
+    pending = {
+        "tool_use_id": "", "results": [], "field": "hearing_date", "synthetic": True,
+        "summary": step["summary"],
+    }
+    _write_step(step, state, "needs_input", HEARING_QUESTION, pending)
+    return LoopResult("needs_input", HEARING_QUESTION, pending=pending)
+
+
 async def execute_run(
     session: Session,
     run: RunRow,
@@ -326,9 +355,16 @@ async def execute_run(
                     run.steps = copy.deepcopy(all_steps)
                     session.commit()
                     continue
+                saved = (step.get("checkpoint") or {}).get("pending") or {}
                 state = _load_state(step, answer)
                 current = (step, state)
                 step["nonce"] = ctx.nonce
+                if saved.get("synthetic"):  # the hearing-date answer: the step is complete
+                    _write_step(step, state, "done", saved["summary"])
+                    current = None
+                    run.steps = copy.deepcopy(all_steps)
+                    session.commit()
+                    continue
                 step["status"] = "running"
                 run.steps = copy.deepcopy(all_steps)
                 session.commit()
@@ -339,6 +375,8 @@ async def execute_run(
 
                 result = await _run_timeline(ctx, provider, state, on_turn)
                 _apply_result(step, state, result)
+                if _needs_hearing_ask(case, state, result):
+                    result = _hearing_pause(step, state)
                 current = None
                 run.steps = copy.deepcopy(all_steps)
                 session.commit()

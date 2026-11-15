@@ -25,6 +25,8 @@ from tests.eval_support import (
     run_eval,
 )
 
+pytestmark = pytest.mark.usefixtures("hearing_known")
+
 
 @pytest.fixture(params=["fixture", pytest.param("live", marks=pytest.mark.live_eval)])
 def mode(request: pytest.FixtureRequest) -> str:

@@ -14,6 +14,8 @@ from app.routers import runs as runs_router
 from app.services.agent import llm
 from tests.agent_support import CASE, LEASE, thinking, tool_use, turn
 
+pytestmark = pytest.mark.usefixtures("hearing_known")
+
 URL = f"/api/cases/{CASE}/runs"
 FIRST = {"value": "2026-05-01", "precision": "day", "basis": "document_text"}
 
