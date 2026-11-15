@@ -800,8 +800,14 @@ class DraftTenantMessage(BaseTool):
 # --------------------------------------------------------------------------- control tools
 
 
+AskField = Literal["hearing_date"]  # API_CONTRACT "Answering a paused run": the only typed field
+
+
 class AskCaseworkerInput(ToolInput):
     question: str = Field(min_length=1, max_length=500)
+    # Set only when the answer is that field's value. The server keeps it with the pause and
+    # parses the answer for it; it is never shown to the caseworker or returned by the API.
+    field: AskField | None = None
 
 
 class AskCaseworkerOutput(BaseModel):
@@ -813,7 +819,9 @@ class AskCaseworkerOutput(BaseModel):
 class AskCaseworker(BaseTool):
     name = "ask_caseworker"
     description = (
-        "Ask the caseworker a question you cannot answer from the evidence. Pauses the run."
+        "Ask the caseworker a question you cannot answer from the evidence. Pauses the run. "
+        'When you are asking for the hearing date, set field to "hearing_date" so the answer '
+        "is stored as a date; leave it out for any other question."
     )
     effect: ClassVar[Effect] = "control"
     input_model = AskCaseworkerInput
