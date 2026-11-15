@@ -244,12 +244,16 @@ class AnthropicProvider:
         client: Any | None = None,
         effort: str = EFFORT,
         deadline_s: float = RUN_BUDGET_S,
+        base_url: str | None = None,
     ) -> None:
+        """`base_url` points the client at an Anthropic-compatible API (None: Anthropic's own,
+        or the SDK's own ANTHROPIC_BASE_URL). The key and the evidence text go to that host."""
         self.model = model
         self.effort = effort
         self.deadline_s = deadline_s
         self.client = client or anthropic.AsyncAnthropic(
-            api_key=api_key, timeout=CALL_TIMEOUT_S, max_retries=MAX_RETRIES
+            api_key=api_key, timeout=CALL_TIMEOUT_S, max_retries=MAX_RETRIES,
+            base_url=base_url or None,
         )
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
@@ -329,7 +333,8 @@ def _stop_details(raw: Any) -> dict[str, Any] | None:
 
 
 def estimate_cost_usd(usage: Usage) -> float:
-    """Estimated from MODEL's list price. A cache write costs 1.25 times the input price and a
+    """Estimated from MODEL's list price; the same price is used for any other LLM_MODEL, so
+    the figure is only a rough guide then. A cache write costs 1.25 times the input price and a
     cache read 0.1 times."""
     input_equivalent = (
         usage.input_tokens
@@ -354,7 +359,12 @@ def _live_api_key() -> str:
 
 
 def get_provider(settings: Settings) -> LLMProvider:
-    """Fixture mode never reads the key. Live mode fails early if it is missing."""
+    """Fixture mode never reads the key. Live mode fails early if it is missing. The model
+    (LLM_MODEL) and the API address (ANTHROPIC_BASE_URL) come from the settings; empty means
+    the built-in default model and Anthropic's own API."""
     if settings.llm_mode == "fixture":
         return FixtureProvider()
-    return AnthropicProvider(api_key=_live_api_key())
+    return AnthropicProvider(
+        api_key=_live_api_key(), model=settings.llm_model or MODEL,
+        base_url=settings.anthropic_base_url or None,
+    )
