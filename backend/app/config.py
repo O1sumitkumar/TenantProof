@@ -1,7 +1,13 @@
+import re
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlsplit
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_MODEL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$")
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
 class Settings(BaseSettings):
@@ -10,6 +16,12 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://tenantproof:tenantproof@localhost:5432/tenantproof"
     redis_url: str = "redis://localhost:6379/0"
     llm_mode: Literal["live", "fixture"] = "live"
+    # Live model name. Empty means the built-in default (`llm.MODEL`, claude-sonnet-5-5).
+    llm_model: str = ""
+    # Base URL of an Anthropic-compatible API. Empty means Anthropic's own. The API key and all
+    # evidence text sent to the model go to this host, so only https (or plain http to
+    # localhost, for a local proxy) is accepted.
+    anthropic_base_url: str = ""
     # Session cookie. Secure must stay true anywhere but plain-http localhost (compose sets false).
     cookie_secure: bool = True
     session_ttl_hours: int = 12
@@ -28,6 +40,29 @@ class Settings(BaseSettings):
     public_base_url: str = "http://localhost:8000"
     intake_token_ttl_days: int = 14
 
+    @field_validator("llm_model")
+    @classmethod
+    def _model_name(cls, value: str) -> str:
+        value = value.strip()
+        if value and not _MODEL_NAME.match(value):
+            raise ValueError("LLM_MODEL must be a model name such as claude-sonnet-5-5")
+        return value
+
+    @field_validator("anthropic_base_url")
+    @classmethod
+    def _base_url(cls, value: str) -> str:
+        value = value.strip().rstrip("/")
+        if not value:
+            return ""
+        parts = urlsplit(value)
+        secure = parts.scheme == "https" and bool(parts.hostname)
+        local = parts.scheme == "http" and parts.hostname in _LOCAL_HOSTS
+        if not (secure or local) or parts.username or parts.password:
+            raise ValueError(
+                "ANTHROPIC_BASE_URL must be an https URL (or http://localhost) without a "
+                "user name or password"
+            )
+        return value
 
     @property
     def limiter_uri(self) -> str:
