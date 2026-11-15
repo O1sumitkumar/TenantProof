@@ -23,7 +23,7 @@ make up                                # builds and starts api, Postgres, Redis;
 
 | Org | Email | Has data |
 |---|---|---|
-| Example Community Legal Clinic | `sam@example-clinic.test` | five cases, full demo data on Jordan Lee's |
+| Example Community Legal Clinic | `sam@example-clinic.test` | six cases: full demo data on Jordan Lee's, and an empty synthetic one (Mei Chen, `case_live_001`) for the live demo run |
 | Harbourside Tenant Legal Clinic | `jo@harbourside-clinic.test` | none (used to prove org isolation) |
 
 **Mock mode:** open http://localhost:8000/?mock=1 (or the file `web/index.html` directly) to run the UI on built-in data with no backend.

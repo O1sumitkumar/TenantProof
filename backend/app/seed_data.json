@@ -24,6 +24,27 @@
       "created_at": "2026-10-27T10:12:00-03:00",
       "synthetic": true
     },
+    "liveCase": {
+      "id": "case_live_001",
+      "synthetic": true,
+      "_note": "Synthetic case for the live demo run: no evidence, no timeline, no runs. The tenant uploads the files in demo/ through its own intake link.",
+      "dispute_type": "maintenance",
+      "title": "Water leak and mould on bathroom wall",
+      "unit": "Unit 9, 77 Fictional Lane, Halifax, NS",
+      "tenant": {
+        "name": "Mei Chen",
+        "preferred_language": "zh"
+      },
+      "stage": "waiting_tenant",
+      "intake": {
+        "status": "sent",
+        "sent_at": "2026-11-15T09:00:00-04:00",
+        "last_upload_at": null,
+        "tenant_attested_genuine": false,
+        "tenant_attested_at": null
+      },
+      "created_at": "2026-11-15T09:00:00-04:00"
+    },
     "otherCases": [
       {
         "id": "case_002",

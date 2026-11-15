@@ -23,7 +23,7 @@ def test_cases_sorted_by_priority_with_reasons(client):
     r = client.get("/api/cases")
     assert r.status_code == 200
     rows = r.json()
-    assert len(rows) == 5
+    assert len(rows) == 6  # five demo cases and the empty live-demo case (case_live_001)
     assert all(set(row) == keys(schemas.CaseSummary) for row in rows)
     assert rows[0]["tenant_name"] == "Priya Nair" and rows[0]["priority"] == "high"
     assert all(row["priority_reason"] for row in rows)
