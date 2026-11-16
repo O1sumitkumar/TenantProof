@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
@@ -15,7 +15,7 @@ from app.schemas import Run
 from app.services import activity
 from app.services.agent import llm, runner
 from app.services.agent.evidence_text import SqlTextStore
-from app.services.dates import evidence_deadline, parse_hearing_date
+from app.services.dates import evidence_deadline, hearing_has_passed, parse_hearing_date
 from app.services.mappers import to_run
 
 router = APIRouter()
@@ -23,6 +23,7 @@ log = logging.getLogger(__name__)
 
 MAX_ANSWER_CHARS = 500
 DATE_HINT = "Enter the date like 2026-11-21 or Nov 21, 2026"
+DATE_PASSED = "That date has passed. Enter the upcoming hearing date."
 # A run still "running" after its whole budget (plus slack for a slow start) was cut off by a
 # restart or a crash, so it no longer blocks a new one.
 STALE_AFTER = timedelta(seconds=llm.RUN_BUDGET_S + 30)
@@ -33,6 +34,11 @@ class AnswerIn(BaseModel):
     can answer 422 with { detail: { reasons } } (API_CONTRACT) instead of FastAPI's default."""
 
     answer: str = ""
+
+
+def _today() -> date:
+    """Today in UTC. A function so tests can fix the date."""
+    return datetime.now(UTC).date()
 
 
 def provider_dep() -> llm.LLMProvider:
@@ -140,6 +146,8 @@ def answer_run(
         hearing = parse_hearing_date(answer)
         if hearing is None:  # the run stays paused: nothing has been changed yet
             raise _reasons(status.HTTP_422_UNPROCESSABLE_CONTENT, DATE_HINT)
+        if hearing_has_passed(hearing, _today()):  # the run stays paused, nothing is changed
+            raise _reasons(status.HTTP_422_UNPROCESSABLE_CONTENT, DATE_PASSED)
         text = hearing.isoformat()  # the agent is told the date in its stored form
     case = session.get(CaseRow, row.case_id)
     assert case is not None  # load_owned checked it

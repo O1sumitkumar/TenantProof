@@ -43,6 +43,7 @@ ToolErrorKind = Literal["invalid_input", "not_found", "unavailable"]
 _ANGLE_LOOKALIKES = str.maketrans({"<": "&lt;", "\uff1c": "&lt;", "\ufe64": "&lt;"})
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 SAFE_STR_MAX = 100
+CONFLICT_REASON_MAX = 500  # the input bound: a conflict note is shown whole, never cut
 
 
 def _clean_label(value: str) -> str:
@@ -581,7 +582,7 @@ class ProposeEvent(BaseTool):
 
 class FlagConflictInput(ToolInput):
     event_id: str = Field(min_length=1, max_length=64)
-    reason: str = Field(min_length=1, max_length=500)
+    reason: str = Field(min_length=1, max_length=CONFLICT_REASON_MAX)
 
 
 class FlagConflictOutput(BaseModel):
@@ -606,7 +607,10 @@ class FlagConflict(BaseTool):
                 tool=self.name, kind="invalid_input",
                 message="Only an event that is still pending can be flagged.",
             )  # fmt: skip
-        reason = _clean_label(args.reason)
+        # Not _clean_label: its 100-character cut ended a note mid-quote. The input is bounded
+        # (500) and escaping "<" makes at most four characters of one, so the limit here is never
+        # reached and the whole note is kept.
+        reason = clean_text(args.reason, CONFLICT_REASON_MAX * 4)
         note = f"Conflict noted: {reason}"
         event.strength_reasons = [*event.strength_reasons, note]
         # A new list, so the JSON column is saved. The flag is what the review screen shows.

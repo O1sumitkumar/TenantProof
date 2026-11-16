@@ -232,7 +232,8 @@ main{min-width:0;display:flex;flex-direction:column;gap:20px}
 .flags{display:flex;flex-direction:column;gap:4px}
 .flag{font-size:12.5px;color:var(--warn);display:flex;gap:6px}
 .flag::before{content:"!";font-weight:800;width:14px;text-align:center;flex:none}
-.flag.conflict{align-items:center;color:var(--ink)}
+.flag.conflict{align-items:flex-start;color:var(--ink);overflow-wrap:anywhere;white-space:normal}
+.flag.conflict .pill{flex:none}
 .flag.conflict::before{display:none}
 .reasons{font-size:12.5px;color:var(--ink-3)}
 .tl-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center;border-top:1px solid var(--line);padding-top:10px}
@@ -717,6 +718,9 @@ function packageChecks(st) {
       : { state: st.recommended ? "maybe" : "yes", text: st.recommended ? `${st.recommended} open (optional)` : "none open" },
   };
 }
+// The Type shown for an evidence file. The server says "other" for a PDF it cannot place; show
+// "document" for that, and keep any better type (lease, receipt, letter) as it is.
+const kindLabel = e => e.kind === "other" && e.mime === "application/pdf" ? "document" : e.kind;
 /* pure:end */
 /* runState:start (pure; tests/test_run_state.py runs it under node) */
 // What the rail and the run pill say. "Needs your input" is only for a run paused on a question the
@@ -860,7 +864,7 @@ function viewEvidence() {
     const proc = e.processing === "done" ? "" : e.processing === "failed" ? `<span class="pill bad">Not processed</span>` : `<span class="pill">New · run analysis to include</span>`;
     const mdRows = e.kind === "photo"
       ? `<dt>Captured</dt><dd>${md.captured_at ? fmtTime(md.captured_at) : e._new ? "Read on server" : '<span style="color:var(--warn)">No capture time</span>'}</dd><dt>Device</dt><dd>${esc(md.device || "—")}</dd><dt>Edited with</dt><dd>${md.software ? `<span style="color:var(--warn)">${esc(md.software)}</span>` : "—"}</dd><dt>GPS</dt><dd>${md.gps_present ? "Present · removed before AI" : "—"}</dd>`
-      : `<dt>Type</dt><dd>${esc(e.kind)}</dd><dt>Size</dt><dd>${fmtSize(e.size_bytes)}</dd>`;
+      : `<dt>Type</dt><dd>${esc(kindLabel(e))}</dd><dt>Size</dt><dd>${fmtSize(e.size_bytes)}</dd>`;
     return `<div class="ev${e._new ? " is-new" : ""}">
       <div class="ev-name"><div><span class="exhibit">${esc(e.label)}</span></div><span class="fn">${esc(e.filename)}</span><span class="sub">${e.uploaded_by === "tenant" ? "Uploaded by tenant" : "Added by caseworker"} · received ${fmtTime(e.received_at)} (server time)</span>
         <span class="hash mono" title="${esc(e.sha256)}">SHA-256 ${esc(e.sha256.slice(0, 12))}…<button class="copy" type="button" data-action="copy" data-text="${esc(e.sha256)}">Copy</button></span></div>

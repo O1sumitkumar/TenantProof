@@ -117,3 +117,20 @@ def test_open_items_stay_red_or_amber_and_link_to_the_page() -> None:
 def test_a_partly_reviewed_timeline_is_not_done() -> None:
     meta = rail(stats(total=4, reviewed=2))
     assert meta["timeline"] == "2 of 4 reviewed" and not meta["doneTimeline"]
+
+
+# --------------------------------------------------------------------------- evidence type label
+
+
+@pytest.mark.parametrize(("kind", "mime", "label"), [
+    ("other", "application/pdf", "document"),   # a PDF the server could not place
+    ("other", "image/jpeg", "other"),
+    ("other", "text/plain", "other"),
+    ("lease", "application/pdf", "lease"),       # a better type is kept
+    ("receipt", "application/pdf", "receipt"),
+    ("letter", "application/pdf", "letter"),
+    ("photo", "image/heic", "photo"),
+    ("messages", "text/plain", "messages"),
+])
+def test_kind_label(kind: str, mime: str, label: str) -> None:
+    assert js(f"kindLabel({json.dumps({'kind': kind, 'mime': mime})})") == label
