@@ -34,7 +34,7 @@ from app.services.agent.evidence_text import EvidenceTextStore, Page
 from app.services.dates import choose_date, date_mismatch, exif_matches
 from app.services.legal import corpus
 from app.services.strength import SourceFacts, compute_strength, event_flags
-from app.services.verifier import verify_citation
+from app.services.verifier import MIN_EXCERPT_CHARS, normalize, verify_citation
 
 Effect = Literal["read", "draft", "control"]
 # No "forbidden": another case's id must look exactly like a missing one (not_found).
@@ -46,6 +46,7 @@ ToolErrorKind = Literal["invalid_input", "not_found", "unavailable"]
 _ANGLE_LOOKALIKES = str.maketrans({"<": "&lt;", "\uff1c": "&lt;", "\ufe64": "&lt;"})
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 SAFE_STR_MAX = 100
+MESSAGE_MAX = 1500  # a drafted tenant message, in characters
 CONFLICT_REASON_MAX = 500  # the input bound: a conflict note is shown whole, never cut
 
 
@@ -758,13 +759,18 @@ class CreateGap(BaseTool):
                     message="source_id is not a source of this case. Use search_legal_sources.",
                 )  # fmt: skip
             source = found
+        # Model text that came from evidence: cleaned, because the title is shown to the next
+        # run's agent (the gaps kickoff) and to the caseworker.
+        title = clean_text(args.title, 200 * 4)
+        why = clean_text(args.why, 1000 * 4)
+        how_to_fix = clean_text(args.how_to_fix, 1000 * 4)
         existing = list(ctx.session.exec(select(GapRow).where(GapRow.case_id == case.id)).all())
         for gap in existing:  # a retry, or a gap the caseworker dismissed, is not a new gap
-            if gap.title.casefold() == args.title.casefold():
+            if gap.title.casefold() == title.casefold():
                 return CreateGapOutput(gap_id=gap.id)
         gap = GapRow(
             id=_new_id("gap"), case_id=case.id, position=len(existing), severity=args.severity,
-            title=args.title, why=args.why, how_to_fix=args.how_to_fix, status="open",
+            title=title, why=why, how_to_fix=how_to_fix, status="open",
             source_id=source.id if source is not None else None,
             input=(
                 {"type": "text", "field_key": args.field_key, "placeholder": ""}
@@ -772,15 +778,73 @@ class CreateGap(BaseTool):
             ),
         )  # fmt: skip
         ctx.session.add(gap)
-        activity.log(ctx.session, case.id, "agent", AGENT_ACTOR, f"Added gap “{args.title}”")
+        activity.log(ctx.session, case.id, "agent", AGENT_ACTOR, f"Added gap “{title}”")
         return CreateGapOutput(gap_id=gap.id)
 
 
 class DraftTenantMessageInput(ToolInput):
     gap_id: str = Field(min_length=1, max_length=64)
     language: Language = Field(min_length=2, max_length=16)
-    message: str = Field(min_length=1, max_length=1500)
-    message_en: str = Field(min_length=1, max_length=1500)
+    message: str = Field(min_length=1, max_length=MESSAGE_MAX)
+    message_en: str = Field(min_length=1, max_length=MESSAGE_MAX)
+
+
+# Text the model copies from evidence into a message the tenant will read must go through the
+# verifier. A quotation (curly, straight, CJK or guillemet quotes) has to be found in this case's
+# evidence; a run of this many characters copied without quotes is refused, so nothing a document
+# says reaches the tenant unchecked.
+QUOTE_PAIRS = (("\u201c", "\u201d"), ('"', '"'), ("\u300c", "\u300d"), ("\u300e", "\u300f"),
+               ("\u00ab", "\u00bb"))
+QUOTE_SPAN = [
+    re.compile(f"{re.escape(o)}([^{re.escape(o + c)}]{{1,400}}){re.escape(c)}")
+    for o, c in QUOTE_PAIRS
+]
+UNQUOTED_COPY_CHARS = 30
+
+
+def _quoted_spans(text: str) -> list[str]:
+    return [m.group(1) for pattern in QUOTE_SPAN for m in pattern.finditer(text)]
+
+
+def _case_pages(ctx: ToolContext) -> list[tuple[str, dict[str, str]]]:
+    """Every page of this case's evidence, as (evidence id, locator -> text). Never leaves the
+    server: the draft checks read it, nothing here is returned to the model."""
+    return [
+        (row.id, {p.locator: p.text for p in ctx.texts.pages(ctx.case_id, row.id)})
+        for row in _case_evidence(ctx)
+    ]
+
+
+def _copy_problem(text: str, pages: list[tuple[str, dict[str, str]]]) -> str | None:
+    """Why `text` may not go to the tenant, or None. Quotes must verify against this case's
+    evidence; copying a long run without quotes is refused."""
+    quoted = _quoted_spans(text)
+    for span in quoted:
+        if len(normalize(span)) < MIN_EXCERPT_CHARS:
+            continue  # too short to be a copy of anything
+        if not any(
+            verify_citation(span, locator, page_map).ok
+            for _, page_map in pages for locator in page_map
+        ):
+            return (
+                "A quotation in the message is not in this case's evidence. Quote the words "
+                "exactly as the evidence has them, or leave the quotation marks out and write "
+                "it in your own words."
+            )
+    plain = normalize(text)
+    for span in quoted:
+        plain = plain.replace(normalize(span), " ")  # verified above: they are allowed
+    for _, page_map in pages:
+        for page_text in page_map.values():
+            haystack = normalize(page_text)
+            for start in range(0, max(len(plain) - UNQUOTED_COPY_CHARS + 1, 0)):
+                if plain[start : start + UNQUOTED_COPY_CHARS] in haystack:
+                    return (
+                        f"The message copies {UNQUOTED_COPY_CHARS}+ characters from the evidence "
+                        "without quoting them. Put the exact words in quotation marks, or "
+                        "rewrite them in your own words."
+                    )
+    return None
 
 
 class DraftTenantMessageOutput(BaseModel):
@@ -820,9 +884,16 @@ class DraftTenantMessage(BaseTool):
                 tool=self.name, kind="invalid_input",
                 message=f"language must be the tenant's language ({case.tenant_language}).",
             )  # fmt: skip
+        # No control characters or "<" in what the caseworker reads and the tenant may be sent.
+        message = clean_text(args.message, MESSAGE_MAX * 4)
+        message_en = clean_text(args.message_en, MESSAGE_MAX * 4)
+        pages = _case_pages(ctx)
+        for text in (message, message_en):
+            problem = _copy_problem(text, pages)
+            if problem is not None:
+                return ToolError(tool=self.name, kind="invalid_input", message=problem)
         gap.tenant_request = {
-            "language": case.tenant_language, "message": args.message,
-            "message_en": args.message_en,
+            "language": case.tenant_language, "message": message, "message_en": message_en,
         }  # fmt: skip
         ctx.session.add(gap)
         activity.log(

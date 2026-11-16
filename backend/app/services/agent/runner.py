@@ -436,7 +436,7 @@ async def execute_run(
                     # is told what already exists instead of inventing duplicates.
                     prepared = gaps.prepare(session, case)
                     session.commit()
-                    kickoff = prompts.gaps_kickoff(prepared.open_gaps, prepared.language)
+                    kickoff = prompts.gaps_kickoff(prepared.open_gaps, prepared.language, ctx.nonce)
                 spec = _agent_step(key, ctx, kickoff)
                 state = _load_state(step, answer, spec.kickoff)
                 current = (step, state)

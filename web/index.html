@@ -686,7 +686,8 @@ const I18N = {
 const S = { me: null, cases: [], case: null, evidence: [], run: null, timeline: [], gaps: [], sources: [], form: null, activity: [], pkg: null, editing: null, drafting: null,
   attest: { reviewed_fields: false, remedy_confirmed_with_tenant: false, explained_not_legal_advice: false }, pkgError: null,
   intake: { view: null, lang: null, files: [], attest: false, consent: false, sent: false } };
-const RESUMABLE = ["extract", "timeline"];  // steps the runner can resume after an answer (the others' needs_input is not a question)
+const RESUMABLE = ["extract", "timeline", "gaps"];  // steps the runner can resume after an answer (the others' needs_input is not a question)
+const BUILT = ["extract", "timeline", "rules", "gaps"];  // steps the runner implements; `rules` is deterministic and never pauses
 S.askError = ""; S.askDraft = ""; S.answering = false;
 /* pure:start (counts and empty states; tests/test_empty_states.py runs it under node) */
 const NOTHING = "Nothing yet";
@@ -725,9 +726,12 @@ const kindLabel = e => e.kind === "other" && e.mime === "application/pdf" ? "doc
 /* runState:start (pure; tests/test_run_state.py runs it under node) */
 // What the rail and the run pill say. "Needs your input" is only for a run paused on a question the
 // runner can resume; a finished run that still has events to review says "Needs review".
+// The step a run is paused on, or null. A step the runner can resume that has asked a question (a
+// seeded run's "needs_input" has no ask_caseworker call, and the server cannot resume it).
+const askStep = run => run.steps.find(s => s.status === "needs_input" && RESUMABLE.includes(s.key) && s.tool_calls.some(c => c.tool === "ask_caseworker")) || null;
 function runState(run) {
   if (!run) return { rail: "Not run yet", pill: ["", "Not run"], asking: false, done: false, attn: false };
-  const asking = run.steps.some(s => s.status === "needs_input" && RESUMABLE.includes(s.key));
+  const asking = askStep(run) !== null;
   if (run.status === "running") return { rail: "Running…", pill: ["info", "Running"], asking, done: false, attn: false };
   if (run.status === "failed") return { rail: "Failed", pill: ["bad", "Failed"], asking, done: false, attn: false };
   if (run.status === "needs_review") {
@@ -892,13 +896,13 @@ function viewRun() {
   const runPill = `<span class="pill ${runState(run).pill[0]}">${runState(run).pill[1]}</span>`;
   // The runner builds `extract` and `timeline`; the other four steps are not built in this prototype,
   // whatever a seeded or real run says about them. (The mock run is a scripted demo and keeps its steps.)
-  const unbuilt = s => !USE_MOCK && !RESUMABLE.includes(s.key);
+  const unbuilt = s => !USE_MOCK && !BUILT.includes(s.key);
   const steps = run.steps.map((s, i) => unbuilt(s) ? `<li class="run-step rs-unbuilt"><span class="rs-ico">–</span>
       <div><div class="rs-title">${i + 1}. ${esc(s.label)} <span class="pill plain">Not in this prototype</span></div></div></li>`
     : `<li class="run-step rs-${s.status}"><span class="rs-ico">${ico[s.status] || i + 1}</span>
       <div><div class="rs-title">${i + 1}. ${esc(s.label)} ${pill[s.status]}</div>${s.summary ? `<p class="rs-sum">${esc(s.summary)}</p>` : ""}</div>
       ${s.tool_calls.length ? `<details class="tools"${s.status === "needs_input" ? " open" : ""}><summary>${plural(s.tool_calls.length, "tool call")}</summary><ul class="tool-calls">${s.tool_calls.map(t => `<li><span class="t">${esc(t.tool)}</span><span class="io"><b>${esc(t.input)}</b> → ${esc(t.output)}</span></li>`).join("")}</ul></details>` : ""}</li>`).join("");
-  const asking = run.steps.find(s => s.status === "needs_input" && RESUMABLE.includes(s.key));
+  const asking = askStep(run);
   const ask = asking ? `<form class="panel panel-pad ask" data-action="answer" aria-labelledby="ask-title" novalidate>
       <h2 id="ask-title">The agent has a question for you</h2>
       <p class="ask-q" id="ask-q">${esc(asking.summary || "The agent needs your answer to carry on.")}</p>
@@ -1124,7 +1128,7 @@ function pollRun() {
     S.run = await request("GET", `/runs/${S.run.id}`);
     if (S.run.status !== "running") {
       clearInterval(poller);
-      const asked = S.run.steps.some(s => s.status === "needs_input" && RESUMABLE.includes(s.key));
+      const asked = askStep(S.run) !== null;
       toast(asked ? "The agent has a question for you." : "Analysis finished. Required items need your input.");
       await refresh(["timeline", "gaps", "form", "evidence"]); if (asked && route() === "run") focusAsk(); return;
     }

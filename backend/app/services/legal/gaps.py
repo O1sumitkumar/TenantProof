@@ -16,6 +16,7 @@ from sqlmodel import Session, col, select
 
 from app.models import CaseRow, EvidenceRow, FormFieldRow, GapRow, LegalSourceRow
 from app.services import activity
+from app.services.agent.tools import clean_text
 from app.services.legal import corpus, gap_checks, rules
 from app.services.legal.gap_checks import CaseFacts, EvidenceFact, FieldFact, GapSpec
 from app.services.strength import SourceFacts
@@ -136,7 +137,7 @@ def open_gap_lines(session: Session, case: CaseRow) -> tuple[str, ...]:
         select(GapRow).where(GapRow.case_id == case.id).order_by(col(GapRow.position))
     ).all()
     return tuple(
-        f"- [{gap.severity}] {gap.title}"
+        f"- [{gap.severity}] {clean_text(gap.title, 200)}"
         + (" (a draft is already written)" if gap.tenant_request else " (no draft yet)")
         for gap in gaps
         if gap.status == "open"
