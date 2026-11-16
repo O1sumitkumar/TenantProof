@@ -139,6 +139,21 @@ def fresh_db() -> Iterator[None]:
     _reseed()
 
 
+@pytest.fixture(autouse=True)
+def fixed_today() -> Iterator[None]:
+    """The answer route's "today" (it rejects a hearing date that has passed). Fixed, so the
+    tests' hearing dates never go stale. Plain set and restore, not the shared `monkeypatch`:
+    that would be torn down after fresh_db and undo other tests' env changes too late."""
+    from datetime import date
+
+    from app.routers import runs
+
+    original = runs._today
+    runs._today = lambda: date(2026, 11, 15)
+    yield
+    runs._today = original
+
+
 @pytest.fixture
 def hearing_known(fresh_db: None, session) -> None:
     """The demo case with a hearing date set, so a run ends without the runner's own hearing-date

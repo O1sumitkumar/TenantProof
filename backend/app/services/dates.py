@@ -95,6 +95,11 @@ def parse_hearing_date(text: str) -> date | None:
     return parsed if HEARING_FIRST <= parsed <= HEARING_LAST else None
 
 
+def hearing_has_passed(hearing: date, today: date) -> bool:
+    """A hearing date before today. Today itself is still upcoming."""
+    return hearing < today
+
+
 EVIDENCE_DAYS_BEFORE_HEARING = 5  # Evidence Policy #42
 
 

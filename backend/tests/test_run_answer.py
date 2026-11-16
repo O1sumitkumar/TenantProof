@@ -153,6 +153,55 @@ def test_a_bad_date_is_422_changes_nothing_and_the_run_stays_paused(
     assert status_of(session, run.id) == ("needs_review", "done")
 
 
+PASSED = "That date has passed. Enter the upcoming hearing date."  # today is 2026-11-15 here
+
+
+@pytest.mark.parametrize("typed", ["2026-11-14", "Nov 14, 2026", "14 November 2026", "2025-01-01"])
+def test_a_date_that_has_passed_is_422_and_the_run_stays_paused(
+    fresh_db, client, session: Session, resume: RecordingProvider, typed: str
+) -> None:
+    run = paused_run(session)
+    before = activity_lines(session)
+    before_case = (case_row(session).stage, case_row(session).next_deadline)
+    r = client.post(URL.format(run.id), json={"answer": typed})
+    assert r.status_code == 422
+    assert r.json()["detail"]["reasons"] == [PASSED]
+    assert status_of(session, run.id) == ("needs_review", "needs_input")
+    assert hearing(session) is None and activity_lines(session) == before
+    assert (case_row(session).stage, case_row(session).next_deadline) == before_case
+    assert resume.requests == []
+    # The same question can still be answered with an upcoming date.
+    assert client.post(URL.format(run.id), json={"answer": "2026-11-20"}).status_code == 200
+    assert hearing(session) == "2026-11-20"
+
+
+@pytest.mark.parametrize("typed", ["2026-11-15", "2026-11-16", "Dec 1, 2026"])
+def test_today_and_later_are_accepted(
+    fresh_db, client, session: Session, resume: RecordingProvider, typed: str
+) -> None:
+    run = paused_run(session)
+    assert client.post(URL.format(run.id), json={"answer": typed}).status_code == 200
+    assert hearing(session) is not None
+
+
+def test_the_past_date_rule_applies_to_the_hearing_field_only(
+    fresh_db, client, session: Session, resume: RecordingProvider
+) -> None:
+    run = paused_run(session, field=None)  # any other question keeps the answer as text
+    assert client.post(URL.format(run.id), json={"answer": "2020-01-01"}).status_code == 200
+
+
+def test_the_rule_is_a_pure_comparison() -> None:
+    from datetime import date
+
+    from app.services.dates import hearing_has_passed
+
+    today = date(2026, 11, 15)
+    assert hearing_has_passed(date(2026, 11, 14), today)
+    assert not hearing_has_passed(today, today)
+    assert not hearing_has_passed(date(2026, 11, 16), today)
+
+
 def test_a_question_without_a_field_keeps_the_answer_as_text_and_writes_nothing(
     fresh_db, client, session: Session, resume: RecordingProvider
 ) -> None:

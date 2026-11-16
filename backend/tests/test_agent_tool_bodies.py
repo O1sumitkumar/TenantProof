@@ -417,6 +417,54 @@ def test_flag_conflict_adds_a_conflict_flag_and_keeps_the_note(
     assert [f["type"] for f in event["flags"]].count("conflict") == 2  # the API accepts the type
 
 
+CJK_NOTE = (
+    "Photo EXIF capture time is 2026-08-14 21:03, but the tenant's message of 2026-08-22 "
+    "(\u201c\u6211\u4eca\u5929\u62cd\u4e86\u7167\u7247\u201d, meaning \"I took the photo "
+    "today\") says she took it that day, so the two sources disagree about the date."
+)
+
+
+def test_a_long_conflict_note_with_a_cjk_quote_is_kept_whole(
+    fresh_db: None, session: Session, client
+) -> None:
+    """The note was cut at 100 characters, ending mid-quote. It is shown and stored whole."""
+    assert len(CJK_NOTE) > 150
+    ctx = make_ctx(session)
+    event_id = call("propose_event", ctx, good_event()).event_id
+    session.commit()
+    res = call("flag_conflict", ctx, {"event_id": event_id, "reason": CJK_NOTE})
+    assert isinstance(res, t.FlagConflictOutput)
+    session.commit()
+    session.expire_all()
+    row = session.get(TimelineEventRow, event_id)
+    assert row is not None
+    assert row.flags[-1]["message"] == f"Sources disagree: {CJK_NOTE}"
+    assert row.strength_reasons[-1] == f"Conflict noted: {CJK_NOTE}"
+    assert row.flags[-1]["message"].endswith('today") says she took it that day, so the two '
+                                             "sources disagree about the date.")
+    api = next(e for e in client.get(f"/api/cases/{CASE}/timeline").json() if e["id"] == event_id)
+    assert api["flags"][-1]["message"] == f"Sources disagree: {CJK_NOTE}"
+
+
+def test_a_conflict_note_at_the_input_limit_is_never_cut(
+    fresh_db: None, session: Session
+) -> None:
+    """500 characters is the input bound; "<" escapes to four characters and still fits."""
+    reason = ("\u201c\u6211<\u201d " * 100)[:500]
+    assert len(reason) == 500
+    ctx = make_ctx(session)
+    event_id = call("propose_event", ctx, good_event()).event_id
+    session.commit()
+    call("flag_conflict", ctx, {"event_id": event_id, "reason": reason})
+    session.commit()
+    session.expire_all()
+    row = session.get(TimelineEventRow, event_id)
+    assert row is not None
+    message = row.flags[-1]["message"]
+    assert message == "Sources disagree: " + reason.replace("<", "&lt;").strip()
+    assert len(message) > 18 + 500  # longer than the input: nothing was cut after escaping
+
+
 def test_flag_conflict_cannot_touch_a_reviewed_event(fresh_db: None, session: Session) -> None:
     res = call("flag_conflict", make_ctx(session), {"event_id": "te_01", "reason": "r"})
     assert isinstance(res, t.ToolError) and res.kind == "invalid_input"
