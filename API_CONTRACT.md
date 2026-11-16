@@ -104,6 +104,7 @@ type CaseSummary = {
   priority_reason: string;                                 // rule that set it, shown to the caseworker
   updated_at: string;
   has_demo_data?: boolean;                                 // prototype only
+  analysed?: boolean;   // true once a run has completed or an event has been accepted or edited; false means nothing to file yet
 };
 
 type Case = {
