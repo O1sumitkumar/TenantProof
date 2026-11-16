@@ -686,6 +686,21 @@ const S = { me: null, cases: [], case: null, evidence: [], run: null, timeline: 
   intake: { view: null, lang: null, files: [], attest: false, consent: false, sent: false } };
 const RESUMABLE = ["extract", "timeline"];  // steps the runner can resume after an answer (the others' needs_input is not a question)
 S.askError = ""; S.askDraft = ""; S.answering = false;
+/* runState:start (pure; tests/test_run_state.py runs it under node) */
+// What the rail and the run pill say. "Needs your input" is only for a run paused on a question the
+// runner can resume; a finished run that still has events to review says "Needs review".
+function runState(run) {
+  if (!run) return { rail: "Not run yet", pill: ["", "Not run"], asking: false, done: false, attn: false };
+  const asking = run.steps.some(s => s.status === "needs_input" && RESUMABLE.includes(s.key));
+  if (run.status === "running") return { rail: "Running…", pill: ["info", "Running"], asking, done: false, attn: false };
+  if (run.status === "failed") return { rail: "Failed", pill: ["bad", "Failed"], asking, done: false, attn: false };
+  if (run.status === "needs_review") {
+    return asking ? { rail: "Needs your input", pill: ["warn", "Waiting for you"], asking, done: false, attn: true }
+                  : { rail: "Needs review", pill: ["warn", "Needs review"], asking, done: false, attn: true };
+  }
+  return { rail: "Done", pill: ["ok", "Done"], asking, done: true, attn: false };
+}
+/* runState:end */
 const UPLOAD_SOON = { en: "Uploading files is coming soon. For now, confirm below and send.", zh: "文件上传功能即将推出。现在请先勾选下面的确认并发送。", fr: "Le téléversement de fichiers arrive bientôt. Pour l'instant, confirmez ci-dessous et envoyez.", es: "La subida de archivos llegará pronto. Por ahora, confirme abajo y envíe." };
 const CASE_ROUTES = ["evidence", "run", "timeline", "gaps", "form", "package"];
 const ROUTES = ["cases", "intake", ...CASE_ROUTES];
@@ -759,10 +774,10 @@ function renderChrome() {
     : `<strong>${esc(S.me ? S.me.org.name : "")}</strong><span>${S.me ? `Signed in as ${esc(S.me.name)}, caseworker` : ""}</span>`;
   if (!inCase) { $("#rail").innerHTML = ""; return; }
   const st = stats(), run = S.run;
-  const runMeta = !run ? "Not run yet" : run.status === "running" ? "Running…" : run.status === "needs_review" ? "Needs your input" : run.status === "failed" ? "Failed" : "Done";
+  const rs = runState(run), runMeta = rs.rail;
   const items = [
     { id: "evidence", name: "Evidence", meta: `${S.evidence.length} files · from tenant`, done: S.evidence.length > 0 },
-    { id: "run", name: "Agent run", meta: runMeta, done: run && run.status === "done", attn: run && run.status === "needs_review" },
+    { id: "run", name: "Agent run", meta: runMeta, done: rs.done, attn: rs.attn },
     { id: "timeline", name: "Review timeline", meta: `${st.reviewed} of ${st.total} reviewed`, done: st.total && st.reviewed === st.total, attn: st.reviewed < st.total },
     { id: "gaps", name: "Missing info", meta: st.blocking ? `${st.blocking} required open` : st.waiting ? `${st.waiting} waiting for tenant` : `${st.recommended} suggestions`, done: !st.blocking, attn: st.blocking > 0 },
     { id: "form", name: "Form draft", meta: `${st.filled} of ${st.fieldsTotal} fields`, done: st.fieldsTotal && !st.reqMissing, attn: st.reqMissing > 0 },
@@ -838,7 +853,7 @@ function viewRun() {
   if (!run) return `<div class="view-head"><div><h1>Agent run</h1><p>No analysis yet.</p></div><button class="btn primary" data-action="run">Run analysis</button></div>`;
   const ico = { pending: "", running: "…", done: "✓", needs_input: "!", failed: "×" };
   const pill = { pending: `<span class="pill">Waiting</span>`, running: `<span class="pill info">Running</span>`, done: `<span class="pill ok">Done</span>`, needs_input: `<span class="pill warn">Needs your input</span>`, failed: `<span class="pill bad">Failed</span>` };
-  const runPill = run.status === "running" ? `<span class="pill info">Running</span>` : run.status === "needs_review" ? `<span class="pill warn">Waiting for you</span>` : run.status === "failed" ? `<span class="pill bad">Failed</span>` : `<span class="pill ok">Complete</span>`;
+  const runPill = `<span class="pill ${runState(run).pill[0]}">${runState(run).pill[1]}</span>`;
   // The runner builds `extract` and `timeline`; the other four steps are not built in this prototype,
   // whatever a seeded or real run says about them. (The mock run is a scripted demo and keeps its steps.)
   const unbuilt = s => !USE_MOCK && !RESUMABLE.includes(s.key);
