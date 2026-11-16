@@ -290,6 +290,7 @@ textarea.field{min-height:72px;resize:vertical}
 .ck.yes{background:var(--ok);color:var(--surface)}
 .ck.no{background:var(--bad-soft);color:var(--bad)}
 .ck.maybe{background:var(--warn-soft);color:var(--warn)}
+.ck.none{background:var(--surface-2);color:var(--ink-3)}
 .attest{display:flex;flex-direction:column;gap:10px}
 .attest label{display:flex;gap:10px;align-items:flex-start;font-size:14px;cursor:pointer}
 .attest input{margin-top:4px;accent-color:var(--accent)}
@@ -558,7 +559,7 @@ function prioritize(c) {
   let priority = "normal", reason;
   if (days !== null && days <= 7) { priority = "high"; reason = `Evidence due in ${days} day${days === 1 ? "" : "s"} (5 days before hearing)`; }
   if (c.open_blocking && c.stage === "hearing_scheduled") { priority = "high"; reason = (reason ? reason + " and " : "") + `${c.open_blocking} required item open with a hearing scheduled`; }
-  if (!reason) reason = c.stage === "waiting_tenant" ? "Intake link sent. No files from the tenant yet." : days !== null ? `Evidence due in ${days} days` : c.open_blocking || c.pending_review ? `${c.pending_review} events to review · ${c.open_blocking} required items open` : "No open items";
+  if (!reason) reason = c.stage === "waiting_tenant" ? "Intake link sent. No files from the tenant yet." : days !== null ? `Evidence due in ${days} days` : c.open_blocking || c.pending_review ? `${plural(c.pending_review, "event")} to review · ${c.open_blocking} required items open` : "No open items";
   return { ...c, priority, priority_reason: reason, _days: days };
 }
 function caseload() {
@@ -686,6 +687,37 @@ const S = { me: null, cases: [], case: null, evidence: [], run: null, timeline: 
   intake: { view: null, lang: null, files: [], attest: false, consent: false, sent: false } };
 const RESUMABLE = ["extract", "timeline"];  // steps the runner can resume after an answer (the others' needs_input is not a question)
 S.askError = ""; S.askDraft = ""; S.answering = false;
+/* pure:start (counts and empty states; tests/test_empty_states.py runs it under node) */
+const NOTHING = "Nothing yet";
+const plural = (n, one, many = one + "s") => `${n} ${n === 1 ? one : many}`;
+// `st` is stats(): `gaps` is how many missing-info items exist at all, `fieldsTotal` the form
+// fields, `total` the timeline events. With none of them there is nothing to be "done" about, so
+// the checks are neutral ("none") rather than a green tick.
+function railMeta(st, evidenceCount) {
+  return {
+    evidence: `${plural(evidenceCount, "file")} · from tenant`,
+    timeline: st.total === 0 ? NOTHING : `${st.reviewed} of ${st.total} reviewed`,
+    gaps: st.gaps === 0 ? NOTHING : st.blocking ? `${st.blocking} required open` : st.waiting ? `${st.waiting} waiting for tenant` : plural(st.recommended, "suggestion"),
+    form: st.fieldsTotal === 0 ? NOTHING : `${st.filled} of ${plural(st.fieldsTotal, "field")}`,
+    doneGaps: st.gaps > 0 && !st.blocking, doneForm: st.fieldsTotal > 0 && !st.reqMissing,
+    doneTimeline: st.total > 0 && st.reviewed === st.total,
+  };
+}
+function packageChecks(st) {
+  return {
+    missing: st.gaps === 0 ? { state: "none", text: NOTHING }
+      : st.blocking ? { state: "no", href: "#gaps", text: `${st.blocking} still open${st.waiting ? `, ${st.waiting} waiting for tenant` : ""}` }
+      : { state: "yes", text: "all resolved" },
+    fields: st.fieldsTotal === 0 ? { state: "none", text: NOTHING }
+      : st.reqMissing ? { state: "no", href: "#form", text: `${st.reqMissing} empty` }
+      : { state: "yes", text: "all filled" },
+    timeline: st.total === 0 ? { state: "none", text: NOTHING }
+      : { state: st.reviewed === st.total ? "yes" : "maybe", text: `${st.reviewed} of ${st.total}. ${st.reviewed < st.total ? "Unreviewed events are left out of the form." : ""}`.trim() },
+    suggestions: st.gaps === 0 ? { state: "none", text: NOTHING }
+      : { state: st.recommended ? "maybe" : "yes", text: st.recommended ? `${st.recommended} open (optional)` : "none open" },
+  };
+}
+/* pure:end */
 /* runState:start (pure; tests/test_run_state.py runs it under node) */
 // What the rail and the run pill say. "Needs your input" is only for a run paused on a question the
 // runner can resume; a finished run that still has events to review says "Needs review".
@@ -739,7 +771,7 @@ function stats() {
   const recommended = S.gaps.filter(g => g.severity === "recommended" && g.status === "open").length;
   const waiting = S.gaps.filter(g => g.status === "waiting_tenant").length;
   const fields = S.form ? S.form.fields : [];
-  return { reviewed, total: S.timeline.length, blocking, recommended, waiting, filled: fields.filter(f => f.value).length, fieldsTotal: fields.length, reqMissing: fields.filter(f => f.required && !f.value).length };
+  return { gaps: S.gaps.length, reviewed, total: S.timeline.length, blocking, recommended, waiting, filled: fields.filter(f => f.value).length, fieldsTotal: fields.length, reqMissing: fields.filter(f => f.required && !f.value).length };
 }
 
 /* ---------- login (M1) ---------- */
@@ -774,13 +806,13 @@ function renderChrome() {
     : `<strong>${esc(S.me ? S.me.org.name : "")}</strong><span>${S.me ? `Signed in as ${esc(S.me.name)}, caseworker` : ""}</span>`;
   if (!inCase) { $("#rail").innerHTML = ""; return; }
   const st = stats(), run = S.run;
-  const rs = runState(run), runMeta = rs.rail;
+  const rs = runState(run), runMeta = rs.rail, rm = railMeta(st, S.evidence.length);
   const items = [
-    { id: "evidence", name: "Evidence", meta: `${S.evidence.length} files · from tenant`, done: S.evidence.length > 0 },
+    { id: "evidence", name: "Evidence", meta: rm.evidence, done: S.evidence.length > 0 },
     { id: "run", name: "Agent run", meta: runMeta, done: rs.done, attn: rs.attn },
-    { id: "timeline", name: "Review timeline", meta: `${st.reviewed} of ${st.total} reviewed`, done: st.total && st.reviewed === st.total, attn: st.reviewed < st.total },
-    { id: "gaps", name: "Missing info", meta: st.blocking ? `${st.blocking} required open` : st.waiting ? `${st.waiting} waiting for tenant` : `${st.recommended} suggestions`, done: !st.blocking, attn: st.blocking > 0 },
-    { id: "form", name: "Form draft", meta: `${st.filled} of ${st.fieldsTotal} fields`, done: st.fieldsTotal && !st.reqMissing, attn: st.reqMissing > 0 },
+    { id: "timeline", name: "Review timeline", meta: rm.timeline, done: rm.doneTimeline, attn: st.reviewed < st.total },
+    { id: "gaps", name: "Missing info", meta: rm.gaps, done: rm.doneGaps, attn: st.blocking > 0 },
+    { id: "form", name: "Form draft", meta: rm.form, done: rm.doneForm, attn: st.reqMissing > 0 },
     { id: "package", name: "Package", meta: S.pkg ? "Built" : "Not built", done: !!S.pkg }
   ];
   $("#rail").innerHTML = `<a class="rail-back" href="#cases">← Caseload</a><div class="rail-label">Case workflow</div>` + items.map((it, i) => `<a class="step-link${it.done ? " is-done" : it.attn ? " is-attn" : ""}" href="#${it.id}" ${r === it.id ? 'aria-current="page"' : ""}><span class="step-no">${it.done ? "✓" : i + 1}</span><span class="step-name">${it.name}</span><span class="step-meta">${esc(it.meta)}</span></a>`).join("");
@@ -800,7 +832,7 @@ function viewCases() {
     const fresh = notAnalysed(c);  // a finished-looking stage with no analysis behind it
     const [stLabel, stCls] = fresh ? ["Not analysed yet", "plain"] : STAGE[c.stage];
     const dl = c.next_deadline ? `<span class="${c._days <= 7 ? "soon" : ""}">${esc(fmtDay(c.next_deadline.date))}</span><small>${esc(c.next_deadline.label.replace(/hearing (\d{4}-\d\d-\d\d)/, (_, d) => "hearing " + fmtDay(d)))}</small>` : `<span class="muted">No hearing yet</span>`;
-    const open = [c.open_blocking ? `<span style="color:var(--bad)">${c.open_blocking} required open</span>` : "", c.pending_review ? `<span>${c.pending_review} events to review</span>` : ""].filter(Boolean).join("") || `<span class="muted">—</span>`;
+    const open = [c.open_blocking ? `<span style="color:var(--bad)">${c.open_blocking} required open</span>` : "", c.pending_review ? `<span>${plural(c.pending_review, "event")} to review</span>` : ""].filter(Boolean).join("") || `<span class="muted">—</span>`;
     const openable = !!c.has_demo_data, tag = openable ? "button" : "div";
     return `<${tag} class="cl-row p-${c.priority}${openable ? "" : " demo"}" ${openable ? `data-action="open-case" data-id="${c.id}" type="button"` : `role="listitem" aria-disabled="true"`}>
       <span class="cl-stripe"></span>
@@ -861,7 +893,7 @@ function viewRun() {
       <div><div class="rs-title">${i + 1}. ${esc(s.label)} <span class="pill plain">Not in this prototype</span></div></div></li>`
     : `<li class="run-step rs-${s.status}"><span class="rs-ico">${ico[s.status] || i + 1}</span>
       <div><div class="rs-title">${i + 1}. ${esc(s.label)} ${pill[s.status]}</div>${s.summary ? `<p class="rs-sum">${esc(s.summary)}</p>` : ""}</div>
-      ${s.tool_calls.length ? `<details class="tools"${s.status === "needs_input" ? " open" : ""}><summary>${s.tool_calls.length} tool calls</summary><ul class="tool-calls">${s.tool_calls.map(t => `<li><span class="t">${esc(t.tool)}</span><span class="io"><b>${esc(t.input)}</b> → ${esc(t.output)}</span></li>`).join("")}</ul></details>` : ""}</li>`).join("");
+      ${s.tool_calls.length ? `<details class="tools"${s.status === "needs_input" ? " open" : ""}><summary>${plural(s.tool_calls.length, "tool call")}</summary><ul class="tool-calls">${s.tool_calls.map(t => `<li><span class="t">${esc(t.tool)}</span><span class="io"><b>${esc(t.input)}</b> → ${esc(t.output)}</span></li>`).join("")}</ul></details>` : ""}</li>`).join("");
   const asking = run.steps.find(s => s.status === "needs_input" && RESUMABLE.includes(s.key));
   const ask = asking ? `<form class="panel panel-pad ask" data-action="answer" aria-labelledby="ask-title" novalidate>
       <h2 id="ask-title">The agent has a question for you</h2>
@@ -967,6 +999,8 @@ function viewPackage() {
   const ready = !noAnalysis && !st.blocking && !st.reqMissing && ik.tenant_attested_genuine;
   const allAttest = Object.values(S.attest).every(Boolean);
   const ck = (ok, warn) => `<span class="ck ${ok ? "yes" : warn ? "maybe" : "no"}">${ok ? "✓" : warn ? "!" : "×"}</span>`;
+  const pc = packageChecks(st), mark = { yes: "✓", no: "×", maybe: "!", none: "–" };
+  const row = (c, label) => `<li><span class="ck ${c.state}">${mark[c.state]}</span><span>${label}: ${c.href ? `<a href="${c.href}">${esc(c.text)}</a>` : esc(c.text)}</span></li>`;
   const whoCls = { agent: "who-agent", tenant: "who-tenant", caseworker: "who-caseworker" };
   const manifest = S.pkg ? `<h2 class="section-h">Package contents</h2>
     <div class="panel tbl-wrap"><table class="manifest"><thead><tr><th>Exhibit</th><th>File</th><th>SHA-256</th><th>Note</th></tr></thead><tbody>${S.pkg.files.map(r => `<tr><td>${r.label === "—" ? "—" : `<span class="exhibit">${esc(r.label)}</span>`}</td><td>${esc(r.filename)}</td><td class="mono">${esc(r.sha256.length === 64 ? r.sha256.slice(0, 16) + "…" : r.sha256)}</td><td>${esc(r.note)}</td></tr>`).join("")}</tbody></table></div>
@@ -975,11 +1009,11 @@ function viewPackage() {
   return `<div class="view-head"><div><h1>Package</h1><p>Bundle the form draft, the evidence and a fingerprint log for filing. The tenant or the clinic files it. TenantProof never submits anything.</p></div></div>
     <div class="panel panel-pad"><ul class="checklist">
       <li>${ck(!noAnalysis)}<span>Analysis: ${noAnalysis ? `<a href="${doneRun ? "#timeline" : "#run"}">${esc(noAnalysis)}</a>` : "done, with accepted events"}</span></li>
-      <li>${ck(!st.blocking)}<span>Required missing info: ${st.blocking ? `<a href="#gaps">${st.blocking} still open${st.waiting ? `, ${st.waiting} waiting for tenant` : ""}</a>` : "all resolved"}</span></li>
-      <li>${ck(!st.reqMissing)}<span>Required form fields: ${st.reqMissing ? `<a href="#form">${st.reqMissing} empty</a>` : "all filled"}</span></li>
+      ${row(pc.missing, "Required missing info")}
+      ${row(pc.fields, "Required form fields")}
       <li>${ck(ik.tenant_attested_genuine)}<span>Tenant confirmed the files are genuine${ik.tenant_attested_at ? ` (${fmtTime(ik.tenant_attested_at)}, intake link)` : ""}</span></li>
-      <li>${ck(st.reviewed === st.total, true)}<span>Timeline review: ${st.reviewed} of ${st.total}. ${st.reviewed < st.total ? "Unreviewed events are left out of the form." : ""}</span></li>
-      <li>${ck(!st.recommended, true)}<span>Suggestions: ${st.recommended ? `${st.recommended} open (optional)` : "none open"}</span></li></ul></div>
+      ${row(pc.timeline, "Timeline review")}
+      ${row(pc.suggestions, "Suggestions")}</ul></div>
     <form class="panel panel-pad attest" data-action="attest">
       <label><input type="checkbox" id="at-reviewed" name="reviewed_fields" ${S.attest.reviewed_fields ? "checked" : ""}>I reviewed every field and the summary.</label>
       <label><input type="checkbox" id="at-remedy" name="remedy_confirmed_with_tenant" ${S.attest.remedy_confirmed_with_tenant ? "checked" : ""}>The tenant confirmed what they are asking for.</label>
@@ -1178,7 +1212,7 @@ document.addEventListener("change", async ev => {
 });
 async function handleFiles(files) {
   try { await uploadFiles(`${C}/evidence`, [...files]); } catch (err) { toast(err.message); return; } /* WS1: an error toast is not overwritten */
-  toast(`${files.length} file(s) added. Run the analysis again to include them.`);
+  toast(`${plural(files.length, "file")} added. Run the analysis again to include them.`);
   await refresh(["evidence"]);
 }
 function wireDrop() {
