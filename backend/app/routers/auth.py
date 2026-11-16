@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
-from app.auth import authenticate, end_session, start_session
+from app.auth import authenticate, end_session, purge_expired_sessions, start_session
 from app.config import Settings, get_settings
 from app.deps import SessionDep
 from app.models import OrgRow
@@ -25,6 +25,7 @@ def login(
     if user is None:
         # Same answer for unknown email and wrong password.
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong email or password")
+    purge_expired_sessions(session)  # one commit covers the purge and the new session
     start_session(session, user, settings, response)
     session.commit()
     org = session.get(OrgRow, user.org_id)

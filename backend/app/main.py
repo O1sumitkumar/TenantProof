@@ -1,13 +1,18 @@
+import logging
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, Request
+import redis
+from fastapi import FastAPI, Request, status
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy import text
+from sqlmodel import Session
 
 from app.config import get_settings
+from app.db import get_engine
 from app.ratelimit import limiter
 from app.routers import (
     activity,
@@ -26,6 +31,7 @@ from app.routers import (
 from app.services.evidence.http import UploadBodyLimit
 
 app = FastAPI(title="TenantProof API", version="0.1.0")
+logger = logging.getLogger(__name__)
 
 api = FastAPI(title="TenantProof API")
 api.state.limiter = limiter
@@ -58,9 +64,43 @@ _web = Path(__file__).resolve().parent.parent.parent / "web"
 _index = _web / "index.html"
 
 
+def _db_reachable() -> bool:
+    try:
+        with Session(get_engine()) as session:
+            session.execute(text("SELECT 1"))
+        return True
+    except Exception:  # any failure means the dependency is unhealthy
+        logger.warning("healthz: Postgres unreachable", exc_info=True)
+        return False
+
+
+def _redis_reachable() -> bool:
+    try:
+        client = redis.Redis.from_url(
+            get_settings().limiter_uri, socket_connect_timeout=2, socket_timeout=2
+        )
+        try:
+            return bool(client.ping())
+        finally:
+            client.connection_pool.disconnect()
+    except Exception:
+        logger.warning("healthz: Redis unreachable", exc_info=True)
+        return False
+
+
 @app.get("/healthz")
-def healthz() -> dict[str, str]:
-    return {"status": "ok", "llm_mode": get_settings().llm_mode}
+def healthz(response: Response) -> dict[str, str]:
+    """Readiness: the API is useful only when both Postgres and Redis answer."""
+    db_ok = _db_reachable()
+    redis_ok = _redis_reachable()
+    if not (db_ok and redis_ok):
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return {
+        "status": "ok" if db_ok and redis_ok else "degraded",
+        "db": "ok" if db_ok else "error",
+        "redis": "ok" if redis_ok else "error",
+        "llm_mode": get_settings().llm_mode,
+    }
 
 
 @app.get("/favicon.ico", include_in_schema=False)

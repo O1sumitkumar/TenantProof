@@ -151,6 +151,32 @@ def test_expired_session_is_401(fresh_db, anon_client, session):
     assert anon_client.get("/api/me").status_code == 401
 
 
+def test_login_purges_expired_sessions_only(fresh_db, anon_client, session):
+    """WS2: a login clears stale rows, but leaves live sessions (other devices) alone."""
+    user = session.exec(select(UserRow).where(UserRow.email == CASEWORKER)).one()
+    session.add(
+        LoginSessionRow(
+            token_hash=_sha256("expired-cookie"),
+            user_id=user.id,
+            expires_at=datetime.now(UTC) - timedelta(hours=1),
+        )
+    )
+    session.add(
+        LoginSessionRow(
+            token_hash=_sha256("live-cookie"),
+            user_id=user.id,
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+    )
+    session.commit()
+
+    assert _login(anon_client).status_code == 200
+
+    session.expire_all()
+    assert session.get(LoginSessionRow, _sha256("expired-cookie")) is None
+    assert session.get(LoginSessionRow, _sha256("live-cookie")) is not None
+
+
 def test_login_is_rate_limited_to_ten_per_minute(fresh_db, anon_client):
     for _ in range(10):
         assert _login(anon_client, password="wrong").status_code == 401

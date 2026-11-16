@@ -26,4 +26,6 @@ COPY web/ /app/web/
 RUN useradd --create-home app && mkdir -p /data/storage && chown -R app:app /app /data
 USER app
 EXPOSE 8000
-CMD ["uv", "run", "--no-dev", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --proxy-headers: behind nginx/Railway the client address arrives in X-Forwarded-For.
+# FORWARDED_ALLOW_IPS (compose, Railway) names the only trusted proxy address.
+CMD ["uv", "run", "--no-dev", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]

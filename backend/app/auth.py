@@ -4,12 +4,14 @@
 import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from fastapi import Depends, HTTPException, Request, Response, status
-from sqlmodel import Session, select
+from sqlalchemy import delete
+from sqlalchemy.engine import CursorResult
+from sqlmodel import Session, col, select
 
 from app.config import Settings
 from app.db import get_session
@@ -66,6 +68,18 @@ def end_session(session: Session, request: Request, settings: Settings, response
     response.delete_cookie(
         COOKIE_NAME, httponly=True, samesite="lax", secure=settings.cookie_secure, path="/"
     )
+
+
+def purge_expired_sessions(session: Session) -> int:
+    """Delete every session past its expiry. Login calls this; the worker (M3) will do it on a
+    timer. Caller commits."""
+    result = cast(
+        CursorResult[Any],
+        session.execute(
+            delete(LoginSessionRow).where(col(LoginSessionRow.expires_at) < datetime.now(UTC))
+        ),
+    )
+    return result.rowcount or 0
 
 
 def current_user(
