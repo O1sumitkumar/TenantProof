@@ -40,10 +40,20 @@ class EvidenceFact:
 
 
 @dataclass(frozen=True)
+class EventFact:
+    """One timeline event. `strength` is the one `services/strength.py` stored on it."""
+
+    title: str
+    strength: str  # corroborated | single_source | needs_support
+    rejected: bool = False  # a caseworker rejected it: not part of the case
+
+
+@dataclass(frozen=True)
 class CaseFacts:
     attested: bool
     fields: tuple[FieldFact, ...]
     evidence: tuple[EvidenceFact, ...]
+    events: tuple[EventFact, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -63,6 +73,7 @@ def specs(facts: CaseFacts) -> list[GapSpec]:
         *_missing_fields(facts),
         *_unattested(facts),
         *_no_written_notice(facts),
+        *_unsupported_events(facts),
         *_photo_originals(facts),
     ]
 
@@ -117,6 +128,27 @@ def _no_written_notice(facts: CaseFacts) -> list[GapSpec]:
                 "person."
             ),
         )
+    ]
+
+
+def _unsupported_events(facts: CaseFacts) -> list[GapSpec]:
+    """An event no verified source supports is only the tenant's word. Ask for something that
+    shows it: the officer weighs how reliable each piece of evidence is (Evidence Policy #42)."""
+    return [
+        GapSpec(
+            severity="recommended",
+            title=f"Support for: {event.title}",
+            why=(
+                f"Nothing in the evidence backs up “{event.title}”, so it rests on the "
+                "tenant's word alone and carries less weight."
+            ),
+            how_to_fix=(
+                "Ask the tenant for a photo, message, receipt or letter that shows it, with a date."
+            ),
+            source=EVIDENCE_POLICY,
+        )
+        for event in facts.events
+        if event.strength == "needs_support" and not event.rejected
     ]
 
 

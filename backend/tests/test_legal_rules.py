@@ -1,5 +1,7 @@
 """The rules step: the case's sources and its evidence deadline. No model, no network."""
 
+from dataclasses import replace
+
 from sqlmodel import select
 
 from app.models import ActivityRow, CaseRow, LegalSourceRow
@@ -56,18 +58,43 @@ def test_new_rows_use_a_readable_id_built_from_case_and_entry(fresh_db, session)
     assert f"src_{LIVE}_{corpus.CORPUS[0].id}" in ids
 
 
-def test_a_new_row_copies_the_status_of_the_most_recently_checked_row(fresh_db, session):
+def _seeded_unchanged(session) -> LegalSourceRow:
     checked = next(
         r for r in rows(session, DEMO)
         if r.url == corpus.EVIDENCE_POLICY_URL and r.verify_status == "unchanged"
     )  # fmt: skip
     assert checked.last_verified_at is not None
+    return checked
 
+
+def test_an_unconfirmed_entry_does_not_copy_a_seeded_status(fresh_db, session):
+    """The seed marks the demo case's Evidence Policy row unchanged, but nobody has confirmed the
+    entry: a new case must not show it as checked."""
+    _seeded_unchanged(session)
     live = session.get(CaseRow, LIVE)
     rules.ensure_case_sources(session, live)
     session.commit()
 
     new = next(r for r in rows(session, LIVE) if r.url == corpus.EVIDENCE_POLICY_URL)
+    assert new.verify_status == "unverified"
+    assert new.last_verified_at is None
+
+
+def test_a_confirmed_entry_copies_the_most_recently_checked_status(fresh_db, session, monkeypatch):
+    checked = _seeded_unchanged(session)
+    confirmed = tuple(
+        replace(e, confirmed_by="A. Reviewer", confirmed_on="2026-11-16") for e in corpus.CORPUS
+    )
+    monkeypatch.setattr(rules, "CORPUS", confirmed)
+
+    live = session.get(CaseRow, LIVE)
+    rules.ensure_case_sources(session, live)
+    session.commit()
+
+    new = next(
+        r for r in rows(session, LIVE)
+        if r.url == corpus.EVIDENCE_POLICY_URL and r.title == checked.title
+    )  # fmt: skip
     assert new.verify_status == "unchanged"
     assert new.last_verified_at == checked.last_verified_at
 
@@ -159,8 +186,8 @@ def test_the_summary_says_there_is_no_hearing_date_yet(fresh_db, session):
     session.commit()
 
     assert result.deadline is None
-    # one of the four rows inherits "unchanged" from the demo case's checked policy row
-    assert result.summary == f"{len(corpus.CORPUS)} sources (1 checked), no hearing date yet"
+    # nobody has confirmed an entry, so the demo case's seeded "unchanged" is not passed on
+    assert result.summary == f"{len(corpus.CORPUS)} sources (0 checked), no hearing date yet"
 
 
 def test_the_summary_names_the_deadline_when_there_is_one(fresh_db, session):
@@ -212,6 +239,6 @@ def test_the_rules_step_runs_in_a_run_and_records_one_tool_call(fresh_db, sessio
 
     step = next(s for s in done.steps if s["key"] == "rules")
     assert step["status"] == "done"
-    assert step["summary"] == f"{len(corpus.CORPUS)} sources (1 checked), evidence due 2026-11-16"
+    assert step["summary"] == f"{len(corpus.CORPUS)} sources (0 checked), evidence due 2026-11-16"
     assert [call["tool"] for call in step["tool_calls"]] == ["rules"]
     assert "2026-11-16" in step["tool_calls"][0]["output"]

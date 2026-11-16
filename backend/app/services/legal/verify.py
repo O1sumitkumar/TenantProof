@@ -125,8 +125,9 @@ def update_rows(
     session: Session, entry: CorpusEntry, status: VerifyStatus, now: datetime
 ) -> list[str]:
     """Set the status on every row of every case that carries this entry's URL, and return the
-    case ids touched. `last_verified_at` moves only when text was actually compared: an
-    unreachable document and an unconfirmed entry did not verify anything."""
+    case ids touched. `last_verified_at` moves only when text was actually compared. An
+    unreachable document keeps the date of its last real check; an unconfirmed entry clears it,
+    since a row that is not verified must not show when it was "last checked"."""
     if entry.url is None:
         return []
     rows = session.exec(select(LegalSourceRow).where(LegalSourceRow.url == entry.url)).all()
@@ -134,6 +135,8 @@ def update_rows(
         row.verify_status = status
         if status in ("unchanged", "changed"):
             row.last_verified_at = now
+        elif status == "unverified":
+            row.last_verified_at = None
         session.add(row)
     return sorted({row.case_id for row in rows})
 

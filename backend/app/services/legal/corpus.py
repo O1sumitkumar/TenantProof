@@ -142,8 +142,9 @@ def _rule(name: str) -> int:
     return found[0]
 
 
-# The one place the deadline comes from. `dates.py` and `priority.py` read this, so a change to
-# the policy changes the deadline everywhere at once.
+# The one place the deadline comes from. The rules step, the hearing-date answer route and
+# `priority.py` read this, so a change to the policy changes the deadline everywhere at once.
+# `dates.EVIDENCE_DAYS_BEFORE_HEARING` is only the pure module's default; a test pins it to this.
 EVIDENCE_DAYS_BEFORE_HEARING = _rule("evidence_days_before_hearing")
 
 

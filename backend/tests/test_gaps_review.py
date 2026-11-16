@@ -2,6 +2,7 @@
 reaches the agent's prompt, and how the step pauses and resumes. FixtureProvider only."""
 
 import asyncio
+import re
 
 import pytest
 from sqlmodel import Session, col, select
@@ -35,12 +36,21 @@ def store_with(*messages: str) -> InMemoryTextStore:
     return store
 
 
-def draft(gap_id: str, message: str, message_en: str | None = None, language: str = "zh") -> dict:
+def draft(
+    gap_id: str, message: str, message_en: str | None = None, language: str | None = None
+) -> dict:
+    """A draft_tenant_message input. The language follows the message's script (zh for Chinese,
+    en otherwise) so these copy tests also pass the language check; a zh draft gets a distinct
+    English version unless one is given."""
+    if language is None:
+        language = "zh" if re.search("[一-鿿]", message) else "en"
+    if message_en is None:
+        message_en = message if language == "en" else "Please send it, in English."
     return {
         "gap_id": gap_id,
         "language": language,
         "message": message,
-        "message_en": message_en or message,
+        "message_en": message_en,
     }
 
 
@@ -60,8 +70,9 @@ def saved(session: Session, gap_id: str = GAP) -> dict | None:
 
 
 def send(session: Session, store: InMemoryTextStore, **args) -> t.BaseModel | t.ToolError:
-    tenant_language(session, args.get("language", "zh"))
-    res = call("draft_tenant_message", make_ctx(session, store), draft(GAP, **args))
+    args = draft(GAP, **args)
+    tenant_language(session, args["language"])
+    res = call("draft_tenant_message", make_ctx(session, store), args)
     session.commit()  # as the loop does after a turn
     return res  # type: ignore[arg-type]
 

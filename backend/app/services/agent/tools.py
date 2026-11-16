@@ -854,6 +854,35 @@ class DraftTenantMessageOutput(BaseModel):
     saved: bool
 
 
+# The script a tenant's language is written in. A draft for one of these languages must contain
+# at least one character of it: a "zh" draft written in English would otherwise be saved.
+LANGUAGE_SCRIPTS: dict[str, re.Pattern[str]] = {
+    "zh": re.compile("[一-鿿]"),
+    "ja": re.compile("[぀-ヿ一-鿿]"),
+    "ko": re.compile("[가-힯ᄀ-ᇿ]"),
+    "ar": re.compile("[؀-ۿ]"),
+    "fa": re.compile("[؀-ۿ]"),
+    "ru": re.compile("[Ѐ-ӿ]"),
+    "uk": re.compile("[Ѐ-ӿ]"),
+    "hi": re.compile("[ऀ-ॿ]"),
+}
+
+
+def language_problem(language: str, message: str, message_en: str) -> str | None:
+    """Why a draft is not in the tenant's language, or None. Cheap checks, not detection: a
+    non-English draft must not just repeat the English, and a language with its own script must
+    use it."""
+    base = language.casefold().split("-")[0]
+    if base == "en":
+        return None
+    if message.strip().casefold() == message_en.strip().casefold():
+        return f"message must be written in {language}, not repeat message_en."
+    script = LANGUAGE_SCRIPTS.get(base)
+    if script is not None and not script.search(message):
+        return f"message must be written in {language}; message_en holds the English."
+    return None
+
+
 class DraftTenantMessage(BaseTool):
     name = "draft_tenant_message"
     description = (
@@ -892,6 +921,9 @@ class DraftTenantMessage(BaseTool):
             problem = _copy_problem(text, pages)
             if problem is not None:
                 return ToolError(tool=self.name, kind="invalid_input", message=problem)
+        wrong_language = language_problem(case.tenant_language, message, message_en)
+        if wrong_language is not None:
+            return ToolError(tool=self.name, kind="invalid_input", message=wrong_language)
         gap.tenant_request = {
             "language": case.tenant_language, "message": message, "message_en": message_en,
         }  # fmt: skip

@@ -14,11 +14,18 @@ from dataclasses import dataclass
 
 from sqlmodel import Session, col, select
 
-from app.models import CaseRow, EvidenceRow, FormFieldRow, GapRow, LegalSourceRow
+from app.models import (
+    CaseRow,
+    EvidenceRow,
+    FormFieldRow,
+    GapRow,
+    LegalSourceRow,
+    TimelineEventRow,
+)
 from app.services import activity
 from app.services.agent.tools import clean_text
 from app.services.legal import corpus, gap_checks, rules
-from app.services.legal.gap_checks import CaseFacts, EvidenceFact, FieldFact, GapSpec
+from app.services.legal.gap_checks import CaseFacts, EventFact, EvidenceFact, FieldFact, GapSpec
 from app.services.strength import SourceFacts
 
 ACTOR_NAME = "TenantProof gaps"
@@ -53,9 +60,23 @@ def case_facts(session: Session, case: CaseRow) -> CaseFacts:
             .order_by(col(EvidenceRow.position))
         ).all()
     )
-    return CaseFacts(
-        attested=bool(case.tenant_attested_genuine), fields=fields, evidence=evidence
+    events = tuple(
+        # A title the timeline agent wrote from the evidence: cleaned and kept short, since it
+        # becomes part of a gap title.
+        EventFact(
+            title=clean_text(row.title, 80), strength=row.strength,
+            rejected=row.review_status == "rejected",
+        )  # fmt: skip
+        for row in session.exec(
+            select(TimelineEventRow)
+            .where(TimelineEventRow.case_id == case.id)
+            .order_by(col(TimelineEventRow.sort_key), col(TimelineEventRow.id))
+        ).all()
     )
+    return CaseFacts(
+        attested=bool(case.tenant_attested_genuine), fields=fields, evidence=evidence,
+        events=events,
+    )  # fmt: skip
 
 
 def _evidence_fact(row: EvidenceRow) -> EvidenceFact:

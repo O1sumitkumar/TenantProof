@@ -82,8 +82,10 @@ def source_ids(session: Session, case: CaseRow) -> dict[str, str]:
 
 def _verified_copy(session: Session, entry: CorpusEntry) -> tuple[str, datetime | None]:
     """The verify status and time to start a new row with: copied from the most recently checked
-    row that carries the same URL in any case, so a new case does not start from zero."""
-    if entry.url is None:
+    row that carries the same URL in any case, so a new case does not start from zero. Only for a
+    confirmed entry with an excerpt, the only kind the source check compares: anything else is
+    `unverified`, so a seeded or stale status is never passed on to a new case."""
+    if entry.url is None or not entry.confirmed_by or not entry.excerpt:
         return "unverified", None
     rows = session.exec(
         select(LegalSourceRow)

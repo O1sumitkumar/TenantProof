@@ -57,12 +57,14 @@ def run_gaps(session: Session, script: dict[str, llm.LLMResponse], case_id: str 
 
 
 def test_the_demo_case_already_has_every_gap_the_checks_find(fresh_db, session):
-    """The seeded gaps cover both missing fields, the two photo problems and the notice. The
-    checks must add nothing, or the demo shows the same gap twice."""
+    """The seeded gaps cover both missing fields, the two photo problems and the notice, so the
+    checks add none of those again (or the demo would show the same gap twice). The one gap they
+    add is for the seeded event no source supports."""
     prepared = prepare(session, CASE)
-    assert prepared.created == 0
+    assert prepared.created == 1
     assert prepared.fields_added == 0
-    assert len(gaps_of(session, CASE)) == 5  # the seeded ones, untouched
+    assert len(gaps_of(session, CASE)) == 6  # the five seeded ones, untouched, plus that one
+    assert "Support for: Mould visible on the ceiling" in titles(session, CASE)
 
 
 def test_an_empty_case_gets_the_form_and_a_blocking_gap_per_missing_field(fresh_db, session):
@@ -96,9 +98,9 @@ def test_a_dismissed_gap_does_not_come_back(fresh_db, session):
     session.add(dismissed)
     session.commit()
 
-    prepared = prepare(session, CASE)
-    assert prepared.created == 0
+    prepare(session, CASE)
     assert "Missing from the form: Landlord address" not in titles(session, CASE)
+    assert [g.id for g in gaps_of(session, CASE) if g.title == dismissed.title] == ["gap_01"]
 
 
 def test_preparing_twice_adds_nothing_the_second_time(fresh_db, session):
@@ -136,6 +138,13 @@ def draft(gap_id: str, language: str, message: str, message_en: str, tool_id: st
     )  # fmt: skip
 
 
+IN_LANGUAGE = {
+    "zh": "请发送房东的送达地址。",
+    "fr": "Merci d'envoyer l'adresse du propriétaire.",
+    "en": "Please send the address.",
+}
+
+
 @pytest.mark.parametrize("language", ["zh", "fr", "en"])
 def test_the_agent_drafts_in_the_tenant_language(fresh_db, session, language):
     case = session.get(CaseRow, CASE)
@@ -147,7 +156,7 @@ def test_the_agent_drafts_in_the_tenant_language(fresh_db, session, language):
     provider = RecordingProvider({
         "gaps-turn1": turn(tool_use("list_form_fields", "g1")),
         "gaps-turn2": turn(draft(
-            "gap_02", language, "Please send the address.",
+            "gap_02", language, IN_LANGUAGE[language],
             "Please send the address.", "g2")),
         "gaps-turn3": turn(tool_use("finish", "g3", summary="One draft.")),
     })  # fmt: skip
@@ -158,7 +167,7 @@ def test_the_agent_drafts_in_the_tenant_language(fresh_db, session, language):
     gap = session.get(GapRow, "gap_02")
     assert gap is not None and gap.tenant_request is not None
     assert gap.tenant_request["language"] == language
-    assert gap.tenant_request["message"] == "Please send the address."
+    assert gap.tenant_request["message"] == IN_LANGUAGE[language]
     step = next(s for s in done.steps if s["key"] == "gaps")
     assert step["status"] == "done" and "1 tenant drafts" in step["summary"]
     # the kickoff tells the agent the language and the gaps that already exist
@@ -224,7 +233,8 @@ def test_an_instruction_inside_the_evidence_changes_no_gap(fresh_db, session):
         "gaps-turn2": turn(tool_use("finish", "g2", summary="Read the messages.")),
     })  # fmt: skip
 
-    assert {gap.id: gap.status for gap in gaps_of(session, CASE)} == before
+    after = {gap.id: gap.status for gap in gaps_of(session, CASE)}
+    assert {gap_id: after[gap_id] for gap_id in before} == before
 
 
 def test_the_step_ends_at_the_tool_budget(fresh_db, session):
@@ -243,3 +253,69 @@ def test_open_blocking_gaps_make_the_run_needs_review(fresh_db, session):
     }, case_id=LIVE)  # fmt: skip
 
     assert done.status == "needs_review"
+
+
+def test_a_zh_draft_written_in_english_is_refused(fresh_db, session):
+    case = session.get(CaseRow, CASE)
+    assert case is not None
+    case.tenant_language = "zh"
+    session.add(case)
+    session.commit()
+
+    done = run_gaps(session, {
+        "gaps-turn1": turn(draft("gap_02", "zh", "Please send the address.",
+                                 "Please send the landlord's address.", "g1")),
+        "gaps-turn2": turn(tool_use("finish", "g2", summary="Nothing.")),
+    })  # fmt: skip
+
+    session.expire_all()
+    gap = session.get(GapRow, "gap_02")
+    assert gap is not None and gap.tenant_request is None
+    step = next(s for s in done.steps if s["key"] == "gaps")
+    assert "invalid_input" in step["tool_calls"][0]["output"]
+
+
+@pytest.mark.parametrize(
+    ("language", "message", "message_en", "ok"),
+    [
+        ("zh", "请发送地址", "Please send the address.", True),
+        ("zh", "Please send the address.", "Send the address.", False),
+        ("zh-Hans", "Please send it.", "Please send it.", False),
+        ("fr", "Envoyez l'adresse.", "Send the address.", True),
+        ("fr", "Send the address.", "send the address. ", False),
+        ("ko", "주소를 보내 주세요", "Send the address.", True),
+        ("ar", "Send the address please", "Send the address.", False),
+        ("en", "Send the address.", "Send the address.", True),
+    ],
+)
+def test_language_problem(language, message, message_en, ok):
+    assert (t.language_problem(language, message, message_en) is None) is ok
+
+
+# --- events no source supports ----------------------------------------------------------------
+
+
+def _facts(*events):
+    from app.services.legal.gap_checks import CaseFacts
+
+    return CaseFacts(attested=True, fields=(), evidence=(), events=events)
+
+
+def test_an_event_that_needs_support_gets_a_gap_citing_the_evidence_policy():
+    from app.services.legal.gap_checks import EVIDENCE_POLICY, EventFact, specs
+
+    found = specs(_facts(
+        EventFact("Heater stopped working", "needs_support"),
+        EventFact("Landlord replied", "corroborated"),
+        EventFact("Leak in the bathroom", "single_source"),
+    ))  # fmt: skip
+    support = [s for s in found if s.title.startswith("Support for:")]
+    assert [s.title for s in support] == ["Support for: Heater stopped working"]
+    assert support[0].severity == "recommended" and support[0].source == EVIDENCE_POLICY
+
+
+def test_a_rejected_event_gets_no_support_gap():
+    from app.services.legal.gap_checks import EventFact, specs
+
+    found = specs(_facts(EventFact("Not part of the case", "needs_support", rejected=True)))
+    assert not [s for s in found if s.title.startswith("Support for:")]

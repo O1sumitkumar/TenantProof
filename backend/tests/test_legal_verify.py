@@ -182,3 +182,22 @@ def test_an_unreachable_document_keeps_the_last_verified_time(fresh_db, session,
     assert after is not None
     assert after.verify_status == "unreachable"
     assert after.last_verified_at == verified_at
+
+
+def test_an_unconfirmed_entry_clears_the_last_verified_time(fresh_db, session):
+    """The seed's src_02 says unchanged with a date, but nobody confirmed the entry: after the
+    command it is unverified, and must not still say when it was "last checked"."""
+    before = session.get(LegalSourceRow, "src_02")
+    assert before is not None and before.last_verified_at is not None
+
+    def never(url: str) -> verify.Fetched:
+        raise AssertionError("an unconfirmed entry is not fetched")
+
+    verify.run(never, session)
+    session.commit()
+    session.expire_all()
+
+    after = session.get(LegalSourceRow, "src_02")
+    assert after is not None
+    assert after.verify_status == "unverified"
+    assert after.last_verified_at is None
