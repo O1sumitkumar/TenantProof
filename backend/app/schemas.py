@@ -52,6 +52,7 @@ class CaseSummary(BaseModel):
     priority_reason: str
     updated_at: str
     has_demo_data: bool | None = None
+    analysed: bool | None = None
 
 
 class AssignedTo(BaseModel):

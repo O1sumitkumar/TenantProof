@@ -2,7 +2,8 @@
 
 from datetime import UTC, date, datetime
 
-from sqlalchemy import ColumnElement
+from sqlalchemy import ColumnElement, exists, or_
+from sqlalchemy import select as sa_select  # sqlmodel.select takes at most four columns
 from sqlmodel import Session, col, func, select
 
 from app.models import (
@@ -34,6 +35,8 @@ from app.services.narrative import build_narrative
 from app.services.priority import PriorityInput, compute_priority, sort_key
 
 OPEN_GAP = ("open", "waiting_tenant")
+COMPLETED_RUN = ("done", "needs_review")  # a paused run is needs_review with no finished_at
+REVIEWED = ("accepted", "edited")
 
 
 def iso(dt: datetime | None) -> str | None:
@@ -83,6 +86,38 @@ def _pending_count() -> ColumnElement[int]:
     )
 
 
+def _analysed() -> ColumnElement[bool]:
+    """True when the enclosing case has a completed run or a reviewed (accepted or edited)
+    event. `has_completed_run` and `reviewed_event_count` below are the same two rules."""
+    run = exists().where(
+        col(RunRow.case_id) == CaseRow.id, col(RunRow.status).in_(COMPLETED_RUN),
+        col(RunRow.finished_at).is_not(None),
+    )
+    event = exists().where(
+        col(TimelineEventRow.case_id) == CaseRow.id,
+        col(TimelineEventRow.review_status).in_(REVIEWED),
+    )
+    return or_(run, event)
+
+
+def has_completed_run(session: Session, case_id: str) -> bool:
+    return session.exec(
+        select(RunRow.id).where(
+            RunRow.case_id == case_id, col(RunRow.status).in_(COMPLETED_RUN),
+            col(RunRow.finished_at).is_not(None),
+        ).limit(1)
+    ).first() is not None
+
+
+def reviewed_event_count(session: Session, case_id: str) -> int:
+    """Events a caseworker accepted or edited: the ones that go into the form."""
+    return int(session.exec(
+        select(func.count()).select_from(TimelineEventRow).where(
+            TimelineEventRow.case_id == case_id, col(TimelineEventRow.review_status).in_(REVIEWED)
+        )
+    ).one())
+
+
 def _last_activity_at() -> ColumnElement[datetime]:
     return (
         select(func.max(ActivityRow.at))
@@ -93,14 +128,17 @@ def _last_activity_at() -> ColumnElement[datetime]:
 
 def list_case_rows(
     session: Session, org_id: str
-) -> list[tuple[CaseRow, int, int, datetime | None]]:
-    """The org's cases with their counts and last activity time, in one query."""
-    rows = session.exec(
-        select(CaseRow, _blocking_count(), _pending_count(), _last_activity_at()).where(
-            CaseRow.org_id == org_id
-        )
+) -> list[tuple[CaseRow, int, int, datetime | None, bool]]:
+    """The org's cases with their counts, last activity time and `analysed`, in one query."""
+    rows = session.execute(
+        sa_select(
+            CaseRow, _blocking_count(), _pending_count(), _last_activity_at(), _analysed()
+        ).where(col(CaseRow.org_id) == org_id)
     ).all()
-    return [(case, int(blocking), int(pending), last) for case, blocking, pending, last in rows]
+    return [
+        (case, int(blocking), int(pending), last, bool(analysed))
+        for case, blocking, pending, last, analysed in rows
+    ]
 
 
 def case_counts(session: Session, case_id: str) -> tuple[int, int]:
@@ -110,7 +148,8 @@ def case_counts(session: Session, case_id: str) -> tuple[int, int]:
 
 
 def to_summary(
-    case: CaseRow, blocking: int, pending: int, last_at: datetime | None, today: date
+    case: CaseRow, blocking: int, pending: int, last_at: datetime | None, today: date,
+    analysed: bool | None = None,
 ) -> tuple[CaseSummary, tuple[int, int, int, int]]:
     deadline = case.next_deadline
     result = compute_priority(
@@ -138,6 +177,7 @@ def to_summary(
             "priority_reason": result.reason,
             "updated_at": iso_req(last_at or case.updated_at),
             "has_demo_data": case.has_demo_data,
+            "analysed": analysed,
         }
     )
     return summary, sort_key(result.priority, result.days_to_deadline, blocking, pending)

@@ -20,8 +20,8 @@ router = APIRouter()
 def list_cases(session: SessionDep, user: UserDep) -> list[CaseSummary]:
     today = date.today()
     ranked = [
-        to_summary(case, blocking, pending, last_at, today)
-        for case, blocking, pending, last_at in list_case_rows(session, user.org_id)
+        to_summary(case, blocking, pending, last_at, today, analysed)
+        for case, blocking, pending, last_at, analysed in list_case_rows(session, user.org_id)
     ]
     ranked.sort(key=lambda pair: pair[1])
     return [summary for summary, _ in ranked]

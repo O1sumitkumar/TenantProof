@@ -127,6 +127,9 @@ main{min-width:0;display:flex;flex-direction:column;gap:20px}
 .cl-row{padding:0 18px 0 0;border-bottom:1px solid var(--line);text-decoration:none;color:var(--ink);cursor:pointer;background:none;border-left:0;border-right:0;border-top:0;text-align:left;width:100%}
 .cl-row:last-child{border-bottom:0}
 .cl-row:hover{background:var(--surface-2)}
+.cl-row.demo{cursor:default;color:var(--ink-2)}
+.cl-row.demo:hover{background:none}
+.demo-tag{margin-left:8px;vertical-align:middle}
 .cl-row > *{padding-block:13px}
 .cl-stripe{align-self:stretch;padding:0!important;grid-row:span 2}
 .cl-row.p-high .cl-stripe{background:var(--bad)}
@@ -166,6 +169,9 @@ main{min-width:0;display:flex;flex-direction:column;gap:20px}
 
 /* run */
 .run-head{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;justify-content:space-between}
+.rs-unbuilt{color:var(--ink-3)}
+.rs-unbuilt .rs-title{color:var(--ink-2)}
+.send-hint{font-size:13px;margin:8px 0 0}
 .run-meta{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--ink-2)}
 .run-steps{list-style:none;margin:0;padding:0}
 .run-step{display:grid;grid-template-columns:30px minmax(0,1fr);gap:4px 14px;padding:16px 18px;border-top:1px solid var(--line)}
@@ -666,10 +672,10 @@ async function mockUpload(path, files) {
    ===================================================================== */
 const LANGS = { en: "English", zh: "中文", fr: "Français", es: "Español", ar: "العربية" };
 const I18N = {
-  en: { title: "Share evidence for your case", intro: "{org} is helping you with the repair problem at {unit}. Upload what you have. You don't need to organize anything.", what: "What helps", items: ["Photos of the problem. Use the originals from your camera roll, not copies from chat apps.", "Your lease", "Messages or emails with your landlord", "Receipts for costs you paid"], req: "{org} asked for", choose: "Choose files", selected: "{n} file(s) selected", privacy: "Location and device data are removed before any file is analyzed by AI. Only {org} can see your files.", attest: "These files are genuine and I haven't changed what they show.", consent: "I agree to share these files with {org} for my case.", send: "Send to {org}", sent: "Sent. {org} will contact you after reviewing your files.", lang: "Language" },
-  zh: { title: "为你的案件提交证据", intro: "{org} 正在协助处理你在 {unit} 的维修问题。把你手上的材料上传就行，不需要自己整理。", what: "有用的材料", items: ["问题的照片。请上传相册里的原图，不要用聊天软件转发的图片。", "租约", "和房东的聊天记录或邮件", "你自己垫付费用的收据"], req: "{org} 需要你补充", choose: "选择文件", selected: "已选择 {n} 个文件", privacy: "在 AI 分析之前，会先删除文件里的位置和设备信息。只有 {org} 能看到你的文件。", attest: "这些文件是真实的，我没有修改过其中的内容。", consent: "我同意把这些文件提供给 {org}，用于处理我的案件。", send: "发送给 {org}", sent: "已发送。{org} 审核文件后会联系你。", lang: "语言" },
-  fr: { title: "Partagez vos preuves pour votre dossier", intro: "{org} vous aide avec votre problème de réparation au {unit}. Téléversez ce que vous avez. Vous n'avez rien à organiser.", what: "Ce qui aide", items: ["Des photos du problème. Utilisez les originaux de votre galerie, pas des copies envoyées par messagerie.", "Votre bail", "Vos messages ou courriels avec le propriétaire", "Les reçus des dépenses que vous avez payées"], req: "{org} vous demande", choose: "Choisir des fichiers", selected: "{n} fichier(s) sélectionné(s)", privacy: "Les données de localisation et d'appareil sont retirées avant toute analyse par l'IA. Seul {org} peut voir vos fichiers.", attest: "Ces fichiers sont authentiques et je n'ai pas modifié ce qu'ils montrent.", consent: "J'accepte de partager ces fichiers avec {org} pour mon dossier.", send: "Envoyer à {org}", sent: "Envoyé. {org} vous contactera après avoir examiné vos fichiers.", lang: "Langue" },
-  es: { title: "Comparta pruebas para su caso", intro: "{org} le está ayudando con su problema de reparación en {unit}. Suba lo que tenga. No necesita organizar nada.", what: "Lo que ayuda", items: ["Fotos del problema. Use las originales de su galería, no copias de aplicaciones de chat.", "Su contrato de arrendamiento", "Mensajes o correos con su arrendador", "Recibos de gastos que usted pagó"], req: "{org} le pide", choose: "Elegir archivos", selected: "{n} archivo(s) seleccionado(s)", privacy: "Los datos de ubicación y del dispositivo se eliminan antes de que la IA analice cualquier archivo. Solo {org} puede ver sus archivos.", attest: "Estos archivos son auténticos y no he cambiado lo que muestran.", consent: "Acepto compartir estos archivos con {org} para mi caso.", send: "Enviar a {org}", sent: "Enviado. {org} se comunicará con usted después de revisar sus archivos.", lang: "Idioma" }
+  en: { title: "Share evidence for your case", intro: "{org} is helping you with the repair problem at {unit}. Upload what you have. You don't need to organize anything.", what: "What helps", items: ["Photos of the problem. Use the originals from your camera roll, not copies from chat apps.", "Your lease", "Messages or emails with your landlord", "Receipts for costs you paid"], req: "{org} asked for", choose: "Choose files", selected: "{n} file(s) selected", privacy: "Location and device data are removed before any file is analyzed by AI. Only {org} can see your files.", attest: "These files are genuine and I haven't changed what they show.", consent: "I agree to share these files with {org} for my case.", send: "Send to {org}", sent: "Sent. {org} will contact you after reviewing your files.", lang: "Language", sendHint: "To send, choose at least one file and tick both boxes above.", sendHint: "To send, choose at least one file and tick both boxes above." },
+  zh: { title: "为你的案件提交证据", intro: "{org} 正在协助处理你在 {unit} 的维修问题。把你手上的材料上传就行，不需要自己整理。", what: "有用的材料", items: ["问题的照片。请上传相册里的原图，不要用聊天软件转发的图片。", "租约", "和房东的聊天记录或邮件", "你自己垫付费用的收据"], req: "{org} 需要你补充", choose: "选择文件", selected: "已选择 {n} 个文件", privacy: "在 AI 分析之前，会先删除文件里的位置和设备信息。只有 {org} 能看到你的文件。", attest: "这些文件是真实的，我没有修改过其中的内容。", consent: "我同意把这些文件提供给 {org}，用于处理我的案件。", send: "发送给 {org}", sent: "已发送。{org} 审核文件后会联系你。", lang: "语言", sendHint: "要发送，请先选择至少一个文件，并勾选上面的两个框。", sendHint: "要发送，请先选择至少一个文件，并勾选上面的两个框。" },
+  fr: { title: "Partagez vos preuves pour votre dossier", intro: "{org} vous aide avec votre problème de réparation au {unit}. Téléversez ce que vous avez. Vous n'avez rien à organiser.", what: "Ce qui aide", items: ["Des photos du problème. Utilisez les originaux de votre galerie, pas des copies envoyées par messagerie.", "Votre bail", "Vos messages ou courriels avec le propriétaire", "Les reçus des dépenses que vous avez payées"], req: "{org} vous demande", choose: "Choisir des fichiers", selected: "{n} fichier(s) sélectionné(s)", privacy: "Les données de localisation et d'appareil sont retirées avant toute analyse par l'IA. Seul {org} peut voir vos fichiers.", attest: "Ces fichiers sont authentiques et je n'ai pas modifié ce qu'ils montrent.", consent: "J'accepte de partager ces fichiers avec {org} pour mon dossier.", send: "Envoyer à {org}", sent: "Envoyé. {org} vous contactera après avoir examiné vos fichiers.", lang: "Langue", sendHint: "Pour envoyer, choisissez au moins un fichier et cochez les deux cases ci-dessus.", sendHint: "Pour envoyer, choisissez au moins un fichier et cochez les deux cases ci-dessus." },
+  es: { title: "Comparta pruebas para su caso", intro: "{org} le está ayudando con su problema de reparación en {unit}. Suba lo que tenga. No necesita organizar nada.", what: "Lo que ayuda", items: ["Fotos del problema. Use las originales de su galería, no copias de aplicaciones de chat.", "Su contrato de arrendamiento", "Mensajes o correos con su arrendador", "Recibos de gastos que usted pagó"], req: "{org} le pide", choose: "Elegir archivos", selected: "{n} archivo(s) seleccionado(s)", privacy: "Los datos de ubicación y del dispositivo se eliminan antes de que la IA analice cualquier archivo. Solo {org} puede ver sus archivos.", attest: "Estos archivos son auténticos y no he cambiado lo que muestran.", consent: "Acepto compartir estos archivos con {org} para mi caso.", send: "Enviar a {org}", sent: "Enviado. {org} se comunicará con usted después de revisar sus archivos.", lang: "Idioma", sendHint: "Para enviar, elija al menos un archivo y marque las dos casillas de arriba." }
 };
 
 /* =====================================================================
@@ -696,6 +702,8 @@ function fmtDate(d, long) {
   return `${MONTHS[mo - 1]} ${da}, ${y}`;
 }
 const fmtDay = v => fmtDate({ value: v, precision: "day" });
+const fmtDur = ms => { const s = Math.round(ms / 1000); return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`; };
+const fmtCost = usd => usd < 0.01 ? "under $0.01" : `$${usd.toFixed(2)}`;
 const fmtTime = s => { if (!s) return "—"; const d = new Date(s); return isNaN(d) ? s : d.toLocaleString("en-CA", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }); };
 const fmtSize = b => b > 1e6 ? (b / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1e3)) + " KB";
 const evLabel = id => (S.evidence.find(e => e.id === id) || {}).label || id;
@@ -764,6 +772,9 @@ function renderChrome() {
 }
 
 /* ---------- caseload ---------- */
+// The server says `analysed` (a completed run or an accepted/edited event). Without it, a case that
+// looks "ready to file" is really just empty. Undefined (mock data) means: say nothing.
+const notAnalysed = c => !!c && c.analysed === false && c.stage === "ready_to_file";
 function viewCases() {
   const cs = S.cases;
   if (!cs.length) return `<div class="view-head"><div><h1>Caseload</h1><p>Your open maintenance cases appear here.</p></div></div>
@@ -771,23 +782,25 @@ function viewCases() {
   const review = cs.filter(c => c.stage === "needs_review").length;
   const week = cs.filter(c => c._days !== null && c._days !== undefined && c._days <= 7).length;
   const rows = cs.map(c => {
-    const [stLabel, stCls] = STAGE[c.stage];
+    const fresh = notAnalysed(c);  // a finished-looking stage with no analysis behind it
+    const [stLabel, stCls] = fresh ? ["Not analysed yet", "plain"] : STAGE[c.stage];
     const dl = c.next_deadline ? `<span class="${c._days <= 7 ? "soon" : ""}">${esc(fmtDay(c.next_deadline.date))}</span><small>${esc(c.next_deadline.label.replace(/hearing (\d{4}-\d\d-\d\d)/, (_, d) => "hearing " + fmtDay(d)))}</small>` : `<span class="muted">No hearing yet</span>`;
     const open = [c.open_blocking ? `<span style="color:var(--bad)">${c.open_blocking} required open</span>` : "", c.pending_review ? `<span>${c.pending_review} events to review</span>` : ""].filter(Boolean).join("") || `<span class="muted">—</span>`;
-    return `<button class="cl-row p-${c.priority}" data-action="open-case" data-id="${c.id}" type="button">
+    const openable = !!c.has_demo_data, tag = openable ? "button" : "div";
+    return `<${tag} class="cl-row p-${c.priority}${openable ? "" : " demo"}" ${openable ? `data-action="open-case" data-id="${c.id}" type="button"` : `role="listitem" aria-disabled="true"`}>
       <span class="cl-stripe"></span>
-      <span class="cl-who"><strong>${esc(c.tenant_name)}</strong><span>${esc(c.title)} · ${esc(c.unit)}</span></span>
+      <span class="cl-who"><strong>${esc(c.tenant_name)}${openable ? "" : `<span class="pill plain demo-tag">Demo row</span>`}</strong><span>${esc(c.title)} · ${esc(c.unit)}</span></span>
       <span class="cl-stage"><span class="pill ${stCls}">${stLabel}</span></span>
       <span class="cl-dead">${dl}</span>
       <span class="cl-open">${open}</span>
       <span class="cl-lang muted">${esc(LANGS[c.tenant_language] || c.tenant_language)}</span>
-      <span class="cl-reason">${c.priority === "high" ? "High priority: " : ""}${esc(c.priority_reason)}</span>
-    </button>`;
+      <span class="cl-reason">${fresh ? (openable ? "Not analysed yet. Open the case and run the analysis." : "Not analysed yet.") : `${c.priority === "high" ? "High priority: " : ""}${esc(c.priority_reason)}`}</span>
+    </${tag}>`;
   }).join("");
   return `<div class="view-head"><div><h1>Caseload</h1><p>Your open maintenance cases. The order follows fixed rules (evidence deadlines first, then required items), so you can always see why a case is on top.</p></div><button class="btn" data-action="new-case">New case</button></div>
     <div class="summary-row"><span><b>${cs.length}</b>open cases</span><span><b>${review}</b>need your review</span><span><b>${week}</b>evidence deadline in 7 days</span></div>
     <div class="panel cl" role="list"><div class="cl-head"><span></span><span>Tenant · issue</span><span>Stage</span><span>Next deadline</span><span>Open items</span><span>Language</span></div>${rows}</div>
-    <div class="note"><span class="note-ico">i</span><span>Full demo data is loaded for <b>Jordan Lee</b>. The other cases show what a caseload looks like.</span></div>
+    <div class="note"><span class="note-ico">i</span><span>Rows marked <b>Demo row</b> show what a caseload looks like. They have no case view and cannot be opened.</span></div>
     ${contract("cases", { me: S.me, cases: S.cases.map(({ _days, ...c }) => c) })}`;
 }
 
@@ -809,10 +822,11 @@ function viewEvidence() {
   }).join("");
   return `<div class="view-head"><div><h1>Evidence</h1><p>Files come from the tenant's intake link or from you. Each gets an exhibit label, a SHA-256 fingerprint and a server receipt time. Location and device data are removed before anything goes to the AI model.</p></div></div>
     <div class="panel panel-pad intake-panel">
+      ${!(S.case.tenant.preferred_language in I18N) ? `<div class="ip-main"><span class="ip-title">Tenant intake link · ${esc(LANGS[S.case.tenant.preferred_language])}</span><span class="muted">The tenant page has no ${esc(LANGS[S.case.tenant.preferred_language])} text yet, so no link can be sent or previewed for this case.</span></div>` : `
       <div class="ip-main"><span class="ip-title">Tenant intake link · ${esc(LANGS[S.case.tenant.preferred_language])}</span>
         <span class="muted">Sent ${fmtTime(ik.sent_at)} · last upload ${fmtTime(ik.last_upload_at)} · ${ik.tenant_attested_genuine ? `<span style="color:var(--ok)">tenant confirmed files are genuine</span>` : "not confirmed yet"}</span>
         ${ik.url || S.lastLink ? `<span class="linkbox"><code>${esc(ik.url || S.lastLink)}</code><button class="copy" type="button" data-action="copy" data-text="${esc(ik.url || S.lastLink)}">Copy link</button></span>` : `<span class="muted">The link is shown once, when you send it. Re-send to create a new link (the old one stops working).</span>`}</div>
-      <div class="btn-row"><a class="btn" href="#intake">Open tenant view</a><button class="btn" type="button" data-action="resend">Re-send link</button></div>
+      <div class="btn-row"><a class="btn" href="#intake">Open tenant view</a><button class="btn" type="button" data-action="resend">Re-send link</button></div>`}
     </div>
     <label class="drop" id="drop" for="fileIn"><input class="file-in" type="file" id="fileIn" multiple accept="${UPLOAD_ACCEPT}"><div><strong>Add files yourself</strong><p>For files the tenant brought to the clinic. JPG, PNG, HEIC, PDF or TXT, up to 25 MB each.</p></div><span class="btn primary">Choose files</span></label>
     <div class="panel ev-list">${rows}</div>
@@ -825,7 +839,12 @@ function viewRun() {
   const ico = { pending: "", running: "…", done: "✓", needs_input: "!", failed: "×" };
   const pill = { pending: `<span class="pill">Waiting</span>`, running: `<span class="pill info">Running</span>`, done: `<span class="pill ok">Done</span>`, needs_input: `<span class="pill warn">Needs your input</span>`, failed: `<span class="pill bad">Failed</span>` };
   const runPill = run.status === "running" ? `<span class="pill info">Running</span>` : run.status === "needs_review" ? `<span class="pill warn">Waiting for you</span>` : run.status === "failed" ? `<span class="pill bad">Failed</span>` : `<span class="pill ok">Complete</span>`;
-  const steps = run.steps.map((s, i) => `<li class="run-step rs-${s.status}"><span class="rs-ico">${ico[s.status] || i + 1}</span>
+  // The runner builds `extract` and `timeline`; the other four steps are not built in this prototype,
+  // whatever a seeded or real run says about them. (The mock run is a scripted demo and keeps its steps.)
+  const unbuilt = s => !USE_MOCK && !RESUMABLE.includes(s.key);
+  const steps = run.steps.map((s, i) => unbuilt(s) ? `<li class="run-step rs-unbuilt"><span class="rs-ico">–</span>
+      <div><div class="rs-title">${i + 1}. ${esc(s.label)} <span class="pill plain">Not in this prototype</span></div></div></li>`
+    : `<li class="run-step rs-${s.status}"><span class="rs-ico">${ico[s.status] || i + 1}</span>
       <div><div class="rs-title">${i + 1}. ${esc(s.label)} ${pill[s.status]}</div>${s.summary ? `<p class="rs-sum">${esc(s.summary)}</p>` : ""}</div>
       ${s.tool_calls.length ? `<details class="tools"${s.status === "needs_input" ? " open" : ""}><summary>${s.tool_calls.length} tool calls</summary><ul class="tool-calls">${s.tool_calls.map(t => `<li><span class="t">${esc(t.tool)}</span><span class="io"><b>${esc(t.input)}</b> → ${esc(t.output)}</span></li>`).join("")}</ul></details>` : ""}</li>`).join("");
   const asking = run.steps.find(s => s.status === "needs_input" && RESUMABLE.includes(s.key));
@@ -837,9 +856,9 @@ function viewRun() {
       <p class="muted" id="ask-help">Plain words are fine. If it asks for a date, write it like 2026-11-21 or Nov 21, 2026.</p>
       <p class="ask-err" id="ask-err" role="alert">${esc(S.askError)}</p>
     </form>` : "";
-  const waiting = run.status === "needs_review" && !asking ? `<div class="note warn"><span class="note-ico">!</span><span>The agent stopped at <b>Find missing information</b>. It drafted requests to the tenant in their language but sends nothing until you approve. It never decides the remedy. <a href="#gaps">Go to missing info</a></span></div>` : "";
+  const waiting = run.status === "needs_review" && !asking && !USE_MOCK ? `<div class="note"><span class="note-ico">i</span><span>The run has finished. Check the events on <a href="#timeline">Review timeline</a>. Steps marked "Not in this prototype" are not built yet.</span></div>` : run.status === "needs_review" && !asking ? `<div class="note warn"><span class="note-ico">!</span><span>The agent stopped at <b>Find missing information</b>. It drafted requests to the tenant in their language but sends nothing until you approve. It never decides the remedy. <a href="#gaps">Go to missing info</a></span></div>` : "";
   return `<div class="view-head"><div><h1>Agent run</h1><p>What the agent did, step by step, and which tools it used.</p></div><button class="btn" data-action="run" ${run.status === "running" ? "disabled" : ""}>Run analysis again</button></div>
-    <div class="panel panel-pad run-head"><div class="btn-row"><span class="mono">${esc(run.id)}</span>${runPill}</div><div class="run-meta"><span>Started ${fmtTime(run.started_at)}</span><span>Finished ${fmtTime(run.finished_at)}</span></div></div>
+    <div class="panel panel-pad run-head"><div class="btn-row"><span class="mono">${esc(run.id)}</span>${runPill}</div><div class="run-meta"><span>Started ${fmtTime(run.started_at)}</span><span>Finished ${fmtTime(run.finished_at)}</span>${run.usage ? `<span>Took ${fmtDur(run.usage.duration_ms)}</span><span title="Priced at the default model's list rates, so a cheaper model costs less">Est. cost ${fmtCost(run.usage.est_cost_usd)}</span>` : ""}</div></div>
     ${ask}${waiting}<ol class="panel run-steps">${steps}</ol>${contract("run", run)}`;
 }
 
@@ -902,7 +921,7 @@ function viewGaps() {
     <section class="gap-group"><h2 class="section-h">Suggestions to strengthen evidence</h2>${S.gaps.filter(g => g.severity === "recommended").map(gapCard).join("")}</section>
     <section class="gap-group"><h2 class="section-h">Official sources the agent used</h2>
       <ul class="panel sources">${S.sources.map(s => `<li><span class="s-title">${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a>` : esc(s.title)}</span>${vs[s.verify_status]}<span class="s-sub">${esc(s.used_for)}${s.last_verified_at ? ` · last checked ${fmtTime(s.last_verified_at)}` : ""}</span></li>`).join("")}</ul>
-      <div class="note"><span class="note-ico">i</span><span>Before using a source, the agent re-opens its official link to check whether the text changed. If the link fails, it falls back to the saved copy and says so.</span></div></section>
+      <div class="note"><span class="note-ico">i</span><span>These are saved copies of official sources. This prototype does not open the original links or check them for changes, so confirm each source on its official page before you rely on it.</span></div></section>
     ${contract("gaps", { gaps: S.gaps, sources: S.sources })}`;
 }
 
@@ -926,7 +945,11 @@ function viewForm() {
 
 function viewPackage() {
   const st = stats(), ik = S.case.intake;
-  const ready = !st.blocking && !st.reqMissing && ik.tenant_attested_genuine;
+  const doneRun = S.run && ["done", "needs_review"].includes(S.run.status) && S.run.finished_at;
+  const acceptedN = S.timeline.filter(e => ["accepted", "edited"].includes(e.review_status)).length;
+  // Same two reasons, same words, as the server's 409 (services/package.py).
+  const noAnalysis = !doneRun ? "No analysis has been completed for this case yet. Run the analysis first." : !acceptedN ? "No timeline events have been accepted yet. Review the timeline first." : null;
+  const ready = !noAnalysis && !st.blocking && !st.reqMissing && ik.tenant_attested_genuine;
   const allAttest = Object.values(S.attest).every(Boolean);
   const ck = (ok, warn) => `<span class="ck ${ok ? "yes" : warn ? "maybe" : "no"}">${ok ? "✓" : warn ? "!" : "×"}</span>`;
   const whoCls = { agent: "who-agent", tenant: "who-tenant", caseworker: "who-caseworker" };
@@ -936,6 +959,7 @@ function viewPackage() {
     <div class="panel panel-pad"><ul class="checklist">${S.pkg.reminders.map(r => `<li><span class="ck maybe">!</span>${esc(r)}</li>`).join("")}</ul></div>` : "";
   return `<div class="view-head"><div><h1>Package</h1><p>Bundle the form draft, the evidence and a fingerprint log for filing. The tenant or the clinic files it. TenantProof never submits anything.</p></div></div>
     <div class="panel panel-pad"><ul class="checklist">
+      <li>${ck(!noAnalysis)}<span>Analysis: ${noAnalysis ? `<a href="${doneRun ? "#timeline" : "#run"}">${esc(noAnalysis)}</a>` : "done, with accepted events"}</span></li>
       <li>${ck(!st.blocking)}<span>Required missing info: ${st.blocking ? `<a href="#gaps">${st.blocking} still open${st.waiting ? `, ${st.waiting} waiting for tenant` : ""}</a>` : "all resolved"}</span></li>
       <li>${ck(!st.reqMissing)}<span>Required form fields: ${st.reqMissing ? `<a href="#form">${st.reqMissing} empty</a>` : "all filled"}</span></li>
       <li>${ck(ik.tenant_attested_genuine)}<span>Tenant confirmed the files are genuine${ik.tenant_attested_at ? ` (${fmtTime(ik.tenant_attested_at)}, intake link)` : ""}</span></li>
@@ -946,7 +970,7 @@ function viewPackage() {
       <label><input type="checkbox" id="at-remedy" name="remedy_confirmed_with_tenant" ${S.attest.remedy_confirmed_with_tenant ? "checked" : ""}>The tenant confirmed what they are asking for.</label>
       <label><input type="checkbox" id="at-legal" name="explained_not_legal_advice" ${S.attest.explained_not_legal_advice ? "checked" : ""}>I told the tenant this package is prepared information, not a decision about their case.</label></form>
     ${S.pkgError ? `<div class="note bad"><span class="note-ico">×</span><span>${esc(S.pkgError)}</span></div>` : ""}
-    <div class="btn-row"><button class="btn primary" data-action="build" ${ready && allAttest ? "" : "disabled"}>Build package</button>${!ready ? `<span class="muted">Resolve the required items first.</span>` : !allAttest ? `<span class="muted">Tick all three confirmations.</span>` : ""}</div>
+    <div class="btn-row"><button class="btn primary" data-action="build" ${ready && allAttest ? "" : "disabled"}>Build package</button>${!ready ? `<span class="muted">${esc(noAnalysis || "Resolve the required items first.")}</span>` : !allAttest ? `<span class="muted">Tick all three confirmations.</span>` : ""}</div>
     ${manifest}
     <h2 class="section-h">Audit log</h2>
     <ul class="panel log">${S.activity.map(a => `<li><time>${fmtTime(a.at)}</time><span class="who ${whoCls[a.actor]}">${esc(a.actor)}</span><span>${esc(a.action)}${a.actor !== "agent" ? ` <span class="muted">· ${esc(a.actor_name)}</span>` : ""}</span></li>`).join("")}</ul>
@@ -967,7 +991,8 @@ function viewIntake() {
       <form class="attest" data-action="intake-attest">
         <label><input type="checkbox" id="in-attest" name="attest" ${S.intake.attest ? "checked" : ""}>${esc(t.attest)}</label>
         <label><input type="checkbox" id="in-consent" name="consent" ${S.intake.consent ? "checked" : ""}>${esc(tpl(t.consent, vars))}</label></form>
-      <button class="btn primary" data-action="intake-send" ${(S.intake.files.length || !UPLOADS_ENABLED) && S.intake.attest && S.intake.consent ? "" : "disabled"}>${esc(tpl(t.send, vars))}</button>`;
+      ${(() => { const ok = (S.intake.files.length || !UPLOADS_ENABLED) && S.intake.attest && S.intake.consent;
+        return `<button class="btn primary" data-action="intake-send" ${ok ? "" : `disabled aria-describedby="send-hint"`}>${esc(tpl(t.send, vars))}</button>${ok ? "" : `<p class="muted send-hint" id="send-hint">${esc(t.sendHint)}</p>`}`; })()}`;
   return `<div class="view-head"><div><h1>Tenant view</h1><p>What ${esc(v.tenant_first_name)} sees after opening the intake link on a phone. No account needed. It opens in the tenant's preferred language, and the tenant never sees the caseworker workspace.</p></div></div>
     <div class="intake-wrap">
       <div class="intake-side">
@@ -989,7 +1014,9 @@ function render() {
   if (!TENANT_MODE && !CASE_ID && route() !== "cases") { location.hash = "cases"; return; }  // hashchange re-renders
   renderChrome();
   const r = route();
-  $("#view").innerHTML = (r === "cases" ? S.casesLoaded : r === "intake" ? S.intake.view : S.form) ? VIEWS[r]() : `<p>Loading…</p>`;
+  const here = S.cases.find(x => x.id === CASE_ID);
+  const banner = CASE_ROUTES.includes(r) && here && here.analysed === false ? `<div class="note warn" role="status"><span class="note-ico">!</span><span><b>Not analysed yet.</b> No analysis has been completed and no events are reviewed, so nothing here is ready to file. <a href="#run">Run the analysis</a></span></div>` : "";
+  $("#view").innerHTML = (r === "cases" ? S.casesLoaded : r === "intake" ? S.intake.view : S.form) ? banner + VIEWS[r]() : `<p>Loading…</p>`;
   if (r === "evidence") wireDrop();
 }
 
@@ -1060,7 +1087,7 @@ document.addEventListener("click", async ev => {
   const a = b.dataset.action, id = b.dataset.id;
   if (a === "logout") return logout();
   if (a === "copy") { ev.preventDefault(); try { await navigator.clipboard.writeText(b.dataset.text); toast("Copied"); } catch { toast(b.dataset.text); } }
-  if (a === "open-case") { const c = S.cases.find(x => x.id === id); if (c && c.has_demo_data) { if (id !== CASE_ID) { setCase(id); await refresh(); } location.hash = "timeline"; } else toast("Full demo data is only loaded for Jordan Lee's case."); }
+  if (a === "open-case") { const c = S.cases.find(x => x.id === id); if (c && c.has_demo_data) { if (id !== CASE_ID) { setCase(id); await refresh(); } location.hash = "timeline"; } }
   if (a === "new-case") toast("Creating cases isn't part of this prototype yet.");
   if (a === "resend") { const r = await request("POST", `${C}/intake-link`); S.lastLink = r.url; S.intake.view = null; toast("Intake link created. Copy it now: it is only shown once."); await refresh(["case", "intake"]); }
   if (a === "run") { S.run = await request("POST", `${C}/runs`); location.hash = "run"; render(); pollRun(); }

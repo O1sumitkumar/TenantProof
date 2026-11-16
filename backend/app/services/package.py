@@ -31,7 +31,13 @@ from app.schemas import Attestations, Package, PackageFile
 from app.services import activity, storage
 from app.services.evidence import sniff  # also registers the HEIC opener
 from app.services.gating import MissingField, OpenGap, package_blockers
-from app.services.mappers import OPEN_GAP, build_form_draft, iso_req
+from app.services.mappers import (
+    OPEN_GAP,
+    build_form_draft,
+    has_completed_run,
+    iso_req,
+    reviewed_event_count,
+)
 
 FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 REMINDERS = [
@@ -61,6 +67,20 @@ def attestation_reasons(att: Attestations) -> list[str]:
     return [label for key, label in ATTESTATION_LABELS.items() if not getattr(att, key)]
 
 
+NOT_ANALYSED = "No analysis has been completed for this case yet. Run the analysis first."
+NOTHING_REVIEWED = "No timeline events have been accepted yet. Review the timeline first."
+
+
+def analysis_reasons(session: Session, case: CaseRow) -> list[str]:
+    """A package needs a finished run and at least one accepted or edited event."""
+    reasons = []
+    if not has_completed_run(session, case.id):
+        reasons.append(NOT_ANALYSED)
+    if reviewed_event_count(session, case.id) == 0:
+        reasons.append(NOTHING_REVIEWED)
+    return reasons
+
+
 def state_reasons(session: Session, case: CaseRow) -> list[str]:
     fields = session.exec(select(FormFieldRow).where(FormFieldRow.case_id == case.id)).all()
     gaps = session.exec(select(GapRow).where(GapRow.case_id == case.id)).all()
@@ -72,7 +92,7 @@ def state_reasons(session: Session, case: CaseRow) -> list[str]:
     )
     if not fields:
         reasons.insert(0, "No form draft has been prepared for this case yet")
-    return reasons
+    return [*analysis_reasons(session, case), *reasons]
 
 
 def new_pdf() -> FPDF:
