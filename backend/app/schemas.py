@@ -329,6 +329,19 @@ class FieldPatch(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class CaseCreate(BaseModel):
+    """Request side of POST /cases (CONTRACT_CHANGES #35). The org, the assignee and the stage come
+    from the server, never from the body; `dispute_type` is always "maintenance"."""
+
+    tenant_name: str = Field(min_length=1, max_length=120)
+    # The languages the tenant page has text for (no Arabic yet).
+    tenant_language: Literal["en", "zh", "fr", "es"]
+    unit: str = Field(min_length=1, max_length=200)  # the rental unit's address
+    title: str = Field(min_length=1, max_length=120)  # one line: what is wrong
+    # Stripped before the length checks, so a whitespace-only value is refused as empty.
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+
+
 class AttestationsIn(BaseModel):
     """Request-side attestations: anything missing counts as false, so the handler can answer
     422 with {detail: {reasons}} (CONTRACT_CHANGES #8) instead of FastAPI's default shape."""
