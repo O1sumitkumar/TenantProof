@@ -48,6 +48,7 @@ _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 SAFE_STR_MAX = 100
 MESSAGE_MAX = 1500  # a drafted tenant message, in characters
 CONFLICT_REASON_MAX = 500  # the input bound: a conflict note is shown whole, never cut
+FIELD_VALUE_MAX = 300  # a drafted form field value, in characters
 
 
 def _clean_label(value: str) -> str:
@@ -948,6 +949,169 @@ class DraftTenantMessage(BaseTool):
         return DraftTenantMessageOutput(gap_id=gap.id, saved=True)
 
 
+class FillFormFieldInput(ToolInput):
+    field_key: str = Field(min_length=1, max_length=64)
+    value: str = Field(min_length=1, max_length=FIELD_VALUE_MAX)
+    sources: list[ProposedSource] = Field(min_length=1, max_length=3)
+
+
+class FillFormFieldOutput(BaseModel):
+    """A filled field waits for the caseworker as `needs_confirmation`; nothing is final."""
+
+    field_key: str
+    filled: bool
+
+
+# Only a field nobody has filled can be drafted: a re-run never replaces a value a caseworker
+# typed (`user_entered`) or one already waiting for their confirmation.
+FILLABLE_STATUS = "missing"
+# The remedy is the tenant's choice, recorded by the caseworker (design rule 6). Never drafted.
+NEVER_FILLED = frozenset({"remedy"})
+DRAFTED_NOTE = "Drafted by the agent from the evidence. Check the source and confirm it."
+# Set when the caseworker empties a drafted field: they rejected it, so no re-run drafts it again.
+CLEARED_NOTE = "The caseworker cleared the agent's draft. The agent will not fill this field again."
+
+
+def is_fillable(field: FormFieldRow) -> bool:
+    """Whether the draft step may write this field: nobody has filled it, it is not the remedy,
+    and the caseworker has not cleared an earlier draft of it."""
+    return (
+        field.status == FILLABLE_STATUS
+        and field.key not in NEVER_FILLED
+        and field.note != CLEARED_NOTE
+    )
+
+
+def _ascii_alnum(ch: str) -> bool:
+    return ch.isascii() and ch.isalnum()
+
+
+def _ascii_digit(ch: str) -> bool:
+    return ch.isascii() and ch.isdigit()
+
+
+def _cuts_a_word(hay: str, start: int, end: int) -> bool:
+    """Whether hay[start:end] begins or ends inside a word or a number ("1" of "$1,150", "650" of
+    "1,650", "e" of "Rent"). Only ASCII letters and digits count, so CJK text, which has no
+    spaces between words, keeps the plain substring rule."""
+    first, last = hay[start], hay[end - 1]
+    if start > 0 and _ascii_alnum(first):
+        before = hay[start - 1]
+        if _ascii_alnum(before):
+            return True
+        if _ascii_digit(first) and before in ",." and start > 1 and _ascii_digit(hay[start - 2]):
+            return True
+    if end < len(hay) and _ascii_alnum(last):
+        after = hay[end]
+        if _ascii_alnum(after):
+            return True
+        if (
+            _ascii_digit(last) and after in ",." and end + 1 < len(hay)
+            and _ascii_digit(hay[end + 1])
+        ):  # fmt: skip
+            return True
+    return False
+
+
+def _found_whole(wanted: str, hay: str) -> bool:
+    start = hay.find(wanted)
+    while start != -1:
+        if not _cuts_a_word(hay, start, start + len(wanted)):
+            return True
+        start = hay.find(wanted, start + 1)
+    return False
+
+
+def _value_problem(value: str, excerpts: list[str]) -> str | None:
+    """The value must be words the evidence itself has, whole, so the citation proves the value
+    and not just something nearby: "1" is not the rent because "$1,150 per month" contains it.
+    Case and spacing do not count."""
+    wanted = normalize(value)
+    if not any(ch.isalnum() for ch in wanted):
+        return "value must contain a letter or a digit."
+    if any(_found_whole(wanted, normalize(text)) for text in excerpts):
+        return None
+    return (
+        "value must be copied word for word, whole words and numbers, from one of the cited "
+        "excerpts (for example 'May 1, 2026', not '2026-05-01'; '$1,150', not '1'). Cite the "
+        "text that holds the value."
+    )
+
+
+class FillFormField(BaseTool):
+    name = "fill_form_field"
+    description = (
+        "Draft the value of one missing form field from the evidence. The value must be copied "
+        "word for word from a cited excerpt. It is saved as 'needs confirmation' for the "
+        "caseworker. A field that is already filled, and the remedy, cannot be drafted."
+    )
+    effect: ClassVar[Effect] = "draft"
+    input_model = FillFormFieldInput
+    output_model = FillFormFieldOutput
+
+    async def run(self, ctx: ToolContext, args: Any) -> BaseModel:
+        assert isinstance(args, FillFormFieldInput)
+        case = _case(ctx)
+        if case is None:
+            return not_found(self.name, "Case")
+        field = ctx.session.get(FormFieldRow, (case.id, args.field_key))
+        if field is None:
+            return ToolError(
+                tool=self.name, kind="invalid_input",
+                message="field_key is not a field of this case's form. Use list_form_fields.",
+            )  # fmt: skip
+        if field.key in NEVER_FILLED:
+            return ToolError(
+                tool=self.name, kind="invalid_input",
+                message="The remedy is the tenant's choice. Leave it for the caseworker.",
+            )  # fmt: skip
+        if field.status != FILLABLE_STATUS:
+            return ToolError(
+                tool=self.name, kind="invalid_input",
+                message="This field already has a value. Only a missing field can be drafted.",
+            )  # fmt: skip
+        if not is_fillable(field):  # the caseworker cleared an earlier draft of this field
+            return ToolError(
+                tool=self.name, kind="invalid_input",
+                message="The caseworker cleared this field. Leave it for them.",
+            )  # fmt: skip
+        refs: list[dict[str, Any]] = []
+        reasons: list[str] = []
+        for i, src in enumerate(args.sources, start=1):
+            row = _evidence(ctx, src.evidence_id)
+            if row is None:
+                reasons.append(f"source {i}: citation rejected: evidence not found in this case")
+                continue
+            pages = {p.locator: p.text for p in ctx.texts.pages(ctx.case_id, row.id)}
+            verdict = verify_citation(src.excerpt, src.locator, pages)
+            if not verdict.ok:
+                reasons.append(f"source {i}: {verdict.reason}")
+                continue
+            # The text found in the evidence and its own locator, never the model's strings.
+            refs.append(
+                {"evidence_id": row.id, "locator": verdict.locator, "excerpt": verdict.matched}
+            )
+        if reasons:
+            return ToolError(
+                tool=self.name, kind="invalid_input",
+                message="A citation was rejected. Fix it and call again.", problems=reasons,
+            )  # fmt: skip
+        value = clean_text(args.value, FIELD_VALUE_MAX * 4)
+        problem = _value_problem(value, [r["excerpt"] for r in refs])
+        if problem is not None:
+            return ToolError(tool=self.name, kind="invalid_input", message=problem)
+        field.value = value
+        field.status = "needs_confirmation"
+        field.sources = refs
+        field.note = DRAFTED_NOTE
+        ctx.session.add(field)
+        activity.log(
+            ctx.session, case.id, "agent", AGENT_ACTOR,
+            f"Drafted form field “{field.label}” from the evidence (needs confirmation)",
+        )  # fmt: skip
+        return FillFormFieldOutput(field_key=field.key, filled=True)
+
+
 # --------------------------------------------------------------------------- control tools
 
 
@@ -1018,6 +1182,7 @@ TOOLS: Mapping[str, Tool] = {
         SearchLegalSources(),
         CreateGap(),
         DraftTenantMessage(),
+        FillFormField(),
         AskCaseworker(),
         Finish(),
     )

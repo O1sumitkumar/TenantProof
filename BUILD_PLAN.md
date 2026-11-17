@@ -100,7 +100,7 @@ deterministic. Pattern: **agent proposes, rules verify, caseworker approves.**
 | `timeline` | **agent loop** | Case agent builds events from facts, reading evidence deeper when sources conflict. |
 | `rules` | deterministic + retrieval | Deadlines from hearing date, `LegalSource` retrieval from a curated corpus, verify status. |
 | `gaps` | **agent loop** | Gap agent checks the form and evidence for what's missing, drafts tenant requests in the tenant's language. |
-| `draft` | deterministic | Form autofill with sources, narrative template. |
+| `draft` | **agent loop** | Form agent fills the fields still missing from the evidence: each value is copied from a verified citation and saved as `needs_confirmation`. The narrative is built from accepted events. Planned as deterministic; changed in #40 because the extracted facts carry no field key. |
 
 **Agent tools** (read-only or draft-only; no tool can send, delete or reach the internet):
 
@@ -108,6 +108,7 @@ deterministic. Pattern: **agent proposes, rules verify, caseworker approves.**
 - `propose_event(title, description, actor, date_candidates[], sources[])`, `flag_conflict(event_ref, reason)`
 - `list_form_fields()`, `search_legal_sources(query)`, `create_gap(severity, title, why, how_to_fix, field_key?)`
 - `draft_tenant_message(gap_ref, language)`, `ask_caseworker(question)` → step goes `needs_input`, run pauses
+- `fill_form_field(field_key, value, sources[])` (#40): only a `missing` field, never `remedy`; the value must appear in a verified excerpt
 - `finish(summary)`
 
 **Guardrails**

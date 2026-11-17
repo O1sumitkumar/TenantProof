@@ -691,7 +691,7 @@ const S = { me: null, cases: [], case: null, evidence: [], run: null, timeline: 
   attest: { reviewed_fields: false, remedy_confirmed_with_tenant: false, explained_not_legal_advice: false }, pkgError: null,
   intake: { view: null, lang: null, files: [], attest: false, consent: false, sent: false } };
 const RESUMABLE = ["extract", "timeline", "gaps"];  // steps the runner can resume after an answer (the others' needs_input is not a question)
-const BUILT = ["extract", "timeline", "rules", "gaps"];  // steps the runner implements; `rules` is deterministic and never pauses
+const BUILT = ["extract", "timeline", "rules", "gaps", "draft"];  // steps the runner implements; `rules` is deterministic and never pauses
 S.askError = ""; S.askDraft = ""; S.answering = false;
 /* pure:start (counts and empty states; tests/test_empty_states.py runs it under node) */
 const NOTHING = "Nothing yet";
@@ -995,7 +995,7 @@ function viewForm() {
   const rows = f.fields.map(x => `<div class="frow"><div class="fl">${esc(x.label)}${x.required ? "<small>Required</small>" : ""}</div>
       <div style="display:grid;gap:6px;min-width:0"><input class="field" id="fld-${x.key}" data-action="field" data-key="${x.key}" value="${esc(x.value || "")}" placeholder="${x.status === "missing" ? "Not found in the files" : ""}">
         ${x.note ? `<span class="flag">${esc(x.note)}</span>` : ""}${x.sources.length ? `<div class="chips">${srcChips(x.sources)}</div>` : ""}</div>
-      <div class="fs">${stPill[x.status]}</div></div>`).join("");
+      <div class="fs">${stPill[x.status]}${x.status === "needs_confirmation" && x.value ? `<button class="btn small" type="button" data-action="confirm-field" data-key="${esc(x.key)}">Confirm</button>` : ""}</div></div>`).join("");
   const narrHtml = esc(f.narrative.text.replace(/\[([^\]]+)\]/g, "⟦$1⟧")).replace(/⟦([^⟧]+)⟧/g, `<span class="narr-cite">[$1]</span>`);
   const left = S.timeline.filter(e => e.review_status === "pending").length;
   return `<div class="view-head"><div><h1>Form draft</h1><p>${esc(f.form_name)}. Check every field against the official form with the tenant before filing.</p></div></div>
@@ -1183,6 +1183,7 @@ document.addEventListener("click", async ev => {
   if (a === "open-case") { const c = S.cases.find(x => x.id === id); if (c && c.has_demo_data) { if (id !== CASE_ID) { setCase(id); await refresh(); } location.hash = "timeline"; } }
   if (a === "new-case") toast("Creating cases isn't part of this prototype yet.");
   if (a === "resend") { const r = await request("POST", `${C}/intake-link`); S.lastLink = r.url; S.intake.view = null; toast("Intake link created. Copy it now: it is only shown once."); await refresh(["case", "intake"]); }
+  if (a === "confirm-field") { const v = document.getElementById(`fld-${b.dataset.key}`).value.trim(); if (!v) return; await request("PATCH", `${C}/form-draft/fields/${b.dataset.key}`, { value: v }); await refresh(["form", "gaps"]); return; }  /* #40: keep the agent's drafted value */
   if (a === "run") { S.run = await request("POST", `${C}/runs`); location.hash = "run"; render(); pollRun(); }
   if (a === "review") { await request("PATCH", `/timeline/${id}`, { review_status: b.dataset.status }); S.editing = null; await refresh(["timeline", "form"]); }
   if (a === "edit") { S.editing = id; render(); const el = document.getElementById("ed-desc-" + id); el && el.focus(); }

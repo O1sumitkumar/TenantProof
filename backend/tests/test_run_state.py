@@ -101,7 +101,7 @@ def test_the_page_knows_which_steps_the_runner_builds_and_can_resume() -> None:
     """`BUILT` and `RESUMABLE` in web/index.html follow runner.IMPLEMENTED_STEPS. A step that can
     pause on a question (the gaps agent can call ask_caseworker) must have an answer control; the
     deterministic `rules` step cannot pause, so it is built but not resumable."""
-    from app.services.agent import runner
+    from app.services.agent import prompts, runner
 
     page = INDEX.read_text(encoding="utf-8")
 
@@ -111,7 +111,10 @@ def test_the_page_knows_which_steps_the_runner_builds_and_can_resume() -> None:
         return re.findall(r'"(\w+)"', match.group(1))
 
     assert names("BUILT") == list(runner.IMPLEMENTED_STEPS)
-    assert names("RESUMABLE") == [k for k in runner.IMPLEMENTED_STEPS if k != "rules"]
+    # `draft` has no ask_caseworker tool (prompts.DRAFT_TOOLS), so it never pauses either.
+    assert "ask_caseworker" not in prompts.DRAFT_TOOLS
+    never_pause = ("rules", "draft")
+    assert names("RESUMABLE") == [k for k in runner.IMPLEMENTED_STEPS if k not in never_pause]
 
 
 @pytest.mark.parametrize("key", ["timeline", "extract", "gaps"])
