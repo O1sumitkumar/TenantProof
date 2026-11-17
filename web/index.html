@@ -70,6 +70,7 @@ body.tenant .intake-wrap{grid-template-columns:minmax(0,420px);justify-content:c
 .layout.single .rail{display:none}
 .rail{position:sticky;top:calc(env(safe-area-inset-top,0px) + 74px);display:flex;flex-direction:column;gap:2px}
 .rail-back{font-size:13px;font-weight:600;text-decoration:none;color:var(--accent);padding:0 10px 10px}
+.rail-sub{margin-top:14px}
 .rail-label{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:700;padding:0 10px 8px}
 .step-link{display:grid;grid-template-columns:26px 1fr;gap:2px 10px;align-items:start;padding:9px 10px;border-radius:var(--r);text-decoration:none;color:var(--ink);border:1px solid transparent}
 .step-link:hover{background:var(--surface)}
@@ -793,8 +794,12 @@ const sessionQr = (last, caseId) => {
 };
 /* intakeLink:end */
 const UPLOAD_SOON = { en: "Uploading files is coming soon. For now, confirm below and send.", zh: "文件上传功能即将推出。现在请先勾选下面的确认并发送。", fr: "Le téléversement de fichiers arrive bientôt. Pour l'instant, confirmez ci-dessous et envoyez.", es: "La subida de archivos llegará pronto. Por ahora, confirme abajo y envíe." };
+const INTAKE_STATUS = { not_sent: "Link not sent", sent: "Link sent", files_received: "Files received" };
 const CASE_ROUTES = ["evidence", "run", "timeline", "gaps", "form", "package"];
-const ROUTES = ["cases", "intake", ...CASE_ROUTES];
+// The Tenant view belongs to the open case (it shows that case's tenant page), so it lives in the
+// case rail, not the top bar: a caseworker always sees which case they are previewing.
+const IN_CASE = [...CASE_ROUTES, "intake"];
+const ROUTES = ["cases", ...IN_CASE];
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 // Fix #38: the intake link and its Copy button, shared by the Evidence page and the Tenant view.
@@ -856,11 +861,11 @@ async function logout() { try { await request("POST", "/auth/logout"); } catch {
 
 /* ---------- chrome ---------- */
 function renderChrome() {
-  const r = route(), inCase = CASE_ROUTES.includes(r);
+  const r = route(), inCase = !TENANT_MODE && IN_CASE.includes(r);  // the tenant's own page has no case rail
   $("#layout").classList.toggle("single", !inCase);
   $("#logoutBtn").hidden = USE_MOCK || TENANT_MODE || !S.me;
   if (TENANT_MODE) { $("#topnav").innerHTML = ""; $("#ctx").innerHTML = `<strong>${esc(S.intake.view ? S.intake.view.org_name : "")}</strong><span></span>`; $("#rail").innerHTML = ""; return; }
-  $("#topnav").innerHTML = `<a href="#cases" ${r === "cases" || inCase ? 'aria-current="page"' : ""}>Caseload</a><a href="#intake" ${r === "intake" ? 'aria-current="page"' : ""}>Tenant view</a>`;
+  $("#topnav").innerHTML = `<a href="#cases" ${r === "cases" || inCase ? 'aria-current="page"' : ""}>Caseload</a>`;
   const c = S.case;
   $("#ctx").innerHTML = inCase && c ? `<strong>${esc(c.tenant.name)} · ${esc(c.title)}</strong><span>${esc(c.unit)} · Maintenance dispute</span>`
     : `<strong>${esc(S.me ? S.me.org.name : "")}</strong><span>${S.me ? `Signed in as ${esc(S.me.name)}, caseworker` : ""}</span>`;
@@ -875,7 +880,8 @@ function renderChrome() {
     { id: "form", name: "Form draft", meta: rm.form, done: rm.doneForm, attn: st.reqMissing > 0 },
     { id: "package", name: "Package", meta: S.pkg ? "Built" : "Not built", done: !!S.pkg }
   ];
-  $("#rail").innerHTML = `<a class="rail-back" href="#cases">← Caseload</a><div class="rail-label">Case workflow</div>` + items.map((it, i) => `<a class="step-link${it.done ? " is-done" : it.attn ? " is-attn" : ""}" href="#${it.id}" ${r === it.id ? 'aria-current="page"' : ""}><span class="step-no">${it.done ? "✓" : i + 1}</span><span class="step-name">${it.name}</span><span class="step-meta">${esc(it.meta)}</span></a>`).join("");
+  $("#rail").innerHTML = `<a class="rail-back" href="#cases">← Caseload</a><div class="rail-label">Case workflow</div>` + items.map((it, i) => `<a class="step-link${it.done ? " is-done" : it.attn ? " is-attn" : ""}" href="#${it.id}" ${r === it.id ? 'aria-current="page"' : ""}><span class="step-no">${it.done ? "✓" : i + 1}</span><span class="step-name">${it.name}</span><span class="step-meta">${esc(it.meta)}</span></a>`).join("")
+    + `<div class="rail-label rail-sub">Tenant</div><a class="step-link" href="#intake" ${r === "intake" ? 'aria-current="page"' : ""}><span class="step-no" aria-hidden="true">↗</span><span class="step-name">Tenant view</span><span class="step-meta">${esc(INTAKE_STATUS[c ? c.intake.status : ""] || "")}</span></a>`;
 }
 
 /* --- new case (#41): POST /cases, CONTRACT_CHANGES #35 --- */
@@ -1204,7 +1210,11 @@ function previewBar(v, lang) {
 
 function viewIntake() {
   const v = S.intake.view; if (!v) return "<p>Loading…</p>";
-  if (v.noLink) return `<div class="view-head"><div><h1>Tenant view</h1><p>Send the intake link first, then you can preview what the tenant sees. For security the link is only shown when it is created.</p></div></div><div class="btn-row"><button class="btn primary" type="button" data-action="resend">Send intake link</button></div>`;
+  if (v.noLink && !S.case) return `<div class="view-head"><div><h1>Tenant view</h1><p>Open a case first: this page previews one case's tenant page.</p></div></div><div class="btn-row"><a class="btn primary" href="#cases">Go to the caseload</a></div>`;
+  if (v.noLink) { const ik = S.case.intake, name = S.case.tenant.name;  // a sent link is never shown again, so it can't be previewed
+    return ik.status === "not_sent"
+      ? `<div class="view-head"><div><h1>Tenant view</h1><p>Send ${esc(name)} the intake link first, then you can preview what they see.</p></div></div><div class="btn-row"><button class="btn primary" type="button" data-action="resend">Send intake link</button></div>`
+      : `<div class="view-head"><div><h1>Tenant view</h1><p>${esc(name)} was sent a link (${esc(fmtTime(ik.sent_at))}). For security a link is shown only when it is created, so this page can't open it now. Re-sending makes a new link that you can preview, and the link ${esc(name)} has stops working.</p></div></div><div class="btn-row"><button class="btn" type="button" data-action="resend">Re-send link</button></div>`; }
   const lang = S.intake.lang || v.language, t = I18N[lang] || I18N.en, vars = { org: v.org_name, unit: v.unit };
   const reqs = v.requests.map(r => reqHtml(r, lang, v.language, t, vars)).join("");  /* #48: the English too */
   const body = S.intake.sent ? `<div class="done">${esc(tpl(t.sent, vars))}</div>` : `
@@ -1353,7 +1363,9 @@ document.addEventListener("click", async ev => {
   if (a === "open-case") { const c = S.cases.find(x => x.id === id); if (c && c.has_demo_data) { if (id !== CASE_ID) { resetCaseState(); setCase(id); await refresh(); } location.hash = "timeline"; } }
   if (a === "new-case") { S.newCase = S.newCase || { values: {} }; render(); const first = document.querySelector("form.new-case [name=tenant_name]"); if (first) first.focus(); return; }  /* #41 */
   if (a === "cancel-new-case") { S.newCase = null; render(); return; }
-  if (a === "resend") { const r = await request("POST", `${C}/intake-link`); S.lastLink = { caseId: CASE_ID, url: r.url, qr: r.qr_svg }; S.intake.view = null; toast("Intake link created. Copy it now: it is only shown once."); await refresh(["case", "intake"]); }
+  if (a === "resend") { if (!CASE_ID) return; const ik = S.case && S.case.intake;
+    if (ik && ik.status !== "not_sent" && !confirm(`Make a new intake link for ${S.case.tenant.name}? The link sent earlier stops working.`)) return;
+    const r = await request("POST", `${C}/intake-link`); S.lastLink = { caseId: CASE_ID, url: r.url, qr: r.qr_svg }; S.intake.view = null; toast("Intake link created. Copy it now: it is only shown once."); await refresh(["case", "intake"]); }
   if (a === "confirm-field") { const v = document.getElementById(`fld-${b.dataset.key}`).value.trim(); if (!v) return; await request("PATCH", `${C}/form-draft/fields/${b.dataset.key}`, { value: v }); await refresh(["form", "gaps"]); return; }  /* #40: keep the agent's drafted value */
   if (a === "run") { S.run = await request("POST", `${C}/runs`); location.hash = "run"; render(); pollRun(); }
   if (a === "review") { await request("PATCH", `/timeline/${id}`, { review_status: b.dataset.status }); S.editing = null; await refresh(["timeline", "form"]); }

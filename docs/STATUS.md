@@ -4,7 +4,7 @@ Single source of truth. Update the relevant section in every PR.
 
 **Date:** 2026-11-17 (MVP due Nov 18)
 **Branch:** `dev` is the integration branch (`main` only for releases). Start work from `origin/dev`.
-**Current milestone:** M1 is merged. M2 is half done: WS1 (evidence ingest and tenant uploads) is merged on `dev`. For WS2 (deploy), the hosted demo was set up by hand and is described in `docs/DEPLOY.md`; opoeci6 has four WS2 items open as PRs #62 to #64 (#56, #58, #59) and the rest of WS2 has no owner. M3 is merged except the worker and the `ingest` step: WS3's runtime, WS4 (corpus, `rules`, `gaps`), the `draft` step, New case, and editing the request to the tenant. Two legal sources still wait for a person to confirm them (#54). The hosted demo (https://test.8596117.xyz) runs `dev` on Haiku.
+**Current milestone:** M1 is merged. M2 is half done: WS1 (evidence ingest and tenant uploads) is merged on `dev`. For WS2 (deploy), the hosted demo was set up by hand and is described in `docs/DEPLOY.md`; four WS2 items are merged (#62 to #64: the intake QR code, rate limits on the real client IP, expired logins deleted) and the rest of WS2 has no owner. M3 is merged except the worker and the `ingest` step: WS3's runtime, WS4 (corpus, `rules`, `gaps`), the `draft` step, New case, and editing the request to the tenant. Two legal sources still wait for a person to confirm them (#54). The hosted demo (https://test.8596117.xyz) runs `dev` on Haiku.
 
 ## Done
 
@@ -26,27 +26,31 @@ Single source of truth. Update the relevant section in every PR.
 | M3 (#36, #38) | Locale-independent tests; the Tenant view shows the new intake link | PRs #43 to #45 (NineJZ356) |
 | M3 (#49) | `RUN_BUDGET_S` setting: the whole run may take 180 s by default, one model call 60 s | PRs #50, #51 |
 | M3 (#48) | The caseworker edits the request to the tenant and translates it with one model call; the tenant page shows the English too; language names in English first; English preview on the Tenant view | PRs #52, #53 (`074748a`) |
+<<<<<<< HEAD
 | Submission polish | README rewrite (pitch, architecture, live-mode setup, 3-minute demo, team), LICENSE, SECURITY.md statuses, security headers, system fonts, planning files moved to `docs/archive/`, API_CONTRACT rows; caseload wording ("Deadline passed (N days ago)", plurals, one "Must be received by" wording for stored labels) and seeded deadlines kept relative to today | `Lameda12/submission-polish` |
+=======
+| M2 (WS2: #56 to #59) | QR code of a new intake link; rate limits on the real client IP behind a trusted proxy (`FORWARDED_ALLOW_IPS`); expired logins deleted at login and hourly; `docs/DEPLOY.md` for the hosted demo | PRs #62 to #64, #55 (`596b455`) |
+>>>>>>> origin/dev
 
 Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #38).
 
 ## In progress
 
-Open PRs (2026-11-17), all drafts into `dev`. Merge #62 before #63 and #64; those two do not depend on each other.
+Open PRs (2026-11-17), all drafts into `dev`:
 
 | PR | Area | What |
 |---|---|---|
-| #55 | docs | This file brought up to date; the legal README points at #54; `docs/DEPLOY.md` (#57) |
-| #62 | `schema:` | `FORWARDED_ALLOW_IPS` setting; `Intake.qr_svg`; CONTRACT_CHANGES #38 and a UI row (team approval of the UI exception asked there) |
-| #63 | WS2 (#58, #59) | Rate limits count each visitor's own IP behind a trusted proxy; expired logins are deleted at each login and hourly |
-| #64 | WS2 (#56) | QR code of a newly sent intake link on the Evidence page and Tenant view |
+| #65 | submission (Lameda12) | README, LICENSE, security headers, deadline wording, demo deadlines kept relative to today |
+| #66 | WS4 (Lameda12) | Form J and Reg 25A confirmed (closes #54); the Form J draft is labelled partial |
+| #70 | `schema:` | UI row for #71; merge before #71 |
+| #71 | UI fix | The Tenant view moves from the top bar into the case rail; re-sending a sent intake link asks first |
 
 Open issues:
 - **#54 (urgent):** a person must confirm two legal sources, Form J and Regulations s. 25A, before the demo. Until then both show as `unverified` on every case.
 - **#9:** tell tenants that original photos go into the package. The GPS data is already removed from the package copies.
 - **#10:** about 500 MB can be spooled to disk before the intake token is checked (WS2).
 - **#4:** WS3 follow-ups from the PR #2 review.
-- **#56, #58, #59:** fixed by #63 and #64 once merged (close them by hand: "Closes" does not fire on `dev`). **#57** is done by `docs/DEPLOY.md` in #55.
+- **#68, #69:** add Hindi and Russian as tenant languages (Hindi also needs text shaping in the PDFs).
 - **#60:** remove personal details from evidence text before it goes to the model (to discuss).
 - **#61:** after the MVP: let the model see photos and scanned pages, with content checks first (malware, known illegal images, graphic content).
 
@@ -56,8 +60,7 @@ WS5 is unassigned. WS2's four items above are opoeci6's; the rest of WS2 has no 
 
 - **No production guard.** The app starts with dev defaults (`SEED_PASSWORD`, compose passwords, `COOKIE_SECURE=false` in compose). It must refuse to start when `ENV=production` and `SEED_PASSWORD` or `SECRET_KEY` is unset or a dev default. Neither `ENV` nor `SECRET_KEY` exists in `config.py` yet. Tracked in WS2's "Done when".
 - **Blob storage is a local volume** (`STORAGE_DIR`). Several API replicas need shared storage (WS2).
-- **Rate limits behind a proxy** key on the socket IP unless the proxy is listed in `FORWARDED_ALLOW_IPS`. The setting and its handling are in PR #63 (issue #58), not merged yet; the hosted demo already sets it on the server.
-- **Expired sessions are never purged** until PR #63 (issue #59) is merged.
+- **Rate limits behind a proxy** count each visitor's own IP only when the proxy is listed in `FORWARDED_ALLOW_IPS` (default `127.0.0.1`). Behind a published Docker port the API sees the compose network's gateway, so list that or use `*` (see `docs/DEPLOY.md`); the hosted demo uses `*`.
 - **Evidence text goes to the model as written**, names, addresses and phone numbers included (issue #60). Photos never do: the model gets only their capture time, device and editing software (issue #61 is about changing that after the MVP).
 - **No malware scan or illegal-content check on uploads** (issue #61). Uploads are limited to JPG, PNG, HEIC, PDF and TXT, checked by content, and photos are re-encoded.
 - **Font size:** the bundled Noto Sans SC adds about 10 MB to the repo and image.
@@ -118,7 +121,7 @@ Prompts: `docs/NEXT_PROMPTS.md`.
 | Workstream | Owner | Branch | Status | Blocked by |
 |---|---|---|---|---|
 | WS1 Evidence ingest + tenant uploads (M2) | opoeci6 | merged (`24a343d`) | done: upload routes, type check by signature, metadata, stripped copy, text as `evidence_page` rows, evidence in the zip (PRs #6, #7, #8). Follow-ups: #9 (#11 closed by #25) | none |
-| WS2 Hosted deploy + infra hardening (M2) | opoeci6 (#56 to #59 only) | `opoeci6/m2-schema-ws2`, `opoeci6/m2-proxy-sessions`, `opoeci6/m2-intake-qr` | the hosted demo is set up by hand and described in `docs/DEPLOY.md` (#57, in #55). Draft PRs: #62 (`schema:`), #63 (#58 real client IP for the rate limits, #59 expired logins deleted), #64 (#56 QR code of the intake link). Not built and unowned: a managed host, S3 storage, the production guard, `--scale api=2`, #10 | none |
+| WS2 Hosted deploy + infra hardening (M2) | opoeci6 (#56 to #59 only) | merged | the hosted demo is set up by hand and described in `docs/DEPLOY.md` (#57). Merged: #62 to #64 (#56 QR code of the intake link, #58 real client IP for the rate limits, #59 expired logins deleted). Not built and unowned: a managed host, S3 storage, the production guard, `--scale api=2`, #10 | none |
 | WS3 Agent runtime (M3) | Lameda12 | merged | day 1 merged (PR #2); day 2 merged as PRs #5, #15, #18, #19, #20: the 12 tool bodies, `loop.py`, `runner.py` (one nonce per run, a whole-run deadline, `RUN_BUDGET_S`, 180 s by default since #51; pause/resume), `verifier.py`, `strength.py`, `dates.py`, refusal handling, `SqlTextStore` over the #6 tables, `POST /cases/{id}/runs` (issue #13), the `extract` step (issue #14), `POST /runs/{id}/answer` (contract in PR #19) with the run page's answer control, and the demo evals (PR #16). Prompt caching on the Anthropic provider (breakpoints on the last tool and the stable system text, the nonce in a run note after them); cache tokens are in the run's stored usage. `rules` and `gaps` came with WS4 (#35). The `draft` step (#40, opoeci6, approved by Lameda12) is merged as #42: the `fill_form_field` tool and a form agent. Next: the arq worker and the `ingest` step | nothing, for what is merged |
 | WS4 Legal sources, rules, gaps agent (M3) | opoeci6 | merged (#35, `569348d`) | merged on 2026-11-16 with Lameda12's #39 inside; NineJZ356 confirmed three sources; Form J and Reg 25A are not confirmed yet (#54, urgent). PR 1: `services/legal/` with the corpus (four official sources, verbatim excerpts), the URL check and its command, excerpts in `search_legal_sources`, and the deterministic `rules` step (sources plus the evidence deadline). PR 2: the `gaps` step — deterministic checks first, then an agent that drafts requests to the tenant in their language. **A person must confirm the last two sources** (#54): `backend/app/services/legal/README.md`. A source check (fix/legal-sources) corrected the README, added the Regulations s. 25A entry, relabelled the deadline "must be received by", and keeps `.heic` out of the package. Since then: the gaps prompt skips fields the `draft` step filled (#42), and the caseworker can edit and translate each request to the tenant (#48, PRs #52 and #53) | a person for #54 |
 | WS5 Evals, security, perf, demo (M3 to M4) | TODO | `<github-username>/m4-evals-security-perf` | not started | starts now; fills in as WS1 to WS4 land |
