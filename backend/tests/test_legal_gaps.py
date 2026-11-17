@@ -349,3 +349,15 @@ def test_a_gap_for_a_field_that_already_has_one_returns_that_gap(fresh_db, sessi
     assert isinstance(res, t.CreateGapOutput) and res.gap_id == existing.id
     session.commit()
     assert len(gaps_of(session, LIVE)) == before
+
+
+def test_the_kickoff_gives_each_open_gap_its_id_and_field(fresh_db, session):
+    """The agent drafts on a gap by id. The first live run had titles only, so it could not draft
+    on the form gaps and paused to ask the caseworker for their ids."""
+    prepared = prepare(session, LIVE)
+    rent = next(
+        g for g in gaps_of(session, LIVE) if (g.input or {}).get("field_key") == "monthly_rent"
+    )
+    line = next(x for x in prepared.open_gaps if "Monthly rent" in x)
+    assert line.startswith(f"- {rent.id} [blocking] ")
+    assert "(field monthly_rent)" in line and line.endswith("(no draft yet)")

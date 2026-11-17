@@ -153,12 +153,15 @@ def write_gaps(session: Session, case: CaseRow, specs: list[GapSpec]) -> list[Ga
 
 
 def open_gap_lines(session: Session, case: CaseRow) -> tuple[str, ...]:
-    """The open gaps as the agent reads them, with whether a draft is waiting for approval."""
+    """The open gaps as the agent reads them: the id it passes to draft_tenant_message, the form
+    field if any, and whether a draft is waiting for approval. Without the id the agent cannot
+    draft on a gap it did not create itself (found on the first live run)."""
     gaps = session.exec(
         select(GapRow).where(GapRow.case_id == case.id).order_by(col(GapRow.position))
     ).all()
     return tuple(
-        f"- [{gap.severity}] {clean_text(gap.title, 200)}"
+        f"- {gap.id} [{gap.severity}] {clean_text(gap.title, 200)}"
+        + (f" (field {key})" if (key := (gap.input or {}).get("field_key")) else "")
         + (" (a draft is already written)" if gap.tenant_request else " (no draft yet)")
         for gap in gaps
         if gap.status == "open"
