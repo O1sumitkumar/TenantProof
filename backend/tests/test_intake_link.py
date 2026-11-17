@@ -26,7 +26,7 @@ def shown(*calls: tuple[object, object]) -> list[object]:
     args = ", ".join(f"[{json.dumps(last)}, {json.dumps(case_id)}]" for last, case_id in calls)
     call = f"[{args}].map(a => sessionLink(...a))"
     script = match.group(1) + f"\nconsole.log(JSON.stringify({call}));"
-    out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+    out = subprocess.run(["node", "-e", script], capture_output=True, encoding="utf-8", check=True)
     return json.loads(out.stdout)
 
 
