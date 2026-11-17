@@ -30,8 +30,9 @@ Single source of truth. Update the relevant section in every PR.
 | Submission polish | README rewrite (pitch, architecture, live-mode setup, 3-minute demo, team), LICENSE, SECURITY.md statuses, security headers, system fonts, planning files moved to `docs/archive/`, API_CONTRACT rows; caseload wording ("Deadline passed (N days ago)", plurals, one "Must be received by" wording for stored labels) and seeded deadlines kept relative to today | `Lameda12/submission-polish` |
 | UI fix (Tenant view) | The Tenant view lives in the case rail, not the top bar; re-sending a sent intake link asks first | PRs #70, #71 (`292a6d7`) |
 | M3 (#54) | Form J and Regulations s. 25A confirmed by a person (all five sources confirmed); the Form J draft is labelled partial; `pypdf[crypto]` reads Form J's locked PDF | PR #66 |
+| M3 (#54 follow-up) | Only registered mail, express post or courier counts as received on the 3rd day, and e-mail sent at or after 4 p.m. counts the next day (leozhang5867's check): package reminders, source notes, mock | PRs #72, #73 (`6ad8d60`) |
 
-Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #38).
+Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #39).
 
 ## In progress
 
@@ -39,13 +40,14 @@ Open PRs (2026-11-17), all drafts into `dev`:
 
 | PR | Area | What |
 |---|---|---|
-| #72 | `schema:` | Received-by wording in `API_CONTRACT.md` and a `CONTRACT_CHANGES.md` note; merge before #73 |
-| #73 | WS4 fix | Only registered mail, express post or courier counts as received on the 3rd day; e-mail sent at or after 4 p.m. counts the next day (leozhang5867's check on #54). Package reminders, source notes, mock |
+| #75 | `schema:` | `CONTRACT_CHANGES.md` row 39: `/healthz` answers 503 `degraded` when Postgres or Redis is down; merge before #76 |
+| #76 | WS2 | From YCL0609's `m2-deploy` branch: a one-shot `migrate` service runs Alembic and the seed once per `docker compose up`; `/healthz` checks Postgres and Redis (stored for 5 s, logs which failed) |
 
 Open issues:
 - **#54 (closed, PR #66):** Lameda12 confirmed Form J (the full title line, edition 2024-01) and Regulations s. 25A(2) on 2026-11-17, so all five sources are confirmed. The Form J confirmation covers the title and URL only: the draft is partial (seven tenant-applicant fields; the caseworker completes the rest; F4 is out of scope). Full coverage is a post-submission issue. leozhang5867 also checked 25A(3B) and (3C): the app's "mail" and "after 4 p.m." wording is fixed in #73.
 - **#9:** tell tenants that original photos go into the package. The GPS data is already removed from the package copies.
-- **#10:** about 500 MB can be spooled to disk before the intake token is checked (WS2; YCL0609 is working on it on `YCL0609/m2-deploy`).
+- **#10:** about 500 MB can be spooled to disk before the intake token is checked (WS2; YCL0609 is working on it). The `migrate` service and the `/healthz` check from their `m2-deploy` branch are in #76; its nginx proxy is not taken.
+- **#74:** intake tokens are written to the access logs in plain text (the API's, and a proxy's path and `Referer`).
 - **#4:** WS3 follow-ups from the PR #2 review.
 - **#68, #69:** add Hindi and Russian as tenant languages (Hindi also needs text shaping in the PDFs).
 - **#60:** remove personal details from evidence text before it goes to the model (to discuss).
@@ -61,7 +63,7 @@ WS5 is unassigned. WS2's four items above are opoeci6's; the rest of WS2 has no 
 - **Evidence text goes to the model as written**, names, addresses and phone numbers included (issue #60). Photos never do: the model gets only their capture time, device and editing software (issue #61 is about changing that after the MVP).
 - **No malware scan or illegal-content check on uploads** (issue #61). Uploads are limited to JPG, PNG, HEIC, PDF and TXT, checked by content, and photos are re-encoded.
 - **Font size:** the bundled Noto Sans SC adds about 10 MB to the repo and image.
-- **`docker compose up --scale api=2` does not work yet:** the api service publishes fixed host port 8000. WS2 needs a proxy service.
+- **`docker compose up --scale api=2` does not work yet:** the api service publishes fixed host port 8000, so a second replica cannot start without a proxy service in front (not planned for now). Migrations already run once, in the `migrate` service (#76), not once per replica.
 - **The filing package files photos without their GPS data.** Each JPG, PNG and HEIC-made JPG in the zip is a copy with the GPS IFD (and an XMP packet carrying GPS) taken out; the capture time and orientation stay, and the stored original is untouched (`services/evidence/gps.py`). The manifest PDF says "location data removed" for each such file. Not covered: location in a maker note or in a legacy "Raw profile type exif" PNG text chunk. Issue #9's remaining part (warning the tenant on the intake page, an optional per-file "file the stripped copy instead") still waits on the open decision below.
 - **An unauthenticated upload can spool about 500 MB to disk** (20 × 25 MB + 1 MB) before the intake token is checked. Needs a per-client cap at a proxy (issue #10, WS2).
 - **Big5 and GBK TXT files with characters outside GB2312 answer 415** (issue #11, closed by #25: kept on purpose). The reason now says "re-save it as UTF-8", which fixes every one of them. Big5 stays refused on purpose: it decodes as GB18030 into private-use characters and no byte pattern tells the two code pages apart, so a guess would file traditional Chinese as different characters. Windows-1252 and Shift-JIS are refused for the same reason.
@@ -118,7 +120,7 @@ Prompts: `docs/NEXT_PROMPTS.md`.
 | Workstream | Owner | Branch | Status | Blocked by |
 |---|---|---|---|---|
 | WS1 Evidence ingest + tenant uploads (M2) | opoeci6 | merged (`24a343d`) | done: upload routes, type check by signature, metadata, stripped copy, text as `evidence_page` rows, evidence in the zip (PRs #6, #7, #8). Follow-ups: #9 (#11 closed by #25) | none |
-| WS2 Hosted deploy + infra hardening (M2) | opoeci6 (#56 to #59 only) | merged | the hosted demo is set up by hand and described in `docs/DEPLOY.md` (#57). Merged: #62 to #64 (#56 QR code of the intake link, #58 real client IP for the rate limits, #59 expired logins deleted). Not built and unowned: a managed host, S3 storage, the production guard, `--scale api=2`, #10 | none |
+| WS2 Hosted deploy + infra hardening (M2) | opoeci6 (#56 to #59, #76), YCL0609 (#10) | merged | the hosted demo is set up by hand and described in `docs/DEPLOY.md` (#57). Merged: #62 to #64 (#56 QR code of the intake link, #58 real client IP for the rate limits, #59 expired logins deleted). Open: #76, the `migrate` service and the `/healthz` readiness check from YCL0609's `m2-deploy` branch. Not built and unowned: a managed host, S3 storage, the production guard, `--scale api=2`, #10 | none |
 | WS3 Agent runtime (M3) | Lameda12 | merged | day 1 merged (PR #2); day 2 merged as PRs #5, #15, #18, #19, #20: the 12 tool bodies, `loop.py`, `runner.py` (one nonce per run, a whole-run deadline, `RUN_BUDGET_S`, 180 s by default since #51; pause/resume), `verifier.py`, `strength.py`, `dates.py`, refusal handling, `SqlTextStore` over the #6 tables, `POST /cases/{id}/runs` (issue #13), the `extract` step (issue #14), `POST /runs/{id}/answer` (contract in PR #19) with the run page's answer control, and the demo evals (PR #16). Prompt caching on the Anthropic provider (breakpoints on the last tool and the stable system text, the nonce in a run note after them); cache tokens are in the run's stored usage. `rules` and `gaps` came with WS4 (#35). The `draft` step (#40, opoeci6, approved by Lameda12) is merged as #42: the `fill_form_field` tool and a form agent. Next: the arq worker and the `ingest` step | nothing, for what is merged |
 | WS4 Legal sources, rules, gaps agent (M3) | opoeci6 | merged (#35, `569348d`) | merged on 2026-11-16 with Lameda12's #39 inside; NineJZ356 confirmed three sources; Lameda12 confirmed Form J and Reg 25A on 2026-11-17 (#54). PR 1: `services/legal/` with the corpus (four official sources, verbatim excerpts), the URL check and its command, excerpts in `search_legal_sources`, and the deterministic `rules` step (sources plus the evidence deadline). PR 2: the `gaps` step — deterministic checks first, then an agent that drafts requests to the tenant in their language. **A person must confirm the last two sources** (#54): `backend/app/services/legal/README.md`. A source check (fix/legal-sources) corrected the README, added the Regulations s. 25A entry, relabelled the deadline "must be received by", and keeps `.heic` out of the package. Since then: the gaps prompt skips fields the `draft` step filled (#42), and the caseworker can edit and translate each request to the tenant (#48, PRs #52 and #53) | a person for #54 |
 | WS5 Evals, security, perf, demo (M3 to M4) | TODO | `<github-username>/m4-evals-security-perf` | not started | starts now; fills in as WS1 to WS4 land |
