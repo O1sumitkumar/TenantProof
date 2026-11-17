@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fpdf import FPDF
 from PIL import Image
+from pypdf import PdfReader
 from sqlmodel import Session, col, select
 
 from app.config import get_settings
@@ -809,7 +810,7 @@ def test_caseworker_files_and_tenant_duplicates_keep_the_confirmation(
 # --- HEIC (iPhone default) ----------------------------------------------------------------
 
 
-def heic_with_gps() -> bytes:
+def heic_with_gps(colour: tuple[int, int, int] = (10, 200, 30)) -> bytes:
     """A real HEIC (pillow-heif encodes it) with a capture time and a GPS IFD."""
     import pillow_heif
 
@@ -820,7 +821,7 @@ def heic_with_gps() -> bytes:
     gps = exif.get_ifd(GPS_IFD)
     gps[1], gps[2], gps[3], gps[4] = "N", (45.0, 25.0, 0.0), "W", (63.0, 35.0, 0.0)
     out = io.BytesIO()
-    Image.new("RGB", (64, 32), (10, 200, 30)).save(out, "HEIF", exif=exif.tobytes())
+    Image.new("RGB", (64, 32), colour).save(out, "HEIF", exif=exif.tobytes())
     data = out.getvalue()
     with Image.open(io.BytesIO(data)) as check:
         assert check.getexif().get_ifd(GPS_IFD)
@@ -845,35 +846,75 @@ def test_heic_upload_is_converted_and_its_ai_copy_is_a_clean_jpeg(fresh_db, clie
     assert len(img.getexif()) == 0 and b"iPhone" not in data
 
 
-def test_heic_original_goes_in_the_package_as_heic(fresh_db, client):
+def manifest_text(entries: dict[str, bytes]) -> str:
+    reader = PdfReader(io.BytesIO(entries["evidence_manifest.pdf"]))
+    return " ".join(page.extract_text() for page in reader.pages)
+
+
+def _no_heic_anywhere(entries: dict[str, bytes], manifest: dict) -> None:
+    """The Program does not accept HEIC (Evidence Policy #42): no .heic file, and no manifest
+    path pointing at one."""
+    assert not [n for n in entries if n.lower().endswith((".heic", ".heif"))]
+    assert not [e["in_zip"] for e in manifest["evidence"]
+                if e["in_zip"] and e["in_zip"].lower().endswith((".heic", ".heif"))]
+    assert not [e["rendition"] for e in manifest["evidence"]
+                if e["rendition"] and e["rendition"]["path"].lower().endswith((".heic", ".heif"))]
+
+
+def test_heic_goes_in_the_package_only_as_a_jpg(fresh_db, client):
     original = heic_with_gps()
     upload(client, ("IMG_4412.HEIC", original, "image/heic"))
     make_ready(client)
-    client.post(BUILD, json=ATTESTATIONS)
 
     built = client.post(BUILD, json=ATTESTATIONS).json()
 
     entries = unzip(client.get(DOWNLOAD).content)
-    assert entries["evidence/E-08.heic"] == original
-    # The tribunal doesn't take HEIC: a JPG copy rides along, with the original's EXIF.
+    manifest = json.loads(entries["manifest.json"])
+    _no_heic_anywhere(entries, manifest)
+    assert original not in entries.values()
+    # The JPG keeps the original's EXIF (it is filed as evidence, like the original).
     with Image.open(io.BytesIO(entries["evidence/E-08.jpg"])) as copy:
         assert copy.format == "JPEG" and copy.size == (64, 32)
         assert copy.getexif().get_ifd(GPS_IFD)
-    manifest = json.loads(entries["manifest.json"])
     item = next(e for e in manifest["evidence"] if e["label"] == "E-08")
-    assert item["in_zip"] == "evidence/E-08.heic"
-    assert item["rendition"] == {"path": "evidence/E-08.jpg",
-                                 "sha256": sha(entries["evidence/E-08.jpg"])}
+    assert item["in_zip"] == "evidence/E-08.jpg" and item["rendition"] is None
+    assert item["sha256"] == sha(original)  # what was received is still on record
     listed = {f["filename"]: f for f in built["files"]}
     assert listed["evidence/E-08.jpg"]["sha256"] == sha(entries["evidence/E-08.jpg"])
+    assert "evidence/E-08.heic" not in listed
+    assert "does not accept HEIC" in listed["evidence/E-08.jpg"]["note"]
 
 
+def test_the_manifest_pdf_says_a_heic_was_filed_as_its_jpg(fresh_db, client):
+    upload(client, ("IMG_4412.HEIC", heic_with_gps(), "image/heic"))
+    make_ready(client)
+    client.post(BUILD, json=ATTESTATIONS)
 
-def test_a_heic_that_failed_processing_is_filed_without_a_jpg_copy(
+    entries = unzip(client.get(DOWNLOAD).content)
+
+    text = manifest_text(entries)
+    flat = " ".join(text.split())
+    assert "Filed as evidence/E-08.jpg" in flat
+    assert "Also as evidence/E-08.heic" not in flat and "E-08.heic" not in flat
+
+
+def test_two_heics_never_put_a_heic_in_the_package(fresh_db, client):
+    upload(client, ("a.heic", heic_with_gps(), "image/heic"))
+    upload(client, ("b.HEIC", heic_with_gps((200, 10, 30)), "image/heic"))
+    make_ready(client)
+    client.post(BUILD, json=ATTESTATIONS)
+
+    entries = unzip(client.get(DOWNLOAD).content)
+
+    _no_heic_anywhere(entries, json.loads(entries["manifest.json"]))
+    assert {"evidence/E-08.jpg", "evidence/E-09.jpg"} <= set(entries)
+
+
+def test_a_heic_that_failed_processing_is_left_out_of_the_package(
     fresh_db, client, session, monkeypatch
 ):
-    """Over the pixel limit at ingest: the original is kept and filed, but the package must
-    not decode it at full size to make the JPG copy."""
+    """Over the pixel limit at ingest: the package must not decode it at full size to make the
+    JPG, and it must not file the HEIC itself either (the Program doesn't take it)."""
     from app.services import package
     from app.services.evidence import strip
 
@@ -892,9 +933,14 @@ def test_a_heic_that_failed_processing_is_filed_without_a_jpg_copy(
     client.post(BUILD, json=ATTESTATIONS)
 
     entries = unzip(client.get(DOWNLOAD).content)
-    assert entries["evidence/E-08.heic"] == original
+    manifest = json.loads(entries["manifest.json"])
+    _no_heic_anywhere(entries, manifest)
     assert "evidence/E-08.jpg" not in entries
     assert decoded == []
+    entry = next(e for e in manifest["evidence"] if e["label"] == "E-08")
+    assert entry["in_zip"] is None  # still listed, so the omission is on record
+    text = manifest_text(entries)
+    assert "Not filed: HEIC is not an accepted format" in " ".join(text.split())
 
 
 # --- request limits -----------------------------------------------------------------------

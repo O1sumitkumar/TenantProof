@@ -72,7 +72,7 @@ When the agent needs something only a person knows, a step becomes `needs_input`
   - For `hearing_date`, the server parses the answer into a date: `YYYY-MM-DD`, or an English month name with day and year (`Nov 21, 2026`, `21 November 2026`). It must be a real calendar date from 2020-01-01 to 2099-12-31. It is stored as `Case.hearing_date` (ISO date) and logged in the activity log. The agent is told the date in the stored form.
   - An answer that does not parse is a 422 with a plain reason (`Enter the date like 2026-11-21 or Nov 21, 2026`). The run stays paused and the same question can be answered again.
   - For any other key, or none, the answer is kept as text and goes only to the agent. It is not written to the case.
-- **What setting the date changes.** Besides `Case.hearing_date`, the server sets `Case.stage` to `hearing_scheduled` and `Case.next_deadline` to `{ date: the hearing date minus 5 days, label: "Evidence due · hearing <hearing date>" }` (evidence is due 5 days before the hearing, Evidence Policy #42; the label uses the ISO date like the seeded cases). The caseload priority then follows the existing rules. The activity entry names both dates. An answer to a question with any other key changes nothing on the case.
+- **What setting the date changes.** Besides `Case.hearing_date`, the server sets `Case.stage` to `hearing_scheduled` and `Case.next_deadline` to `{ date: the hearing date minus 5 days, label: "Must be received by · hearing <hearing date>" }` (evidence must be *received* at least 5 days before the hearing, Evidence Policy #42 and Regulations s. 25A(2); the date is a receipt date, not a send-by date: mail counts as received 3 days after it is sent and e-mail sent after 4 p.m. the next day, s. 25A(3B), (3C); the label uses the ISO date like the seeded cases; the label uses the ISO date like the seeded cases). The caseload priority then follows the existing rules. The activity entry names both dates. An answer to a question with any other key changes nothing on the case.
 
 ### Tenant intake (no account; access by link token)
 
@@ -96,7 +96,7 @@ type CaseSummary = {
   unit: string;
   dispute_type: "maintenance";
   stage: "waiting_tenant" | "needs_review" | "ready_to_file" | "hearing_scheduled";
-  next_deadline: { date: string; label: string } | null;   // e.g. "Evidence due (hearing Nov 12, 5-day rule)"
+  next_deadline: { date: string; label: string } | null;   // e.g. "Must be received by (hearing Nov 12, 5-day rule)"
   open_blocking: number;
   pending_review: number;
   tenant_language: string;                                 // "zh", "fr", "en", ...
@@ -221,7 +221,7 @@ type Package = { built_at: string; prepared_by: string;
 
 Rule-based so the caseworker can see why a case is on top:
 
-1. `high` if an evidence deadline is within 7 days. Evidence is due 5 days before the hearing (Evidence Policy #42).
+1. `high` if an evidence deadline is within 7 days. Evidence must be received 5 days before the hearing (Evidence Policy #42; mail counts as received 3 days after it is sent).
 2. `high` if a blocking gap is open and a hearing is scheduled.
 3. Otherwise `normal`. Sort: priority, then nearest deadline, then most blocking items.
 

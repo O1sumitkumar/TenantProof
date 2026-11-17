@@ -1,9 +1,11 @@
 """Filing package: two PDFs, manifest.json and the original evidence files in a zip, stored
 content-addressed. Evidence entries are named from the exhibit label (`evidence/E-01.pdf`),
 never from the uploaded filename; a row whose original was never stored (seed data) is listed
-in the manifest with `in_zip: null`. The tribunal doesn't take HEIC, and text messages are
-filed as PDF, so the zip also carries a JPG made from each HEIC and a PDF made from each TXT
-(`rendition` in the manifest), each with its own sha256. The originals stay in the zip.
+in the manifest with `in_zip: null`. The Program doesn't take HEIC (Evidence Policy #42), so a
+HEIC is filed only as a JPG made from it: no `.heic` file is ever in the zip, and a HEIC that
+cannot be converted is left out and said so in the manifest. Text messages are filed as PDF, so the
+zip also carries a PDF made from each TXT (`rendition` in the manifest). Every file has its own
+sha256; other originals stay in the zip.
 
 Every build is a new version (never overwritten). The zip's sha256 goes on the row and in the
 activity entry. `caseworker_note` is never read here. Text uses Noto Sans with Noto Sans SC as
@@ -41,13 +43,19 @@ from app.services.mappers import (
 
 FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 REMINDERS = [
-    "Evidence is due 5 days before the hearing (Evidence Policy #42).",
+    "Evidence must be received at least 5 days before the hearing "
+    "(Evidence Policy #42, Regulations s. 25A).",
+    "Mailed evidence counts as received 3 days after it is sent, and e-mail sent after 4 p.m. "
+    "counts as received the next day.",
+    "The Program does not accept zip files. This zip is for your records: upload the files "
+    "inside it one by one.",
     "This package is prepared information, not legal advice. The tenant files the form themselves.",
     "Nothing has been submitted anywhere. Check every field against the official form.",
 ]
 EVIDENCE_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/heic": ".heic",
                 "application/pdf": ".pdf", "text/plain": ".txt"}
 NOT_STORED = "Original file not in storage (seeded demo rows have none)"
+HEIC_NOT_FILED = "Not filed: HEIC is not an accepted format and no JPG copy could be made"
 log = logging.getLogger(__name__)
 ATTESTATION_LABELS = {
     "reviewed_fields": "Confirm you reviewed every field and the summary",
@@ -149,13 +157,16 @@ class EvidenceFile:
 
 
 def evidence_files(ev: EvidenceRow) -> list[EvidenceFile]:
-    """The original, plus a JPG (from HEIC) or PDF (from TXT) when the tribunal needs one.
-    Empty when the original was never stored."""
+    """What goes in the zip for one piece of evidence: the original, plus a PDF made from a TXT.
+    A HEIC is never filed: the Program doesn't accept it, so only the JPG made from it goes in
+    (nothing at all if it can't be converted). Empty when the original was never stored."""
     name = evidence_zip_name(ev)
     if name is None:
         return []
-    files = [EvidenceFile(ev.label, name, ev.sha256, ev.filename)]
     made = _rendition(ev, name.rsplit(".", 1)[0])
+    if ev.mime == sniff.HEIC:
+        return [made] if made is not None else []
+    files = [EvidenceFile(ev.label, name, ev.sha256, ev.filename)]
     if made is not None:
         files.append(made)
     return files
@@ -168,7 +179,8 @@ def _rendition(ev: EvidenceRow, stem: str) -> EvidenceFile | None:
         if ev.mime == sniff.HEIC:
             data = heic_to_jpeg(storage.read(ev.sha256))
             return EvidenceFile(ev.label, f"{stem}.jpg", _sha(data),
-                                f"JPG made from the HEIC original ({ev.filename})", data)
+                                f"JPG made from the HEIC original ({ev.filename}); "
+                                "the Program does not accept HEIC", data)
         if ev.mime == sniff.TEXT:
             decoded = sniff.decode_text(storage.read(ev.sha256))
             if decoded is None:  # not reachable for a file the type check accepted
@@ -210,13 +222,17 @@ def manifest_pdf(
     for ev in evidence:
         _write(pdf, f"{ev.label}  {ev.filename}", bold=True, gap=0)
         _write(pdf, f"Received {iso_req(ev.received_at)} from {ev.uploaded_by}", gap=0)
-        copies = ev_files[ev.id][1:]
-        stored = bool(ev_files[ev.id])
-        _write(pdf, f"sha256 {ev.sha256}", size=8, gap=0 if copies or not stored else 3)
+        filed = ev_files[ev.id]
+        heic = ev.mime == sniff.HEIC
+        # A HEIC is received as HEIC but filed only as its JPG: "Filed as", not "Also as".
+        copies = filed if heic else filed[1:]
+        _write(pdf, f"sha256 {ev.sha256}", size=8, gap=0 if copies or not filed else 3)
         for copy in copies:
-            _write(pdf, f"Also as {copy.name}, sha256 {copy.sha256}", size=8, gap=3)
-        if not stored:
-            _write(pdf, NOT_STORED, size=8, gap=3)
+            lead = "Filed as" if heic else "Also as"
+            _write(pdf, f"{lead} {copy.name}, sha256 {copy.sha256}", size=8, gap=3)
+        if not filed:
+            _write(pdf, HEIC_NOT_FILED if heic and storage.exists(ev.sha256) else NOT_STORED,
+                   size=8, gap=3)
     return bytes(pdf.output())
 
 
@@ -251,7 +267,7 @@ def build_zip(
              "received_at": iso_req(e.received_at), "uploaded_by": e.uploaded_by,
              "in_zip": ev_files[e.id][0].name if ev_files[e.id] else None,
              "rendition": {"path": ev_files[e.id][1].name, "sha256": ev_files[e.id][1].sha256}
-             if len(ev_files[e.id]) > 1 else None}
+             if len(ev_files[e.id]) > 1 and e.mime != sniff.HEIC else None}
             for e in evidence
         ],
     }

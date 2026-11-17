@@ -1,6 +1,7 @@
 # Legal sources: the human confirmation checklist
 
-**Due Nov 16, before the demo.** An agent may not confirm a legal source, so this is a person's
+**Due Nov 16, before the demo.** `confirmed_by` is still empty on every entry: this file was
+checked against the official documents by a tool, not signed off by a person. An agent may not confirm a legal source, so this is a person's
 job: open each URL, check the section, the form name and the wording, then fill in
 `confirmed_by` and `confirmed_on` on the entry in `corpus.py`.
 
@@ -8,7 +9,7 @@ Until an entry has a `confirmed_by`, the app reports it as `unverified` whatever
 finds, and the caseworker sees that in the sources list. Nothing else in the app depends on it:
 the deadline comes from the rule attached to the evidence policy, not from the confirmation.
 
-How to confirm one entry (about 15 minutes for the four):
+How to confirm one entry (about 20 minutes for the five):
 
 1. Open the URL below in a browser.
 2. Find the locator (`section 9(1)`, `page 4`).
@@ -25,7 +26,8 @@ How to confirm one entry (about 15 minutes for the four):
 | 1 | `ns-rta-statutory-conditions` | Residential Tenancies Act (Nova Scotia), statutory conditions | https://nslegislature.ca/sites/default/files/legc/statutes/residential%20tenancies.pdf | section 9(1), statutory condition 1 (Condition of Premises) | **no** |
 | 2 | `ns-evidence-policy-42-deadline` | Evidence Policy #42, the 5-day submission deadline | https://www.novascotia.ca/sites/default/files/documents/1-1319/evidence-policy-42-residential-tenancies-en.pdf | page 1, Details | **no** |
 | 3 | `ns-evidence-policy-42-formats` | Evidence Policy #42, accepted formats | same document, `#page=4` | page 4, Types of Evidence | **no** |
-| 4 | `ns-form-j` | Application to Director (Form J) | https://beta.novascotia.ca/sites/default/files/documents/2-419/form-j-application-director-en.pdf | page 1, applicant and dispute details | **no** |
+| 4 | `ns-form-j` | Application to Director (Form J), edition 2024-01 | https://www.novascotia.ca/sites/default/files/documents/2-419/form-j-application-director-en.pdf | pages F1 to F3 (the form), G1 to G4 (the guide) | **no** |
+| 5 | `ns-rtr-25a` | Residential Tenancies Regulations, section 25A (the legal basis of the evidence deadline) | https://novascotia.ca/just/regulations/regs/rtgenrl.htm | section 25A(2) | **no** |
 
 ## What each excerpt says
 
@@ -48,9 +50,29 @@ Verbatim, as stored in `corpus.py` today. Check these against the documents.
 > Digital documents must be in one of the following formats: Microsoft Office Word, Microsoft
 > Office Excel or Adobe PDF
 
-**4. Form J.** No excerpt yet: the published PDF is encrypted and its text could not be read
-here, so the entry has `excerpt=""` and stays `unverified`. Whoever confirms it should copy the
-form's title line and the labels of the fields this app drafts against (below) into the entry.
+**4. Form J.** The published PDF carries an owner-password lock, but its text is readable (a
+PDF viewer or `pdftotext` shows all 9 pages). Its title line is "Form J: Application to Director
+(Section 13 of the Residential Tenancies Act)". The entry still has `excerpt=""` and stays
+`unverified` until a person copies the title line and the field labels this app drafts against
+(below) into it.
+
+**5. Regulations, section 25A(2).** The deadline in #2 is the Program's reading of this
+regulation, so the regulation is the primary source:
+
+> A submission under subsection (1) must be made in sufficient time so that each recipient
+> receives it at least 5 days before the date of the hearing, unless a later time is permitted
+> under subsection (6).
+
+The same section says when a submission counts as received: by registered mail, express post or
+courier, **on the 3rd day after it was sent** (25A(3B)); by e-mail, the same day if sent before
+4:00 p.m., **the next day** if sent at or after 4:00 p.m. (25A(3C)). The Director may allow
+evidence later, up to and during the hearing (25A(6)); the Program says this is for exceptional
+circumstances only (Policy #42, page 2).
+
+The date the app shows is therefore a **must be received by** date, not a send-by date. Mailed
+evidence has to be sent about 8 days before the hearing. The excerpt is stored unconfirmed and the
+Regulations consolidation on novascotia.ca is unofficial ("amended to N.S. Reg. 76/2025,
+effective April 30, 2025"), so check the Royal Gazette Part II for later amendments.
 
 ## Decisions a person should look at
 
@@ -61,13 +83,28 @@ form's title line and the labels of the fields this app drafts against (below) i
 - **Policy #28 ("Hearings Procedures and Conduct") is not in the corpus.** The URL the seed data
   carries
   (`.../ans-residential-tenancies-policy-28-residential-tenancies-hearings-procedures-and-conduct.pdf`)
-  now redirects to the policy index, and the current index lists five policies, none of them
+  now redirects to the policy index, and the current index lists six policies, none of them
   #28. The nearest current document is Policy #40, Format of Hearings. Rather than cite a
   document that no longer exists, WS4 leaves it out: the demo case's `src_04` row keeps its dead
   URL and stays `unverified`. Retiring or repointing that row belongs to whoever owns the seed
   data, not to WS4.
-- **The app accepts JPG, PNG, HEIC, PDF and TXT; the policy names Word, Excel and PDF for
-  documents.** The app's photo handling matches the policy's "photographs are acceptable", and
-  its TXT-to-PDF copy matches "text messages must be submitted digitally or printed". The gap is
-  Word and Excel: the app refuses them. That is a WS1 decision, noted here so it is not a
-  surprise at the demo.
+- **What the Program accepts is narrower than what this app takes in** (Policy #42, page 4).
+  Digital documents: Microsoft Word, Microsoft Excel or Adobe PDF. Digital photos: jpeg, jpg, png,
+  bmp or pdf. Video and audio: wmv, mpg, mpeg, m4v or mp4. All digital evidence goes through
+  Nova Scotia's online service.
+  - **HEIC is not accepted.** The app takes HEIC from phones, and the package files a JPG made from
+    it instead; no `.heic` file is ever in the package.
+  - **No zip or ARC files** ("all digital files must be in an uncompressed format"). The package the
+    app builds is a zip for the caseworker's records; the files inside it are what get uploaded, one
+    by one. Nothing in the app tells anyone to submit the zip itself.
+  - **No links to cloud drives.** Evidence stored on Google Drive, OneDrive, Dropbox and similar
+    services is not accepted.
+  - The app's TXT-to-PDF copy matches "text messages must be submitted digitally or printed". The
+    gaps are Word and Excel (the app refuses them) and video and audio (it takes none). That is a
+    WS1 decision, noted here so it is not a surprise at the demo.
+- **Form J's real fields differ from `FORM_J_FIELDS`** (see the TODO in `corpus.py`). The form asks
+  for Filed by (landlord or tenant), Against, the address of the residential premises, the date the
+  tenant moved in, the rent and whether it is due each week or month. What the tenant asks for is
+  a checkbox list (Repairs, Compliance with a lease or the Act, Payment of money, Termination of
+  tenancy, and others), not free text.
+- **Mailed and e-mailed evidence is counted from the day it is received**, not sent (see #5).

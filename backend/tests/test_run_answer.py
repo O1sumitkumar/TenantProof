@@ -353,7 +353,7 @@ def test_a_hearing_date_sets_the_stage_and_the_evidence_deadline(
     case = case_row(session)
     assert case.stage == "hearing_scheduled"  # and the resumed run's stage refresh kept it
     assert case.next_deadline == {
-        "date": "2026-11-16", "label": "Evidence due · hearing 2026-11-21"}
+        "date": "2026-11-16", "label": "Must be received by · hearing 2026-11-21"}
 
 
 def test_the_caseload_follows_the_new_deadline(
@@ -389,4 +389,4 @@ def test_a_far_hearing_is_scheduled_without_a_deadline_warning(
 ])
 def test_evidence_is_due_five_days_before_the_hearing(hearing_day: date, due: str) -> None:
     assert evidence_deadline(hearing_day) == {
-        "date": due, "label": f"Evidence due · hearing {hearing_day.isoformat()}"}
+        "date": due, "label": f"Must be received by · hearing {hearing_day.isoformat()}"}
