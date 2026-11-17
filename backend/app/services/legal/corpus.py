@@ -109,7 +109,8 @@ CORPUS: tuple[CorpusEntry, ...] = (
         url=EVIDENCE_POLICY_URL,
         used_for=(
             "Evidence must be received by the other party and the program at least 5 days "
-            "before the hearing. Mailed evidence counts as received 3 days after it is sent. "
+            "before the hearing. Evidence sent by registered mail, express post or courier "
+            "counts as received on the 3rd day after it is sent. "
             "The officer may allow late evidence in exceptional circumstances."
         ),
         locator="page 1, Details",
@@ -130,8 +131,9 @@ CORPUS: tuple[CorpusEntry, ...] = (
         url=RTR_URL,
         used_for=(
             "The legal basis of the evidence deadline: it must be received at least 5 days before "
-            "the hearing. Mail counts as received 3 days after sending, e-mail after 4 p.m. the "
-            "next day, and the Director may allow late evidence."
+            "the hearing. Registered mail, express post or courier counts as received on the 3rd "
+            "day after sending; e-mail the same day if sent before 4 p.m., the next day if sent at "
+            "or after 4 p.m.; and the Director may allow late evidence."
         ),
         locator="section 25A(2)",
         excerpt=(

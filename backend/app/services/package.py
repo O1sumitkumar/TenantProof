@@ -45,8 +45,9 @@ FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 REMINDERS = [
     "Evidence must be received at least 5 days before the hearing "
     "(Evidence Policy #42, Regulations s. 25A).",
-    "Mailed evidence counts as received 3 days after it is sent, and e-mail sent after 4 p.m. "
-    "counts as received the next day.",
+    "Evidence sent by registered mail, express post or courier counts as received on the 3rd "
+    "day after it is sent. E-mail counts as received the same day if sent before 4 p.m., and "
+    "the next day if sent at or after 4 p.m.",
     "The Program does not accept zip files. This zip is for your records: upload the files "
     "inside it one by one.",
     "This package is prepared information, not legal advice. The tenant files the form themselves.",
