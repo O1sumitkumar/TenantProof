@@ -6,10 +6,11 @@ under node."""
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+
+from tests.node_support import node_json
 
 INDEX = Path(__file__).resolve().parents[2] / "web" / "index.html"
 BLOCK = re.compile(r"/\* runState:start.*?\*/(.*?)/\* runState:end \*/", re.S)
@@ -41,8 +42,7 @@ def states(runs: list[dict | None]) -> list[dict]:
         + match.group(1)
         + f"\nconsole.log(JSON.stringify({json.dumps(runs)}.map(runState)));"
     )
-    out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
-    return json.loads(out.stdout)
+    return node_json(script)
 
 
 def test_a_finished_run_with_events_to_review_says_needs_review_not_input() -> None:
