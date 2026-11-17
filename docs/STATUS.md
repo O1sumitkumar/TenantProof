@@ -2,9 +2,9 @@
 
 Single source of truth. Update the relevant section in every PR.
 
-**Date:** 2026-11-16 (MVP due Nov 18)
+**Date:** 2026-11-17 (MVP due Nov 18)
 **Branch:** `dev` is the integration branch (`main` only for releases). Start work from `origin/dev`.
-**Current milestone:** M1 is merged. M2 is half done: WS1 (evidence ingest and tenant uploads) is merged on `dev`, WS2 (deploy) has no owner. M3: WS3's runtime is merged except the worker and the `ingest` step; WS4 (corpus, source check, `rules` and `gaps`) is merged as #35; the `draft` step (#40) is on `opoeci6/m3-draft-step`.
+**Current milestone:** M1 is merged. M2 is half done: WS1 (evidence ingest and tenant uploads) is merged on `dev`, WS2 (deploy) has no owner. M3 is merged except the worker and the `ingest` step: WS3's runtime, WS4 (corpus, `rules`, `gaps`), the `draft` step, New case, and editing the request to the tenant. Two legal sources still wait for a person to confirm them (#54). The hosted demo (https://test.8596117.xyz) runs `dev` on Haiku.
 
 ## Done
 
@@ -18,21 +18,28 @@ Single source of truth. Update the relevant section in every PR.
 | M1 test fixes | From NineJZ356's Windows run: the seed reads `seed_data.json` as UTF-8 (tests and `make seed` failed on Windows code pages); tests ignore `backend/.env`, so the quickstart's `COOKIE_SECURE=false` no longer fails the Secure-cookie test | PR #1 |
 | M2 (WS1) | Evidence ingest and tenant uploads: upload routes, type check by signature, metadata, stripped copy, text as `evidence_page` rows, evidence in the zip | PRs #6, #7, #8 (`24a343d`) |
 | M3 (WS3) | Agent tool bodies and loop, `POST /cases/{id}/runs`, the `extract` step writing `evidence_fact`, `POST /runs/{id}/answer`, demo evals for prompt injection and fabricated quotes | PRs #5, #15, #16, #18, #19, #20 |
+| M3 (WS3) | Prompt caching; `LLM_MODEL` and `ANTHROPIC_BASE_URL`; a citable page for each photo's capture date; the runner asks for the hearing date; visible conflict flags; cost priced with the model actually used | PRs #21, #26 to #30, #34 |
+| M3 (demo) | Demo-honesty fixes from the usability review, neutral "Nothing yet" states, past hearing dates refused, synthetic upload files in `demo/`, the case brief PDF | PRs #23, #31 to #33, #37 |
+| M3 (WS4) | Legal corpus, URL check, the `rules` step (sources and the "must be received by" deadline), the `gaps` step that drafts requests to the tenant; source check (Reg 25A, received-by wording, no HEIC in the package) | PR #35 (with #39), `569348d` |
+| M3 (#40) | The `draft` step fills missing form fields from verified quotes, as `needs_confirmation`, with a Confirm button | PRs #46, #42 |
+| M3 (#41) | `POST /cases` and a New case form on the caseload | PRs #46, #47 |
+| M3 (#36, #38) | Locale-independent tests; the Tenant view shows the new intake link | PRs #43 to #45 (NineJZ356) |
+| M3 (#49) | `RUN_BUDGET_S` setting: the whole run may take 180 s by default, one model call 60 s | PRs #50, #51 |
+| M3 (#48) | The caseworker edits the request to the tenant and translates it with one model call; the tenant page shows the English too; language names in English first; English preview on the Tenant view | PRs #52, #53 (`074748a`) |
 
 Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #37).
 
 ## In progress
 
-Open draft PRs into `dev` (2026-11-17), opoeci6's, for issues #48 and #49. #42, #46 and #47 (issues #40 and #41) are merged, with NineJZ356's #43, #44 and #45. Merge #50 before #51, and #52 before #53.
+No open PRs (2026-11-17).
 
-| PR | Area | What | Depends on |
-|---|---|---|---|
-| #50 | `schema:` | `RUN_BUDGET_S` in `config.py` (180 s by default, 10 to 900) and its line in `backend/.env.example` | none |
-| #51 | WS3 (#49) | The whole-run deadline comes from the setting; one model call stays capped at 60 s; a run counts as stale after the budget plus 30 s | #50 |
-| #52 | `schema:` | CONTRACT_CHANGES #37: the optional send body, `POST /gaps/{id}/tenant-request/translate`, `IntakeView.requests[].message_en`; a UI exception for the editable request | none |
-| #53 | gaps (#48) | The caseworker edits the request to the tenant, translates the English with one model call, and sends both; the tenant page shows the English behind "Show in English"; language names in English first on caseworker screens, and an English preview on the Tenant view | #52 |
+Open issues:
+- **#54 (urgent):** a person must confirm two legal sources, Form J and Regulations s. 25A, before the demo. Until then both show as `unverified` on every case.
+- **#9:** tell tenants that original photos go into the package. The GPS data is already removed from the package copies.
+- **#10:** about 500 MB can be spooled to disk before the intake token is checked (WS2).
+- **#4:** WS3 follow-ups from the PR #2 review.
 
-Open issues: #9 (tell tenants that original photos, GPS included, go into the package), #10 (about 500 MB can be spooled to disk before the intake token is checked; WS2), #11 (Big5 and GBK TXT outside GB2312 get 415). #13, #14 and #4 track WS3 work that looks done but is not closed. WS2 and WS5 are unassigned.
+WS2 and WS5 are unassigned.
 
 ## Known issues
 
@@ -44,7 +51,7 @@ Open issues: #9 (tell tenants that original photos, GPS included, go into the pa
 - **`docker compose up --scale api=2` does not work yet:** the api service publishes fixed host port 8000. WS2 needs a proxy service.
 - **The filing package files photos without their GPS data.** Each JPG, PNG and HEIC-made JPG in the zip is a copy with the GPS IFD (and an XMP packet carrying GPS) taken out; the capture time and orientation stay, and the stored original is untouched (`services/evidence/gps.py`). The manifest PDF says "location data removed" for each such file. Not covered: location in a maker note or in a legacy "Raw profile type exif" PNG text chunk. Issue #9's remaining part (warning the tenant on the intake page, an optional per-file "file the stripped copy instead") still waits on the open decision below.
 - **An unauthenticated upload can spool about 500 MB to disk** (20 × 25 MB + 1 MB) before the intake token is checked. Needs a per-client cap at a proxy (issue #10, WS2).
-- **Big5 and GBK TXT files with characters outside GB2312 answer 415** (issue #11). The reason now says "re-save it as UTF-8", which fixes every one of them. Big5 stays refused on purpose: it decodes as GB18030 into private-use characters and no byte pattern tells the two code pages apart, so a guess would file traditional Chinese as different characters. Windows-1252 and Shift-JIS are refused for the same reason.
+- **Big5 and GBK TXT files with characters outside GB2312 answer 415** (issue #11, closed by #25: kept on purpose). The reason now says "re-save it as UTF-8", which fixes every one of them. Big5 stays refused on purpose: it decodes as GB18030 into private-use characters and no byte pattern tells the two code pages apart, so a guess would file traditional Chinese as different characters. Windows-1252 and Shift-JIS are refused for the same reason.
 - **Verified by an agent on 2026-11-06 (Playwright + rendered pages, see the PR #1 comments):** Chinese glyphs render in the built PDF, second-org isolation in two separate browser contexts, `?mock=1`, the empty-caseload state. **Electron 45 window (2026-11-06, Windows, against `web/index.html?mock=1` over the DevTools protocol):** the mock UI renders, the renderer has no Node, `window.open` is denied, off-origin navigation is blocked. **Electron 45 window against the real API (2026-11-07, Windows 11, NineJZ356, PR #1):** `npm install`, `node check.js` and `npm start` work, login works in the window, the renderer has no Node, `window.open` is denied. **Mac: pending Lameda12's check by eye** (`make desktop` starts the window; install and `check.js` pass).
 - **Throughput work is deferred:** `WEB_CONCURRENCY` and gzip belong to WS2; the load re-benchmark (`backend/bench/load.py`, p50/p95/p99 on the compose stack) to WS5. `GET /api/cases` already runs a fixed number of queries (query-count test).
 - **UI routes don't include the case id** (`#timeline`), so a case can't be deep-linked or shared.
@@ -55,25 +62,23 @@ Open issues: #9 (tell tenants that original photos, GPS included, go into the pa
 
 ## WS3 TODO
 
-- `schema:` PR for `config.py` and `.env.example`: `anthropic_api_key`, `llm_model`, `record_fixtures`, `fixture_strict` (today `FIXTURE_STRICT` is read from the environment in `llm.py`; tests set it to 1). Until then `llm._live_api_key()` reads `ANTHROPIC_API_KEY` from the process environment only (not from `backend/.env`), and the model is the constant `llm.MODEL`.
-- `RecordingProvider` (`RECORD_FIXTURES=1`) is not built yet. `Run.usage.est_cost_usd` is estimated from the `claude-sonnet-5-5` list price in `llm.py` (input and output tokens only, no cache pricing).
+- `schema:` PR for `config.py` and `.env.example`: `anthropic_api_key`, `record_fixtures`, `fixture_strict` (today `FIXTURE_STRICT` is read from the environment in `llm.py`; tests set it to 1). Until then `llm._live_api_key()` reads `ANTHROPIC_API_KEY` from the process environment only (not from `backend/.env`). The model is the `LLM_MODEL` setting (#26), defaulting to `llm.MODEL`.
+- `RecordingProvider` (`RECORD_FIXTURES=1`) is not built yet. `Run.usage.est_cost_usd` uses the list price of the model actually used, cache reads and writes included (#34); a model not in the table gets no estimate.
 - **Text and facts store:** `SqlTextStore` (`services/agent/evidence_text.py`) reads the `evidence_page` and `evidence_fact` tables (PR #6); the in-memory store stays for tests. The `extract` step (`services/agent/extract.py`, issue #14) writes the facts at the start of a run; WS1 ingest (PR #8) writes the pages. `runner.py` callers pass `SqlTextStore(session)`.
-- Not built: the arq worker (a run executes as a background task in the API process), and the `ingest` step; `IMPLEMENTED_STEPS` is `extract`, `timeline`, `rules`, `gaps` and `draft`.
-- **`draft` (#40, opoeci6):** an agent loop, not deterministic as BUILD_PLAN first said (extracted facts carry no field key). Its one write tool, `fill_form_field`, fills only a `missing` field, never `remedy`; every citation must pass the verifier and the value must be words of a verified excerpt. Values land as `needs_confirmation`, and the form page has a Confirm button for them. With nothing to fill it makes no model call.
+- Not built: the arq worker (a run executes as a background task in the API process), and the `ingest` step; `IMPLEMENTED_STEPS` is `extract`, `timeline`, `rules`, `draft` and `gaps`, in that order. The whole run may take `RUN_BUDGET_S` (180 s by default), one model call 60 s.
+- **`draft` (#40, opoeci6, merged):** an agent loop, not deterministic as BUILD_PLAN first said (extracted facts carry no field key). Its one write tool, `fill_form_field`, fills only a `missing` field, never `remedy`; every citation must pass the verifier and the value must be words of a verified excerpt. Values land as `needs_confirmation`, and the form page has a Confirm button for them. With nothing to fill it makes no model call.
 - `search_legal_sources` returns the corpus excerpt and its locator (WS4). An entry nobody has confirmed has no excerpt and returns `""`, never invented text.
 - One random evidence nonce per run, saved on the steps so a resume reuses it. `request_hash` masks it, so recordings replay under any nonce.
-- A photo has no text page, so it cannot be cited yet (the seeded "EXIF" locator is rejected); the store needs a metadata locator for photos. An `exif` date candidate must match a cited file's capture time.
-- `flag_conflict` adds a `conflict` flag (contract change #30) and still appends to `strength_reasons`; the review screen shows a "Conflict" badge with the note. Case brief PDF for the caseworker (`GET /cases/{id}/case-brief`, contract change #34, draft PR). Demo-honesty fixes from the AI usability review (draft PR): "Not analysed yet" in the caseload and a banner, package 409 without a completed run or an accepted event (contract change #31), "Not in this prototype" for the unbuilt steps, duration and cost on the run page, Demo rows, a reason next to the disabled Send button, no Arabic link. The runner asks for the hearing date itself when the timeline step ends with none set and the model did not ask (the `ask_caseworker` pause, field `hearing_date`).
+- A photo gets one code-written page with its capture time (#28), so the agent can cite it. An `exif` date candidate must match a cited file's capture time.
+- `flag_conflict` adds a `conflict` flag (contract change #30) and still appends to `strength_reasons`; the review screen shows a "Conflict" badge with the note. Case brief PDF for the caseworker (`GET /cases/{id}/case-brief`, contract change #34, merged as #37). Demo-honesty fixes from the AI usability review (merged as #31): "Not analysed yet" in the caseload and a banner, package 409 without a completed run or an accepted event (contract change #31), "Not in this prototype" for the unbuilt steps, duration and cost on the run page, Demo rows, a reason next to the disabled Send button, no Arabic link. The runner asks for the hearing date itself when the timeline step ends with none set and the model did not ask (the `ask_caseworker` pause, field `hearing_date`).
 
 ## Open decisions
 
 - Who owns each workstream (table below).
 - Whether the filed package carries stripped copies instead of originals. Originals keep GPS, but they also keep the sha256 chain and the EXIF that authenticate them. This decides issue #9.
-- Whether WS1 writes an `EXIF` `evidence_page` so the agent can cite a photo's capture time (today a photo has no text page, so it cannot be cited).
 - How tenants are told that originals are filed: #9's warning on the intake page.
 - Whether `SECRET_KEY` is needed at all: sessions are server-side random tokens, so nothing signs with it today. Either WS2 adds a real use or drops it from the guard.
-- Legal sources (WS4): a human must open every URL and confirm the section, form name and wording before Nov 16. The checklist is `backend/app/services/legal/README.md`; Policy #28's URL is dead and the entry is left out, which that file explains.
-- `backend/app/config.py` is now a shared file (settings change via `schema:` PRs); workstreams may add their own dependencies to `backend/pyproject.toml`.
+- Legal sources (WS4): three of the five are confirmed (NineJZ356, 2026-11-16). Form J and Regulations s. 25A still need a person to open the document and confirm the wording (issue #54, urgent). The checklist is `backend/app/services/legal/README.md`; Policy #28's URL is dead and the entry is left out, which that file explains.
 - Whether to keep bundling the 10 MB CJK font or fetch it at build time.
 
 ## How to verify
@@ -99,8 +104,8 @@ Prompts: `docs/NEXT_PROMPTS.md`.
 
 | Workstream | Owner | Branch | Status | Blocked by |
 |---|---|---|---|---|
-| WS1 Evidence ingest + tenant uploads (M2) | opoeci6 | merged (`24a343d`) | done: upload routes, type check by signature, metadata, stripped copy, text as `evidence_page` rows, evidence in the zip (PRs #6, #7, #8). Follow-ups: #9 and #11 | none |
+| WS1 Evidence ingest + tenant uploads (M2) | opoeci6 | merged (`24a343d`) | done: upload routes, type check by signature, metadata, stripped copy, text as `evidence_page` rows, evidence in the zip (PRs #6, #7, #8). Follow-ups: #9 (#11 closed by #25) | none |
 | WS2 Hosted deploy + infra hardening (M2) | TODO | `<github-username>/m2-deploy` | not started | none (S3 adapter test and QR demo need WS1 for uploads) |
-| WS3 Agent runtime (M3) | Lameda12 | merged | day 1 merged (PR #2); day 2 merged as PRs #5, #15, #18, #19, #20: the 12 tool bodies, `loop.py`, `runner.py` (one nonce per run, 60 s whole-run deadline, pause/resume), `verifier.py`, `strength.py`, `dates.py`, refusal handling, `SqlTextStore` over the #6 tables, `POST /cases/{id}/runs` (issue #13), the `extract` step (issue #14), `POST /runs/{id}/answer` (contract in PR #19) with the run page's answer control, and the demo evals (PR #16). Prompt caching on the Anthropic provider (breakpoints on the last tool and the stable system text, the nonce in a run note after them); cache tokens are in the run's stored usage. `rules` and `gaps` came with WS4 (#35). The `draft` step (#40, opoeci6, approved by Lameda12) is on `opoeci6/m3-draft-step`: the `fill_form_field` tool and a form agent. Next: the arq worker and the `ingest` step | nothing, for what is merged |
-| WS4 Legal sources, rules, gaps agent (M3) | opoeci6 | merged (#35, `569348d`) | merged on 2026-11-16 with Lameda12's #39 inside; NineJZ356 confirmed three sources, Form J and Reg 25A are not confirmed yet. PR 1: `services/legal/` with the corpus (four official sources, verbatim excerpts), the URL check and its command, excerpts in `search_legal_sources`, and the deterministic `rules` step (sources plus the evidence deadline). PR 2: the `gaps` step — deterministic checks first, then an agent that drafts requests to the tenant in their language. **A person must confirm every source before Nov 16**: `backend/app/services/legal/README.md`. A source check (fix/legal-sources) corrected the README, added the Regulations s. 25A entry, relabelled the deadline "must be received by", and keeps `.heic` out of the package; `confirmed_by` is still empty on every entry | none |
+| WS3 Agent runtime (M3) | Lameda12 | merged | day 1 merged (PR #2); day 2 merged as PRs #5, #15, #18, #19, #20: the 12 tool bodies, `loop.py`, `runner.py` (one nonce per run, a whole-run deadline, `RUN_BUDGET_S`, 180 s by default since #51; pause/resume), `verifier.py`, `strength.py`, `dates.py`, refusal handling, `SqlTextStore` over the #6 tables, `POST /cases/{id}/runs` (issue #13), the `extract` step (issue #14), `POST /runs/{id}/answer` (contract in PR #19) with the run page's answer control, and the demo evals (PR #16). Prompt caching on the Anthropic provider (breakpoints on the last tool and the stable system text, the nonce in a run note after them); cache tokens are in the run's stored usage. `rules` and `gaps` came with WS4 (#35). The `draft` step (#40, opoeci6, approved by Lameda12) is merged as #42: the `fill_form_field` tool and a form agent. Next: the arq worker and the `ingest` step | nothing, for what is merged |
+| WS4 Legal sources, rules, gaps agent (M3) | opoeci6 | merged (#35, `569348d`) | merged on 2026-11-16 with Lameda12's #39 inside; NineJZ356 confirmed three sources; Form J and Reg 25A are not confirmed yet (#54, urgent). PR 1: `services/legal/` with the corpus (four official sources, verbatim excerpts), the URL check and its command, excerpts in `search_legal_sources`, and the deterministic `rules` step (sources plus the evidence deadline). PR 2: the `gaps` step — deterministic checks first, then an agent that drafts requests to the tenant in their language. **A person must confirm the last two sources** (#54): `backend/app/services/legal/README.md`. A source check (fix/legal-sources) corrected the README, added the Regulations s. 25A entry, relabelled the deadline "must be received by", and keeps `.heic` out of the package. Since then: the gaps prompt skips fields the `draft` step filled (#42), and the caseworker can edit and translate each request to the tenant (#48, PRs #52 and #53) | a person for #54 |
 | WS5 Evals, security, perf, demo (M3 to M4) | TODO | `<github-username>/m4-evals-security-perf` | not started | starts now; fills in as WS1 to WS4 land |
