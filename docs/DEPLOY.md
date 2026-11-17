@@ -32,10 +32,11 @@ phone or browser ──HTTPS──> Cloudflare ──HTTPS──> nginx (on the 
   - allows request bodies up to 100 MB (`client_max_body_size`), above the app's own 25 MB per
     file, so the app, not nginx, refuses a file that is too big;
   - leaves the HTTP-to-HTTPS redirect to the server's shared nginx config.
-- **docker compose** runs the repo's `docker-compose.yml` (Postgres, Redis and the API) from a
-  clone of the repo, plus a server-only `docker-compose.override.yml` (below). The API container
-  runs the migrations and seeds an empty database each time it starts; it never wipes a database
-  that already has data.
+- **docker compose** runs the repo's `docker-compose.yml` (Postgres, Redis, `migrate` and the API)
+  from a clone of the repo, plus a server-only `docker-compose.override.yml` (below). The
+  one-shot `migrate` container runs the migrations and seeds an empty database on every
+  `docker compose up`, then exits; the API starts only after it succeeds. It never wipes a
+  database that already has data. `docker compose ps -a` lists it as exited (0), which is normal.
 
 ## Server-only files (never committed)
 
@@ -78,8 +79,11 @@ docker compose ps
 curl -s https://<the demo domain>/healthz
 ```
 
-`/healthz` answers `{"status":"ok","llm_mode":"live"}` (or `fixture`) once the API is up. A
-migration runs on start, so check `docker compose logs api` if the API keeps restarting.
+`/healthz` answers `{"status":"ok","llm_mode":"live"}` (or `fixture`) when the API is up and
+reaches both Postgres and Redis, and 503 `{"status":"degraded",...}` when it cannot reach one of
+them; `docker compose logs api` says which (`healthz: degraded (db=ok redis=error)`). If the API
+does not start at all, check `docker compose logs migrate`: a failed migration stops the API from
+starting on the new code.
 
 **Trying PRs that are not merged yet:** use a throwaway branch that exists only on the server.
 

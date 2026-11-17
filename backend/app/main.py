@@ -33,6 +33,7 @@ from app.routers import (
     sources,
     timeline,
 )
+from app.services import health
 from app.services.evidence.http import UploadBodyLimit
 
 log = logging.getLogger(__name__)
@@ -124,7 +125,12 @@ _index = _web / "index.html"
 
 
 @app.get("/healthz")
-def healthz() -> dict[str, str]:
+def healthz(response: Response) -> dict[str, str]:
+    """Readiness: 200 `ok` when Postgres and Redis both answer, else 503 `degraded`. Which one
+    failed is logged, not returned: the endpoint is public (`services/health.py`)."""
+    if not health.checker.current().ok:
+        response.status_code = 503
+        return {"status": "degraded", "llm_mode": get_settings().llm_mode}
     return {"status": "ok", "llm_mode": get_settings().llm_mode}
 
 
