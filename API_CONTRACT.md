@@ -43,6 +43,7 @@ v0.1 (individual-tenant version) is kept as `API_CONTRACT-v1-individual.md`.
 |---|---|---|---|
 | GET | `/me` | `User` | Signed-in caseworker. MVP can hard-code one user. |
 | GET | `/cases` | `CaseSummary[]` | Caseload, already sorted by priority (rule-based). |
+| POST | `/cases` | `Case` | Creates a case in the signed-in caseworker's org, assigned to them. Body: `CaseCreate` `{ tenant_name, tenant_language, unit, title }`; `tenant_language` is one of `en`, `zh`, `fr`, `es`. 422 `{ detail: { reasons } }` for a blank, too long or unknown value, or an extra field. See CONTRACT_CHANGES #35. |
 | GET | `/cases/{case_id}` | `Case` | |
 | POST | `/cases/{case_id}/intake-link` | `Intake` | Creates or re-sends the tenant link. |
 | GET | `/cases/{case_id}/evidence` | `EvidenceItem[]` | |
