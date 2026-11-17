@@ -1,7 +1,7 @@
 # Legal sources: the human confirmation checklist
 
-**Status 2026-11-16:** NineJZ356 checked entries 1 to 3 by hand against the official documents
-(PR #35) and they are confirmed. Form J (4) has its title line as the excerpt but is not
+**Status 2026-11-17:** NineJZ356 checked entries 1 to 3 by hand against the official documents
+(PR #35) and they are confirmed. Entries 4 and 5 are issue #54 (urgent). Form J (4) has its title line as the excerpt but is not
 confirmed yet, and the Regulations entry (5) was added after that check, so both still show as
 `unverified`. An agent may not confirm a legal source, so this is a person's job: open each URL,
 check the section, the form name and the wording, then fill in `confirmed_by` and
@@ -17,7 +17,7 @@ How to confirm one entry (about 20 minutes for the five):
 2. Find the locator (`section 9(1)`, `page 4`).
 3. Read the excerpt in `corpus.py` against the document. It must be word for word, with the
    PDF's line breaks joined by single spaces. Fix it if it is not; never paraphrase it.
-4. Set `confirmed_by="<your name>"` and `confirmed_on="2026-11-16"` on that entry.
+4. Set `confirmed_by="<your name>"` and `confirmed_on="<today's date>"` on that entry.
 5. Run `uv run python -m app.services.legal.verify` (see `verify.py`); a confirmed entry whose
    text still matches the published document comes back `unchanged`.
 
@@ -54,9 +54,9 @@ Verbatim, as stored in `corpus.py` today. Check these against the documents.
 
 **4. Form J.** The published PDF carries an owner-password lock, but its text is readable (a
 PDF viewer or `pdftotext` shows all 9 pages). Its title line is "Form J: Application to Director
-(Section 13 of the Residential Tenancies Act)". The entry still has `excerpt=""` and stays
-`unverified` until a person copies the title line and the field labels this app drafts against
-(below) into it.
+(Section 13 of the Residential Tenancies Act)". The entry's excerpt is the first part of it,
+"Form J: Application to Director", as NineJZ356 read it on 2026-11-16, and NineJZ356 matched the
+field labels (below) to boxes on the form. It stays `unverified` until a person signs it off.
 
 **5. Regulations, section 25A(2).** The deadline in #2 is the Program's reading of this
 regulation, so the regulation is the primary source:
