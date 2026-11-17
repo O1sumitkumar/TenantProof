@@ -61,12 +61,19 @@ FORM_J_URL = (
 
 RTR_URL = "https://novascotia.ca/just/regulations/regs/rtgenrl.htm"
 
-# The form fields this app drafts against. They follow the seeded demo case; the labels are ours
-# and a person confirms them against Form J (see README.md).
-# TODO(source check, row 11): the real Form J asks for Filed by, Against, the address of the
-# residential premises, the date the tenant moved in, the rent (due each week or month), and a
-# checkbox list for what is asked for (Repairs, Compliance with a lease or the Act, Payment of
-# money, Termination of tenancy, ...). `remedy` is a choice there, not free text. Not changed here.
+# What the UI and the package call the form draft. The app drafts seven tenant-applicant fields,
+# not the whole of Form J: the caseworker completes the rest on the real form.
+FORM_J_DRAFT_LABEL = "Partial Form J draft: caseworker completes the rest"
+
+# The form fields this app drafts. They follow the seeded demo case and the labels are ours. This
+# is a PARTIAL draft: seven fields for a tenant applicant, not a complete Form J. The caseworker
+# completes the rest on the real form (see README.md). F4 (the landlord's requests) is out of scope.
+# TODO(full Form J coverage, issue "Full Form J field coverage"): not drafted here: the
+# address split into number, name, apartment, city, province and postal code; mailing addresses;
+# phone and e-mail with the consent box; the move-in date apart from a fixed-term start; weekly
+# rent; the notice-to-quit, lease and deposit questions; several requests at once (Repairs,
+# Compliance with a lease or the Act, Payment of money, ...) each with its own explanation; the
+# signature and date.
 FORM_J_FIELDS = (
     FormFieldSpec("tenant_name", "Tenant name"),
     FormFieldSpec("landlord_name", "Landlord name"),
@@ -134,6 +141,8 @@ CORPUS: tuple[CorpusEntry, ...] = (
         ),
         keywords=("regulation", "regulations", "25A", "received", "mail", "email", "e-mail",
                   "late evidence", "deadline", "5 days"),
+        confirmed_by="Lameda12",
+        confirmed_on="2026-11-17",
     ),
     CorpusEntry(
         id="ns-evidence-policy-42-formats",
@@ -159,11 +168,18 @@ CORPUS: tuple[CorpusEntry, ...] = (
         title="Application to Director (Form J)",
         kind="form",
         url=FORM_J_URL,
-        used_for="The application this draft fills in; its fields are what the form is built on.",
+        used_for=(
+            "The application the draft is based on: a partial draft of seven tenant-applicant "
+            "fields. The caseworker completes the rest of the form."
+        ),
         locator="page 1, applicant and dispute details",
-        # The title line NineJZ356 read from the published PDF on 2026-11-16 (PR #35). Not
-        # confirmed yet: confirmed_by stays unset until a person signs the entry off.
-        excerpt="Form J: Application to Director",
+        # The full title line of the form, edition 2024-01 (page F1). The confirmation covers this
+        # line only, not the field coverage: the draft is partial (see FORM_J_FIELDS).
+        excerpt=(
+            "Form J: Application to Director (Section 13 of the Residential Tenancies Act)"
+        ),
+        confirmed_by="Lameda12",
+        confirmed_on="2026-11-17",
         keywords=("form", "application", "form j", "apply", "director", "file"),
         form_fields=FORM_J_FIELDS,
     ),

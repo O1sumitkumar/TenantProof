@@ -508,7 +508,7 @@ const SEED = {
   sources: [
     { id: "src_01", title: "Residential Tenancies Act (Nova Scotia), statutory conditions", kind: "statute", url: "https://nslegislature.ca/sites/default/files/legc/statutes/residential%20tenancies.pdf", last_verified_at: null, verify_status: "unverified", used_for: "Landlord's duty to keep the premises in good repair. Exact section still to be verified." },
     { id: "src_02", title: "Residential Tenancies Program, Evidence Policy #42", kind: "policy", url: "https://www.novascotia.ca/sites/default/files/documents/1-1319/evidence-policy-42-residential-tenancies-en.pdf", last_verified_at: "2026-10-31T16:20:00-03:00", verify_status: "unchanged", used_for: "Accepted file formats, how evidence is weighed, 5-day submission deadline." },
-    { id: "src_03", title: "Application to Director (Form J)", kind: "form", url: null, last_verified_at: null, verify_status: "unverified", used_for: "Fields this draft is built against. Verify against the official form." },
+    { id: "src_03", title: "Application to Director (Form J)", kind: "form", url: null, last_verified_at: null, verify_status: "unverified", used_for: "The partial draft is based on this form (seven tenant-applicant fields). The caseworker completes the rest." },
     { id: "src_04", title: "Hearings Procedures and Conduct, Policy #28", kind: "policy", url: "https://www.novascotia.ca/sns/access/land/residential-tenancies/residential-tenancies-2018/ans-residential-tenancies-policy-28-residential-tenancies-hearings-procedures-and-conduct.pdf", last_verified_at: null, verify_status: "unverified", used_for: "What happens at the hearing." }
   ],
   fields: [
@@ -637,7 +637,7 @@ function mockRoute(method, path, body) {
     return clone(g);
   }
   if (method === "GET" && path === `${C}/sources`) return clone(db.sources);
-  if (method === "GET" && path === `${C}/form-draft`) return clone({ form_name: "Application to Director (Form J) — draft", disclaimer: "Prepared with the tenant to help fill in the official form. It is information, not legal advice, and is not submitted anywhere.", fields: db.fields, narrative: buildNarrative() });
+  if (method === "GET" && path === `${C}/form-draft`) return clone({ form_name: "Partial Form J draft: caseworker completes the rest", disclaimer: "Prepared with the tenant to help fill in the official form. It is information, not legal advice, and is not submitted anywhere.", fields: db.fields, narrative: buildNarrative() });
   if (method === "PATCH" && (m = path.match(/^\/cases\/[^/]+\/form-draft\/fields\/(\w+)$/))) {
     const f = db.fields.find(x => x.key === m[1]); f.value = body.value || null; f.status = f.value ? "user_entered" : "missing";
     const g = db.gaps.find(x => x.input && x.input.field_key === f.key);

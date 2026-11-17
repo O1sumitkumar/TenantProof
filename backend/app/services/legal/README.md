@@ -1,10 +1,11 @@
 # Legal sources: the human confirmation checklist
 
-**Status 2026-11-17:** NineJZ356 checked entries 1 to 3 by hand against the official documents
-(PR #35) and they are confirmed. Entries 4 and 5 are issue #54 (urgent). Form J (4) has its title line as the excerpt but is not
-confirmed yet, and the Regulations entry (5) was added after that check, so both still show as
-`unverified`. An agent may not confirm a legal source, so this is a person's job: open each URL,
-check the section, the form name and the wording, then fill in `confirmed_by` and
+**Status 2026-11-17:** all five entries are confirmed by a person. NineJZ356 checked entries 1 to 3
+by hand against the official documents (PR #35, 2026-11-16). Lameda12 confirmed entries 4 and 5 on
+2026-11-17 (issue #54): the full Form J title line (edition 2024-01) and Regulations s. 25A(2). The
+confirmation of Form J covers its **title line and URL only, not field coverage**: the draft is
+partial (see below). An agent may not confirm a legal source, so confirming is a person's job: open
+each URL, check the section, the form name and the wording, then fill in `confirmed_by` and
 `confirmed_on` on the entry in `corpus.py`.
 
 Until an entry has a `confirmed_by`, the app reports it as `unverified` whatever the URL check
@@ -28,8 +29,8 @@ How to confirm one entry (about 20 minutes for the five):
 | 1 | `ns-rta-statutory-conditions` | Residential Tenancies Act (Nova Scotia), statutory conditions | https://nslegislature.ca/sites/default/files/legc/statutes/residential%20tenancies.pdf | section 9(1), statutory condition 1 (Condition of Premises) | yes, NineJZ356, 2026-11-16 |
 | 2 | `ns-evidence-policy-42-deadline` | Evidence Policy #42, the 5-day submission deadline | https://www.novascotia.ca/sites/default/files/documents/1-1319/evidence-policy-42-residential-tenancies-en.pdf | page 1, Details | yes, NineJZ356, 2026-11-16 |
 | 3 | `ns-evidence-policy-42-formats` | Evidence Policy #42, accepted formats | same document, `#page=4` | page 4, Types of Evidence | yes, NineJZ356, 2026-11-16 |
-| 4 | `ns-form-j` | Application to Director (Form J), edition 2024-01 | https://www.novascotia.ca/sites/default/files/documents/2-419/form-j-application-director-en.pdf | pages F1 to F3 (the form), G1 to G4 (the guide) | **no** (title-line excerpt added; labels matched by NineJZ356) |
-| 5 | `ns-rtr-25a` | Residential Tenancies Regulations, section 25A (the legal basis of the evidence deadline) | https://novascotia.ca/just/regulations/regs/rtgenrl.htm | section 25A(2) | **no** |
+| 4 | `ns-form-j` | Application to Director (Form J), edition 2024-01 | https://www.novascotia.ca/sites/default/files/documents/2-419/form-j-application-director-en.pdf | pages F1 to F3 (the form), G1 to G4 (the guide) | yes, Lameda12, 2026-11-17 (title line and URL; the field coverage is partial) |
+| 5 | `ns-rtr-25a` | Residential Tenancies Regulations, section 25A (the legal basis of the evidence deadline) | https://novascotia.ca/just/regulations/regs/rtgenrl.htm | section 25A(2) | yes, Lameda12, 2026-11-17 |
 
 ## What each excerpt says
 
@@ -53,10 +54,12 @@ Verbatim, as stored in `corpus.py` today. Check these against the documents.
 > Office Excel or Adobe PDF
 
 **4. Form J.** The published PDF carries an owner-password lock, but its text is readable (a
-PDF viewer or `pdftotext` shows all 9 pages). Its title line is "Form J: Application to Director
-(Section 13 of the Residential Tenancies Act)". The entry's excerpt is the first part of it,
-"Form J: Application to Director", as NineJZ356 read it on 2026-11-16, and NineJZ356 matched the
-field labels (below) to boxes on the form. It stays `unverified` until a person signs it off.
+PDF viewer or `pdftotext` shows all 9 pages). The excerpt is its full title line on page F1,
+edition 2024-01:
+
+> Form J: Application to Director (Section 13 of the Residential Tenancies Act)
+
+The PDF breaks the line after "Director"; the stored excerpt joins it with a single space.
 
 **5. Regulations, section 25A(2).** The deadline in #2 is the Program's reading of this
 regulation, so the regulation is the primary source:
@@ -78,10 +81,18 @@ effective April 30, 2025"), so check the Royal Gazette Part II for later amendme
 
 ## Decisions a person should look at
 
-- **Form J's field labels are ours, not the form's.** The keys come from the seeded demo case
-  (`tenant_name`, `landlord_name`, `landlord_address`, `rental_address`, `tenancy_start`,
-  `monthly_rent`, `remedy`) and the labels are plain-English versions. Confirm them against the
-  form before the demo, because the gaps step now writes these fields onto a case that has none.
+- **The Form J draft is partial.** The app drafts seven tenant-applicant fields (`tenant_name`,
+  `landlord_name`, `landlord_address`, `rental_address`, `tenancy_start`, `monthly_rent`,
+  `remedy`). It is **not a complete Form J**: the caseworker completes the rest on the real form,
+  and the UI and the package call it "Partial Form J draft: caseworker completes the rest". The
+  labels are ours, plain-English versions. Not drafted, so the caseworker fills them in: the
+  address split into number, name, apartment, city, province and postal code; mailing
+  addresses; phone and e-mail with the consent box; the move-in date apart from a fixed-term
+  start; weekly rent; the notice-to-quit, lease and deposit questions; several requests at once
+  (Repairs, Compliance with a lease or the Act, Payment of money, ...) each with its own
+  explanation; the signature and date. **F4 (the landlord's requests) is out of scope**: the app
+  drafts tenant applications only. Full coverage is tracked in the issue "Full Form J field
+  coverage"; the comparison behind this list is leozhang5867's comment on #54.
 - **Policy #28 ("Hearings Procedures and Conduct") is not in the corpus.** The URL the seed data
   carries
   (`.../ans-residential-tenancies-policy-28-residential-tenancies-hearings-procedures-and-conduct.pdf`)
@@ -104,9 +115,4 @@ effective April 30, 2025"), so check the Royal Gazette Part II for later amendme
   - The app's TXT-to-PDF copy matches "text messages must be submitted digitally or printed". The
     gaps are Word and Excel (the app refuses them) and video and audio (it takes none). That is a
     WS1 decision, noted here so it is not a surprise at the demo.
-- **Form J's real fields differ from `FORM_J_FIELDS`** (see the TODO in `corpus.py`). The form asks
-  for Filed by (landlord or tenant), Against, the address of the residential premises, the date the
-  tenant moved in, the rent and whether it is due each week or month. What the tenant asks for is
-  a checkbox list (Repairs, Compliance with a lease or the Act, Payment of money, Termination of
-  tenancy, and others), not free text.
 - **Mailed and e-mailed evidence is counted from the day it is received**, not sent (see #5).

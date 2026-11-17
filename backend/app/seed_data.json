@@ -673,7 +673,7 @@
         "url": null,
         "last_verified_at": null,
         "verify_status": "unverified",
-        "used_for": "Fields this draft is built against. Verify against the official form."
+        "used_for": "The partial draft is based on this form (seven tenant-applicant fields). The caseworker completes the rest."
       },
       {
         "id": "src_04",

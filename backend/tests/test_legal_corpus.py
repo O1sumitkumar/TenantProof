@@ -69,13 +69,15 @@ def test_an_unknown_url_does_not_fall_back_to_the_title():
     assert corpus.entry_for("https://example.test/other.pdf", form.title) is None
 
 
-def test_the_three_entries_checked_by_hand_are_confirmed():
-    """NineJZ356 checked these against the official documents on 2026-11-16 (PR #35). Form J and
-    the Regulations entry are not confirmed yet."""
-    confirmed = {e.id for e in corpus.CORPUS if e.confirmed_by}
-    assert confirmed == {
-        "ns-rta-statutory-conditions",
-        "ns-evidence-policy-42-deadline",
-        "ns-evidence-policy-42-formats",
+def test_every_entry_is_confirmed_by_a_person():
+    """NineJZ356 checked the first three against the official documents on 2026-11-16 (PR #35);
+    Lameda12 confirmed Form J (title line) and the Regulations entry on 2026-11-17 (issue #54)."""
+    by_person = {e.id: e.confirmed_by for e in corpus.CORPUS}
+    assert by_person == {
+        "ns-rta-statutory-conditions": "NineJZ356",
+        "ns-evidence-policy-42-deadline": "NineJZ356",
+        "ns-evidence-policy-42-formats": "NineJZ356",
+        "ns-rtr-25a": "Lameda12",
+        "ns-form-j": "Lameda12",
     }
     assert all(e.excerpt and e.confirmed_on for e in corpus.CORPUS if e.confirmed_by)

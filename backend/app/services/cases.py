@@ -13,8 +13,9 @@ from app.models import CaseRow, UserRow
 from app.schemas import CaseCreate
 from app.services import activity
 from app.services.agent.tools import clean_text
+from app.services.legal.corpus import FORM_J_DRAFT_LABEL
 
-FORM_NAME = "Application to Director (Form J) — draft"
+FORM_NAME = FORM_J_DRAFT_LABEL
 FORM_DISCLAIMER = (
     "Prepared with the tenant to help fill in the official form. It is information, not legal "
     "advice, and is not submitted anywhere."

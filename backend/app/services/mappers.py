@@ -31,6 +31,7 @@ from app.schemas import (
     Run,
     TimelineEvent,
 )
+from app.services.legal.corpus import FORM_J_DRAFT_LABEL
 from app.services.narrative import build_narrative
 from app.services.priority import PriorityInput, compute_priority, sort_key
 
@@ -343,7 +344,7 @@ def build_form_draft(session: Session, case: CaseRow) -> FormDraft:
     )
     return FormDraft.model_validate(
         {
-            "form_name": case.form_name,
+            "form_name": FORM_J_DRAFT_LABEL if case.form_name else "",  # also for old rows
             "disclaimer": case.form_disclaimer,
             "fields": [to_field(f).model_dump() for f in fields],
             "narrative": narrative,

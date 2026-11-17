@@ -30,6 +30,7 @@ from app.models import (
     UserRow,
 )
 from app.services.intake_token import issue_token
+from app.services.legal.corpus import FORM_J_DRAFT_LABEL
 
 DATA = Path(__file__).parent / "seed_data.json"
 CASEWORKER_EMAIL = "sam@example-clinic.test"
@@ -129,7 +130,7 @@ def seed(session: Session) -> None:
             tenant_attested_at=dt(intake["tenant_attested_at"]) if intake else None,
             created_at=dt_req(c["created_at"] if demo else c["updated_at"]),
             updated_at=datetime.now(UTC) if demo else dt_req(c["updated_at"]),
-            form_name="Application to Director (Form J) — draft" if demo else "",
+            form_name=FORM_J_DRAFT_LABEL if demo else "",
             form_disclaimer=(
                 "Prepared with the tenant to help fill in the official form. It is information, "
                 "not legal advice, and is not submitted anywhere." if demo else ""
