@@ -1,6 +1,7 @@
 """The rules step: the case's sources and its evidence deadline. No model, no network."""
 
 from dataclasses import replace
+from datetime import UTC, datetime
 
 from sqlmodel import select
 
@@ -27,7 +28,8 @@ def test_the_seeded_rows_are_kept_and_only_the_missing_entry_is_added(fresh_db, 
 
     ids = {r.id for r in rows(session, DEMO)}
     assert {"src_01", "src_02", "src_03", "src_04"} <= ids  # the ids citations point at
-    assert added == 1  # the accepted-formats entry, which the seed does not carry
+    # the accepted-formats entry and the Regulations entry, which the seed does not carry
+    assert added == 2
     # the four corpus entries plus the seed's Policy #28 row, which the corpus leaves out
     assert total == len(corpus.CORPUS) + 1
 
@@ -58,18 +60,27 @@ def test_new_rows_use_a_readable_id_built_from_case_and_entry(fresh_db, session)
     assert f"src_{LIVE}_{corpus.CORPUS[0].id}" in ids
 
 
+def test_the_seeded_evidence_policy_row_starts_unverified(fresh_db, session):
+    """Nobody has confirmed the entry, so the seed must not say it was checked."""
+    seeded = session.get(LegalSourceRow, "src_02")
+    assert seeded is not None
+    assert seeded.verify_status == "unverified" and seeded.last_verified_at is None
+
+
 def _seeded_unchanged(session) -> LegalSourceRow:
-    checked = next(
-        r for r in rows(session, DEMO)
-        if r.url == corpus.EVIDENCE_POLICY_URL and r.verify_status == "unchanged"
-    )  # fmt: skip
-    assert checked.last_verified_at is not None
+    """The demo case's Evidence Policy row as if a source check had run on it."""
+    checked = session.get(LegalSourceRow, "src_02")
+    assert checked is not None and checked.url == corpus.EVIDENCE_POLICY_URL
+    checked.verify_status = "unchanged"
+    checked.last_verified_at = datetime(2026, 10, 31, 16, 20, tzinfo=UTC)
+    session.add(checked)
+    session.commit()
     return checked
 
 
 def test_an_unconfirmed_entry_does_not_copy_a_seeded_status(fresh_db, session):
-    """The seed marks the demo case's Evidence Policy row unchanged, but nobody has confirmed the
-    entry: a new case must not show it as checked."""
+    """A demo case row says unchanged, but nobody has confirmed the entry: a new case must not
+    show it as checked."""
     _seeded_unchanged(session)
     live = session.get(CaseRow, LIVE)
     rules.ensure_case_sources(session, live)
@@ -135,7 +146,7 @@ def test_the_deadline_comes_from_the_hearing_date(fresh_db, session):
 
     assert due == "2026-11-16"  # five days before the hearing, from the corpus rule
     assert case.next_deadline == {
-        "date": "2026-11-16", "label": "Evidence due · hearing 2026-11-21",
+        "date": "2026-11-16", "label": "Must be received by · hearing 2026-11-21",
     }  # fmt: skip
 
 
@@ -152,7 +163,7 @@ def test_setting_the_deadline_is_logged(fresh_db, session):
         a.action for a in session.exec(select(ActivityRow).where(ActivityRow.case_id == LIVE)).all()
         if a.actor_name == rules.ACTOR_NAME
     ]
-    assert any("evidence deadline to 2026-11-16" in line for line in lines)
+    assert any("must-be-received-by date to 2026-11-16" in line for line in lines)
 
 
 def test_the_same_deadline_twice_is_not_logged_twice(fresh_db, session):
@@ -168,7 +179,7 @@ def test_the_same_deadline_twice_is_not_logged_twice(fresh_db, session):
 
     lines = [
         a for a in session.exec(select(ActivityRow).where(ActivityRow.case_id == LIVE)).all()
-        if "evidence deadline" in a.action
+        if "must-be-received-by" in a.action
     ]
     assert len(lines) == 1
 
@@ -199,7 +210,7 @@ def test_the_summary_names_the_deadline_when_there_is_one(fresh_db, session):
     result = rules.run(session, case)
     session.commit()
 
-    assert result.summary.endswith("evidence due 2026-11-16")
+    assert result.summary.endswith("must be received by 2026-11-16")
 
 
 def test_another_case_is_never_touched(fresh_db, session):
@@ -239,6 +250,7 @@ def test_the_rules_step_runs_in_a_run_and_records_one_tool_call(fresh_db, sessio
 
     step = next(s for s in done.steps if s["key"] == "rules")
     assert step["status"] == "done"
-    assert step["summary"] == f"{len(corpus.CORPUS)} sources (0 checked), evidence due 2026-11-16"
+    expected = f"{len(corpus.CORPUS)} sources (0 checked), must be received by 2026-11-16"
+    assert step["summary"] == expected
     assert [call["tool"] for call in step["tool_calls"]] == ["rules"]
     assert "2026-11-16" in step["tool_calls"][0]["output"]

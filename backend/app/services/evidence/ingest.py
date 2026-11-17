@@ -40,7 +40,7 @@ _FORMAT: dict[str, dict[str, Any]] = {
     sniff.PNG: {"accepted": True, "action": "none", "note": "PNG is an accepted format."},
     sniff.PDF: {"accepted": True, "action": "none", "note": "PDF is an accepted format."},
     sniff.HEIC: {"accepted": True, "action": "converted",
-                 "note": "HEIC isn't an accepted format. The package adds a JPG copy."},
+                 "note": "HEIC isn't an accepted format. The package files a JPG copy instead."},
     sniff.TEXT: {"accepted": True, "action": "will_export_pdf",
                  "note": "Text messages must be submitted digitally or printed. "
                          "The package adds a PDF copy."},

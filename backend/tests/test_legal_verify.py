@@ -1,6 +1,7 @@
 """The URL check, with fixture bytes: nothing here touches the network."""
 
 from dataclasses import replace
+from datetime import UTC, datetime
 
 import httpx
 from fpdf import FPDF
@@ -107,6 +108,17 @@ def test_an_html_entity_is_decoded():
 # --- the command ---------------------------------------------------------------------------
 
 
+def _mark_checked(session) -> LegalSourceRow:
+    """src_02 as if an earlier source check had run (the seed starts it unverified)."""
+    row = session.get(LegalSourceRow, "src_02")
+    assert row is not None
+    row.verify_status = "unchanged"
+    row.last_verified_at = datetime(2026, 10, 31, 16, 20, tzinfo=UTC)
+    session.add(row)
+    session.commit()
+    return row
+
+
 def _confirmed(monkeypatch) -> tuple[corpus.CorpusEntry, ...]:
     """Every entry that has an excerpt, confirmed by a test reviewer."""
     entries = tuple(
@@ -167,8 +179,7 @@ def test_the_command_logs_one_line_per_affected_case(fresh_db, session, monkeypa
 
 def test_an_unreachable_document_keeps_the_last_verified_time(fresh_db, session, monkeypatch):
     _confirmed(monkeypatch)
-    before = session.get(LegalSourceRow, "src_02")
-    assert before is not None and before.last_verified_at is not None
+    before = _mark_checked(session)
     verified_at = before.last_verified_at
 
     def down(url: str) -> verify.Fetched:
@@ -185,10 +196,9 @@ def test_an_unreachable_document_keeps_the_last_verified_time(fresh_db, session,
 
 
 def test_an_unconfirmed_entry_clears_the_last_verified_time(fresh_db, session):
-    """The seed's src_02 says unchanged with a date, but nobody confirmed the entry: after the
-    command it is unverified, and must not still say when it was "last checked"."""
-    before = session.get(LegalSourceRow, "src_02")
-    assert before is not None and before.last_verified_at is not None
+    """A row says unchanged with a date, but nobody confirmed the entry: after the command it
+    is unverified, and must not still say when it was "last checked"."""
+    _mark_checked(session)
 
     def never(url: str) -> verify.Fetched:
         raise AssertionError("an unconfirmed entry is not fetched")

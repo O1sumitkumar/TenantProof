@@ -53,13 +53,20 @@ EVIDENCE_POLICY_URL = (
     "https://www.novascotia.ca/sites/default/files/documents/1-1319/"
     "evidence-policy-42-residential-tenancies-en.pdf"
 )
+# The `beta.` host redirects here; the bare novascotia.ca host serves a 404 for this path.
 FORM_J_URL = (
-    "https://beta.novascotia.ca/sites/default/files/documents/2-419/"
+    "https://www.novascotia.ca/sites/default/files/documents/2-419/"
     "form-j-application-director-en.pdf"
 )
 
+RTR_URL = "https://novascotia.ca/just/regulations/regs/rtgenrl.htm"
+
 # The form fields this app drafts against. They follow the seeded demo case; the labels are ours
 # and a person confirms them against Form J (see README.md).
+# TODO(source check, row 11): the real Form J asks for Filed by, Against, the address of the
+# residential premises, the date the tenant moved in, the rent (due each week or month), and a
+# checkbox list for what is asked for (Repairs, Compliance with a lease or the Act, Payment of
+# money, Termination of tenancy, ...). `remedy` is a choice there, not free text. Not changed here.
 FORM_J_FIELDS = (
     FormFieldSpec("tenant_name", "Tenant name"),
     FormFieldSpec("landlord_name", "Landlord name"),
@@ -91,7 +98,11 @@ CORPUS: tuple[CorpusEntry, ...] = (
         title="Residential Tenancies Program, Evidence Policy #42",
         kind="policy",
         url=EVIDENCE_POLICY_URL,
-        used_for="Evidence must reach the other party and the program 5 days before the hearing.",
+        used_for=(
+            "Evidence must be received by the other party and the program at least 5 days "
+            "before the hearing. Mailed evidence counts as received 3 days after it is sent. "
+            "The officer may allow late evidence in exceptional circumstances."
+        ),
         locator="page 1, Details",
         excerpt=(
             "If applicants or respondents intend to introduce evidence, other than oral "
@@ -100,6 +111,25 @@ CORPUS: tuple[CorpusEntry, ...] = (
         ),
         keywords=("deadline", "due date", "submit evidence", "5 days", "five days", "hearing"),
         rule={"evidence_days_before_hearing": 5},
+    ),
+    CorpusEntry(
+        id="ns-rtr-25a",
+        title="Residential Tenancies Regulations, section 25A: submitting evidence",
+        kind="statute",
+        url=RTR_URL,
+        used_for=(
+            "The legal basis of the evidence deadline: it must be received at least 5 days before "
+            "the hearing. Mail counts as received 3 days after sending, e-mail after 4 p.m. the "
+            "next day, and the Director may allow late evidence."
+        ),
+        locator="section 25A(2)",
+        excerpt=(
+            "A submission under subsection (1) must be made in sufficient time so that each "
+            "recipient receives it at least 5 days before the date of the hearing, unless a "
+            "later time is permitted under subsection (6)."
+        ),
+        keywords=("regulation", "regulations", "25A", "received", "mail", "email", "e-mail",
+                  "late evidence", "deadline", "5 days"),
     ),
     CorpusEntry(
         id="ns-evidence-policy-42-formats",
