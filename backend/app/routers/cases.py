@@ -1,13 +1,16 @@
+from collections.abc import Mapping
 from datetime import UTC, date, datetime
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException, status
+from pydantic import ValidationError
 
 from app.config import Settings, get_settings
 from app.deps import CaseDep, SessionDep, UserDep
 from app.models import UserRow
-from app.schemas import Case, CaseSummary, Intake
+from app.schemas import Case, CaseCreate, CaseSummary, Intake
 from app.services import activity
+from app.services import cases as cases_service
 from app.services.intake_token import issue_token
 from app.services.mappers import list_case_rows, to_case, to_intake, to_summary
 
@@ -25,6 +28,45 @@ def list_cases(session: SessionDep, user: UserDep) -> list[CaseSummary]:
     ]
     ranked.sort(key=lambda pair: pair[1])
     return [summary for summary, _ in ranked]
+
+
+def _plain(err: Mapping[str, Any]) -> str:
+    """One validation error in the caseworker's words, never echoing the rejected value."""
+    if not err["loc"]:  # not a JSON object at all
+        return "Send the tenant name, language, unit address and what is wrong"
+    field = str(err["loc"][-1])
+    label = cases_service.LABELS.get(field)
+    if label is None:
+        return f"{field[:40]}: not a field of a new case"
+    kind, ctx = err["type"], err.get("ctx") or {}
+    if field == "tenant_language" and kind in ("missing", "literal_error"):
+        return f"{label}: choose English, 中文, Français or Español"
+    if kind in ("missing", "string_too_short"):
+        return f"{label}: enter some text"
+    if kind == "string_too_long":
+        return f"{label}: at most {ctx.get('max_length')} characters"
+    return f"{label}: not valid"
+
+
+@router.post("/cases", response_model=Case)
+def create_case(
+    session: SessionDep, user: UserDep, body: Annotated[Any, Body()] = None
+) -> Case:
+    """Create a case in the caseworker's own org, assigned to them (CONTRACT_CHANGES #35). The
+    body is validated here, not by FastAPI, so a bad one answers 422 `{ detail: { reasons } }`
+    like the other forms the UI shows errors for."""
+    try:
+        parsed = CaseCreate.model_validate(body)
+    except ValidationError as exc:
+        reasons = list(dict.fromkeys(_plain(err) for err in exc.errors()))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, {"reasons": reasons}) from None
+    refused = cases_service.problems(parsed)
+    if refused:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, {"reasons": refused})
+    case = cases_service.create_case(session, user, parsed)
+    session.commit()
+    session.refresh(case)
+    return to_case(case, user.name)
 
 
 @router.get("/cases/{case_id}", response_model=Case)

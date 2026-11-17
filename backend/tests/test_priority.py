@@ -48,6 +48,15 @@ def test_waiting_tenant_and_empty_reasons():
     assert compute_priority(case(stage="ready_to_file"), TODAY).reason == "No open items"
 
 
+def test_a_link_never_sent_is_not_called_sent():
+    """A case just created (#41) waits for the tenant before any link went out."""
+    unsent = compute_priority(case(stage="waiting_tenant", intake_sent=False), TODAY)
+    assert unsent.reason == "Intake link not sent yet."
+    # a deadline still wins, as for any waiting case
+    soon = case(stage="waiting_tenant", intake_sent=False, next_deadline_date=date(2026, 11, 8))
+    assert compute_priority(soon, TODAY).reason.startswith("Must be received in 2 days")
+
+
 def test_overdue_deadline_is_high():
     r = compute_priority(case(next_deadline_date=date(2026, 11, 1)), TODAY)
     assert r.priority == "high"

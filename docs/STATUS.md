@@ -19,19 +19,17 @@ Single source of truth. Update the relevant section in every PR.
 | M2 (WS1) | Evidence ingest and tenant uploads: upload routes, type check by signature, metadata, stripped copy, text as `evidence_page` rows, evidence in the zip | PRs #6, #7, #8 (`24a343d`) |
 | M3 (WS3) | Agent tool bodies and loop, `POST /cases/{id}/runs`, the `extract` step writing `evidence_fact`, `POST /runs/{id}/answer`, demo evals for prompt injection and fabricated quotes | PRs #5, #15, #16, #18, #19, #20 |
 
-Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #29).
+Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #36).
 
 ## In progress
 
-Open draft PRs into `dev` (2026-11-15), Lameda12's unless noted. None of them waits on WS1.
+Open draft PRs into `dev` (2026-11-17), all opoeci6's. (#21, #22, #23 and NineJZ356's #43, #44 and #45 are merged.) Merge #46 first, then #42 and #47.
 
 | PR | Area | What | Depends on |
 |---|---|---|---|
-| `NineJZ356/fix-36-node-utf8` (NineJZ356) | tests | Issue #36: the tests that run `web/index.html` under node read its output as UTF-8 (`tests/node_support.py`), so they pass on a Chinese Windows (cp936) without `PYTHONUTF8`. `tests/test_subprocess_encoding.py` fails on any subprocess call under `backend/` with `text=True` and no `encoding=` | none. `test_intake_link.py` on #38's branch got the same `encoding="utf-8"` (`fddb08b`), so the check passes whichever merges first |
-| #21 | WS3 | Prompt caching on the Anthropic provider (`services/agent/`) | none |
-| #22 | infra | `make up` without an API key and with a broken IPv6 resolver (Dockerfile, compose) | none |
-| #23 | demo | Synthetic demo files for the live run (`demo/landlord_repair_notice.pdf`, `demo/chat_zh.txt`, a stock photo kept out of git) and an empty seeded case `case_live_001` | WS1 uploads (merged) |
-| `NineJZ356/fix-38-intake-link` (NineJZ356) | UI | Issue #38: the Tenant view shows the new intake link and a Copy button right after "Send intake link"; Copy selects the link when the clipboard is blocked | none |
+| #46 | `schema:` | `CaseCreate` and `POST /cases` in the contract; CONTRACT_CHANGES #35 (`POST /cases`), #36 (the `draft` step and how a field is saved), two UI exceptions waiting for team approval | none |
+| #42 | WS3 (#40) | The `draft` step, run before `gaps`: an agent fills missing form fields from verified quotes, as `needs_confirmation`; a Confirm button on the form | #46, for its contract rows |
+| #47 | caseload (#41) | `POST /cases` (`routers/cases.py`, `services/cases.py`), the "New case" form on the caseload, "Not sent yet" and "Send intake link" for a case whose link was never sent | #46 |
 
 Open issues: #9 (tell tenants that original photos, GPS included, go into the package), #10 (about 500 MB can be spooled to disk before the intake token is checked; WS2), #11 (Big5 and GBK TXT outside GB2312 get 415). #13, #14 and #4 track WS3 work that looks done but is not closed. WS2 and WS5 are unassigned.
 
