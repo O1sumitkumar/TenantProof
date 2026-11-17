@@ -359,7 +359,10 @@ def to_intake_view(session: Session, case: CaseRow, org_name: str) -> IntakeView
         unit=case.unit,
         language=case.tenant_language,
         requests=[
-            IntakeRequest(id=g.id, message=g.tenant_request["message"])
+            IntakeRequest(
+                id=g.id, message=g.tenant_request["message"],
+                message_en=g.tenant_request.get("message_en") or g.tenant_request["message"],
+            )
             for g in gaps
             if g.tenant_request
         ],

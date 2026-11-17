@@ -56,7 +56,8 @@ v0.1 (individual-tenant version) is kept as `API_CONTRACT-v1-individual.md`.
 | PATCH | `/timeline/{event_id}` | `TimelineEvent` | Body: `{ review_status, title?, description?, date?, caseworker_note? }` |
 | GET | `/cases/{case_id}/gaps` | `Gap[]` | |
 | PATCH | `/gaps/{gap_id}` | `Gap` | Body: `{ status, resolution_note?, value? }` |
-| POST | `/gaps/{gap_id}/tenant-request` | `Gap` | Caseworker approved the drafted message. Sends it via the intake link; gap → `waiting_tenant`. |
+| POST | `/gaps/{gap_id}/tenant-request` | `Gap` | Caseworker approved the drafted message. Sends it via the intake link; gap → `waiting_tenant`. Optional body `{ message, message_en }`: the request as the caseworker edited it (CONTRACT_CHANGES #37). |
+| POST | `/gaps/{gap_id}/tenant-request/translate` | `{ message }` | Body: `{ message_en }`. Translates the caseworker's English into the tenant's language with one model call. Saves nothing (CONTRACT_CHANGES #37). |
 | GET | `/cases/{case_id}/sources` | `LegalSource[]` | |
 | GET | `/cases/{case_id}/form-draft` | `FormDraft` | Narrative rebuilt from accepted events on every GET. |
 | PATCH | `/form-draft/fields/{key}` | `FormField` | Body: `{ value }` → `user_entered`. |
@@ -135,7 +136,7 @@ type IntakeView = {
   tenant_first_name: string;
   unit: string;
   language: string;
-  requests: { id: string; message: string }[];   // approved requests, in the tenant's language
+  requests: { id: string; message: string; message_en: string }[];   // approved requests: in the tenant's language, and in English
 };
 
 type EvidenceItem = {

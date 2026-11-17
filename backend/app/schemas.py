@@ -89,7 +89,8 @@ class Case(BaseModel):
 
 class IntakeRequest(BaseModel):
     id: str
-    message: str
+    message: str  # in the tenant's language
+    message_en: str  # the same request in English (CONTRACT_CHANGES #37)
 
 
 class IntakeView(BaseModel):
@@ -322,6 +323,29 @@ class GapPatch(BaseModel):
     resolution_note: str | None = None
     value: str | None = None
     model_config = {"extra": "forbid"}
+
+
+class TenantRequestSend(BaseModel):
+    """Optional body of POST /gaps/{id}/tenant-request (CONTRACT_CHANGES #37): the request as the
+    caseworker approved it, edited or not. Without a body the agent's draft is sent unchanged."""
+
+    # In the tenant's language. Longer than the English allows: a translation can run longer.
+    message: str = Field(min_length=1, max_length=3000)
+    message_en: str = Field(min_length=1, max_length=1500)
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+
+
+class TenantRequestTranslate(BaseModel):
+    """Body of POST /gaps/{id}/tenant-request/translate (CONTRACT_CHANGES #37)."""
+
+    message_en: str = Field(min_length=1, max_length=1500)
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+
+
+class TenantRequestTranslation(BaseModel):
+    """The translation, in the case's tenant language. Not saved."""
+
+    message: str
 
 
 class FieldPatch(BaseModel):
