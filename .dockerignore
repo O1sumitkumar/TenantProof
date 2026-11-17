@@ -8,3 +8,4 @@
 docs/archive
 backend/storage
 .env
+.tools
