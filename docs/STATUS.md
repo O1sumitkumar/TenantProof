@@ -26,7 +26,11 @@ Single source of truth. Update the relevant section in every PR.
 | M3 (#36, #38) | Locale-independent tests; the Tenant view shows the new intake link | PRs #43 to #45 (NineJZ356) |
 | M3 (#49) | `RUN_BUDGET_S` setting: the whole run may take 180 s by default, one model call 60 s | PRs #50, #51 |
 | M3 (#48) | The caseworker edits the request to the tenant and translates it with one model call; the tenant page shows the English too; language names in English first; English preview on the Tenant view | PRs #52, #53 (`074748a`) |
+<<<<<<< HEAD
+| Submission polish | README rewrite (pitch, architecture, live-mode setup, 3-minute demo, team), LICENSE, SECURITY.md statuses, security headers, system fonts, planning files moved to `docs/archive/`, API_CONTRACT rows; caseload wording ("Deadline passed (N days ago)", plurals, one "Must be received by" wording for stored labels) and seeded deadlines kept relative to today | `Lameda12/submission-polish` |
+=======
 | M2 (WS2: #56 to #59) | QR code of a new intake link; rate limits on the real client IP behind a trusted proxy (`FORWARDED_ALLOW_IPS`); expired logins deleted at login and hourly; `docs/DEPLOY.md` for the hosted demo | PRs #62 to #64, #55 (`596b455`) |
+>>>>>>> origin/dev
 
 Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #38).
 

@@ -41,7 +41,9 @@ v0.1 (individual-tenant version) is kept as `API_CONTRACT-v1-individual.md`.
 
 | Method | Path | Returns | Notes |
 |---|---|---|---|
-| GET | `/me` | `User` | Signed-in caseworker. MVP can hard-code one user. |
+| POST | `/auth/login` | `User` | Body: `{ email, password }`. Sets the session cookie (httpOnly, SameSite=Lax). 401 `Wrong email or password` for an unknown email and a wrong password alike; 429 when rate limited. |
+| POST | `/auth/logout` | `{ ok }` | Ends the session and clears the cookie. |
+| GET | `/me` | `User` | Signed-in caseworker (401 when signed out). |
 | GET | `/cases` | `CaseSummary[]` | Caseload, already sorted by priority (rule-based). |
 | POST | `/cases` | `Case` | Creates a case in the signed-in caseworker's org, assigned to them. Body: `CaseCreate` `{ tenant_name, tenant_language, unit, title }`; `tenant_language` is one of `en`, `zh`, `fr`, `es`. 422 `{ detail: { reasons } }` for a blank, too long or unknown value, or an extra field. See CONTRACT_CHANGES #35. |
 | GET | `/cases/{case_id}` | `Case` | |
@@ -60,9 +62,10 @@ v0.1 (individual-tenant version) is kept as `API_CONTRACT-v1-individual.md`.
 | POST | `/gaps/{gap_id}/tenant-request/translate` | `{ message }` | Body: `{ message_en }`. Translates the caseworker's English into the tenant's language with one model call. Saves nothing (CONTRACT_CHANGES #37). |
 | GET | `/cases/{case_id}/sources` | `LegalSource[]` | |
 | GET | `/cases/{case_id}/form-draft` | `FormDraft` | Narrative rebuilt from accepted events on every GET. |
-| PATCH | `/form-draft/fields/{key}` | `FormField` | Body: `{ value }` → `user_entered`. |
+| PATCH | `/cases/{case_id}/form-draft/fields/{key}` | `FormField` | Body: `{ value }` → `user_entered`. |
 | GET | `/cases/{case_id}/activity` | `ActivityEntry[]` | Newest first. |
 | POST | `/cases/{case_id}/package` | `Package` | Body: `{ attestations }`. 409 if blocking gaps open or tenant hasn't attested. |
+| GET | `/cases/{case_id}/package/download` | zip (`application/zip`) | Streams a built package. Query `version` (default: the latest); 404 if none is built. Headers: `Content-Disposition: attachment; filename="tenantproof-<case>-v<version>.zip"` and `X-Package-Sha256` (the zip's SHA-256). Images in the zip have their GPS data removed and a HEIC is filed as a JPG (CONTRACT_CHANGES). |
 | GET | `/cases/{case_id}/case-brief` | PDF (`application/pdf`) | The caseworker's case brief, built on request: summary, timeline, evidence index, gaps. 404 for another org's case, 409 `{ detail: { reasons } }` until an analysis has completed. Not stored. |
 
 ### Answering a paused run
@@ -225,7 +228,7 @@ type Package = { built_at: string; prepared_by: string;
 
 Rule-based so the caseworker can see why a case is on top:
 
-1. `high` if an evidence deadline is within 7 days. Evidence must be received 5 days before the hearing (Evidence Policy #42; mail counts as received 3 days after it is sent).
+1. `high` if an evidence deadline is within 7 days or has passed. Evidence must be received 5 days before the hearing (Evidence Policy #42; mail counts as received 3 days after it is sent). The reason reads "Must be received in N days" ("in 1 day", "today"), or "Deadline passed (N days ago)" once the date is behind us; counts are pluralised ("1 required item", "2 required items").
 2. `high` if a blocking gap is open and a hearing is scheduled.
 3. Otherwise `normal`. Sort: priority, then nearest deadline, then most blocking items.
 

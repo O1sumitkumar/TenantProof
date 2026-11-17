@@ -151,3 +151,27 @@ def test_cost_label_shows_a_number_or_says_unknown() -> None:
     assert "claude-haiku-4-5" in note and "$" not in unknown
     assert label({"est_cost_usd": 0, "model": None})[0] == "Est. cost under $0.01"  # zero is known
     assert label({"model": "x"})[0] == "Est. cost unknown"  # a missing value is unknown too
+
+
+# --------------------------------------------------------------------------- deadline wording
+
+
+@pytest.mark.parametrize(("days", "text"), [
+    (7, "Must be received in 7 days"),
+    (1, "Must be received in 1 day"),
+    (0, "Must be received today"),
+    (-1, "Deadline passed (1 day ago)"),
+    (-2, "Deadline passed (2 days ago)"),
+])
+def test_deadline_phrase_matches_the_server(days: int, text: str) -> None:
+    from app.services.priority import deadline_phrase
+
+    assert js(f"deadlinePhrase({days})") == text == deadline_phrase(days)
+
+
+@pytest.mark.parametrize("stored", [
+    "Evidence due · hearing 2026-11-21", "evidence due · hearing 2026-11-21",
+    "Must be received by · hearing 2026-11-21",
+])
+def test_a_stored_deadline_label_reads_in_todays_wording(stored: str) -> None:
+    assert js(f"deadlineLabel({json.dumps(stored)})") == "Must be received by · hearing 2026-11-21"

@@ -1,6 +1,8 @@
-from datetime import date
+from datetime import date, timedelta
 
-from app.services.priority import PriorityInput, compute_priority, sort_key
+import pytest
+
+from app.services.priority import PriorityInput, compute_priority, deadline_phrase, sort_key
 
 TODAY = date(2026, 11, 6)
 
@@ -73,3 +75,63 @@ def test_sort_order_high_then_deadline_then_blocking():
     ]
     assert [n for n, _ in sorted(keys, key=lambda x: x[1])] == [
         "high-soon", "high-late", "normal-far", "normal-none-blocking", "normal-none"]
+
+
+# --- how the deadline reads (0, 1, many and past days; singular and plural counts) --------------
+
+
+@pytest.mark.parametrize(("days", "text"), [
+    (7, "Must be received in 7 days"),
+    (2, "Must be received in 2 days"),
+    (1, "Must be received in 1 day"),
+    (0, "Must be received today"),
+    (-1, "Deadline passed (1 day ago)"),
+    (-2, "Deadline passed (2 days ago)"),
+    (-30, "Deadline passed (30 days ago)"),
+])
+def test_deadline_phrase(days: int, text: str):
+    assert deadline_phrase(days) == text
+
+
+@pytest.mark.parametrize("days", [-1, -5])
+def test_a_passed_deadline_never_shows_a_negative_count(days: int):
+    r = compute_priority(case(next_deadline_date=TODAY + timedelta(days=days)), TODAY)
+    assert r.priority == "high"
+    assert r.reason == deadline_phrase(days)
+    assert "-" not in r.reason and "before hearing" not in r.reason
+
+
+def test_a_deadline_today_and_tomorrow_read_naturally():
+    today = compute_priority(case(next_deadline_date=TODAY), TODAY)
+    tomorrow = compute_priority(case(next_deadline_date=TODAY + timedelta(days=1)), TODAY)
+    assert today.reason == "Must be received today (5 days before hearing)"
+    assert tomorrow.reason == "Must be received in 1 day (5 days before hearing)"
+
+
+def test_a_far_deadline_has_no_priority_but_still_reads():
+    r = compute_priority(case(next_deadline_date=TODAY + timedelta(days=9)), TODAY)
+    assert r.priority == "normal" and r.reason == "Must be received in 9 days"
+
+
+@pytest.mark.parametrize(("blocking", "text"), [
+    (1, "1 required item open with a hearing scheduled"),
+    (2, "2 required items open with a hearing scheduled"),
+    (7, "7 required items open with a hearing scheduled"),
+])
+def test_required_items_are_pluralised(blocking: int, text: str):
+    r = compute_priority(case(stage="hearing_scheduled", open_blocking=blocking), TODAY)
+    assert r.reason == text
+
+
+@pytest.mark.parametrize(("pending", "blocking", "text"), [
+    (1, 1, "1 event to review · 1 required item open"),
+    (2, 1, "2 events to review · 1 required item open"),
+    (1, 3, "1 event to review · 3 required items open"),
+    (0, 0, "0 events to review · 0 required items open"),
+])
+def test_the_review_counts_are_pluralised(pending: int, blocking: int, text: str):
+    r = compute_priority(case(pending_review=pending, open_blocking=blocking), TODAY)
+    if pending == 0 and blocking == 0:
+        assert r.reason == "No open items"
+    else:
+        assert r.reason == text

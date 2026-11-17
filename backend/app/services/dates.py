@@ -4,6 +4,7 @@ The model proposes date candidates; this module picks one and decides the flags.
 
 import re
 from datetime import date, timedelta
+from typing import Any
 
 from app.schemas import EventDate
 
@@ -103,6 +104,35 @@ def hearing_has_passed(hearing: date, today: date) -> bool:
 EVIDENCE_DAYS_BEFORE_HEARING = 5  # Evidence Policy #42; Regulations s. 25A(2)
 
 
+DEADLINE_PREFIX = "Must be received by"
+_LEGACY_PREFIX = re.compile(r"^\s*evidence due\b", re.IGNORECASE)
+_LABEL_HEARING = re.compile(r"hearing (\d{4}-\d{2}-\d{2})")
+
+
+def canonical_deadline_label(label: str) -> str:
+    """A stored deadline label in today's wording. Labels written before the wording changed say
+    "Evidence due"; the date is a receipt date (Regulations s. 25A(2)), so they say "Must be
+    received by" now, whenever the row was stored."""
+    return _LEGACY_PREFIX.sub(DEADLINE_PREFIX, label, count=1)
+
+
+def demo_deadline(deadline: dict[str, Any], today: date) -> dict[str, str]:
+    """The deadline of a seeded demo case, `demo_offset_days` from today, so a database seeded
+    days ago never shows a past deadline. The hearing date in the label moves with it. Any other
+    deadline is returned as stored, in the current wording."""
+    label = canonical_deadline_label(str(deadline["label"]))
+    due = str(deadline["date"])
+    offset = deadline.get("demo_offset_days")
+    if offset is None:
+        return {"date": due, "label": label}
+    moved = today + timedelta(days=int(offset))
+    shift = moved - date.fromisoformat(due)
+    label = _LABEL_HEARING.sub(
+        lambda m: f"hearing {(date.fromisoformat(m.group(1)) + shift).isoformat()}", label
+    )
+    return {"date": moved.isoformat(), "label": label}
+
+
 def evidence_deadline(hearing: date, days: int = EVIDENCE_DAYS_BEFORE_HEARING) -> dict[str, str]:
     """`Case.next_deadline` for a hearing: the day evidence must be *received* by, `days` before
     it (Regulations s. 25A(2)). It is a receipt date, not a send-by date: mail counts as
@@ -111,5 +141,5 @@ def evidence_deadline(hearing: date, days: int = EVIDENCE_DAYS_BEFORE_HEARING) -
     passes the number the legal corpus carries, so a change to the policy moves this deadline
     with it."""
     due = hearing - timedelta(days=days)
-    label = f"Must be received by · hearing {hearing.isoformat()}"
+    label = f"{DEADLINE_PREFIX} · hearing {hearing.isoformat()}"
     return {"date": due.isoformat(), "label": label}

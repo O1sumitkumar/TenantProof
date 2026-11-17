@@ -1,9 +1,6 @@
 <!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>TenantProof</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;600&display=swap">
 <style>
 /* Layout: clinic case-file workspace. Sticky app bar; caseload table as home; numbered workflow rail inside a case; tenant intake shown in a phone frame. */
 :root{
@@ -12,8 +9,8 @@
   --accent:#1D4F91; --accent-ink:#FFFFFF; --accent-soft:#E2EBF7;
   --ok:#2C6D45; --ok-soft:#E0F0E6; --warn:#8F5506; --warn-soft:#FAEED7; --bad:#A3241C; --bad-soft:#F8E2DF;
   --tag:#F6E7A8; --tag-ink:#4A3B00;
-  --font-ui:"Public Sans", "Noto Sans SC", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-mono:"JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --font-ui:system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-mono:ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --r:6px;
 }
 @media (prefers-color-scheme: dark){
@@ -574,9 +571,9 @@ function demoSummary() {
 function prioritize(c) {
   const days = c.next_deadline ? Math.round((new Date(c.next_deadline.date + "T12:00:00") - new Date(plusDays(0) + "T12:00:00")) / 864e5) : null;
   let priority = "normal", reason;
-  if (days !== null && days <= 7) { priority = "high"; reason = `Must be received in ${days} day${days === 1 ? "" : "s"} (5 days before hearing)`; }
-  if (c.open_blocking && c.stage === "hearing_scheduled") { priority = "high"; reason = (reason ? reason + " and " : "") + `${c.open_blocking} required item open with a hearing scheduled`; }
-  if (!reason) reason = c.stage === "waiting_tenant" ? (c._not_sent ? "Intake link not sent yet." : "Intake link sent. No files from the tenant yet.") : days !== null ? `Must be received in ${days} days` : c.open_blocking || c.pending_review ? `${plural(c.pending_review, "event")} to review · ${c.open_blocking} required items open` : "No open items";
+  if (days !== null && days <= 7) { priority = "high"; reason = deadlinePhrase(days) + (days >= 0 ? " (5 days before hearing)" : ""); }
+  if (c.open_blocking && c.stage === "hearing_scheduled") { priority = "high"; reason = (reason ? reason + " and " : "") + `${plural(c.open_blocking, "required item")} open with a hearing scheduled`; }
+  if (!reason) reason = c.stage === "waiting_tenant" ? (c._not_sent ? "Intake link not sent yet." : "Intake link sent. No files from the tenant yet.") : days !== null ? deadlinePhrase(days) : c.open_blocking || c.pending_review ? `${plural(c.pending_review, "event")} to review · ${plural(c.open_blocking, "required item")} open` : "No open items";
   return { ...c, priority, priority_reason: reason, _days: days };
 }
 function caseload() {
@@ -649,7 +646,7 @@ function mockRoute(method, path, body) {
   if (method === "GET" && path === `${C}/activity`) return clone(db.activity);
   if (method === "POST" && path === `${C}/package`) {
     const open = db.gaps.filter(g => g.severity === "blocking" && isOpen(g));
-    if (open.length) throw Object.assign(new Error(`${open.length} required item(s) still open`), { status: 409 });
+    if (open.length) throw Object.assign(new Error(`${plural(open.length, "required item")} still open`), { status: 409 });
     if (!db.case.intake.tenant_attested_genuine) throw Object.assign(new Error("The tenant hasn't confirmed their files are genuine"), { status: 409 });
     const a = body.attestations || {};
     if (!a.reviewed_fields || !a.remedy_confirmed_with_tenant || !a.explained_not_legal_advice) throw Object.assign(new Error("All caseworker confirmations are required"), { status: 400 });
@@ -721,6 +718,15 @@ S.askError = ""; S.askDraft = ""; S.answering = false;
 /* pure:start (counts and empty states; tests/test_empty_states.py runs it under node) */
 const NOTHING = "Nothing yet";
 const plural = (n, one, many = one + "s") => `${n} ${n === 1 ? one : many}`;
+// How the caseload says when evidence must be received: today, in N days, or passed. The same
+// wording as the server (priority.py `deadline_phrase`); the mock caseload uses it too.
+function deadlinePhrase(days) {
+  if (days < 0) return `Deadline passed (${plural(-days, "day")} ago)`;
+  if (days === 0) return "Must be received today";
+  return `Must be received in ${plural(days, "day")}`;
+}
+// A stored deadline label in today's wording ("Evidence due" was the old one).
+const deadlineLabel = label => String(label).replace(/^\s*evidence due\b/i, "Must be received by");
 // `st` is stats(): `gaps` is how many missing-info items exist at all, `fieldsTotal` the form
 // fields, `total` the timeline events. With none of them there is nothing to be "done" about, so
 // the checks are neutral ("none") rather than a green tick.
@@ -937,7 +943,7 @@ function viewCases() {
   const rows = cs.map(c => {
     const fresh = notAnalysed(c);  // a finished-looking stage with no analysis behind it
     const [stLabel, stCls] = fresh ? ["Not analysed yet", "plain"] : STAGE[c.stage];
-    const dl = c.next_deadline ? `<span class="${c._days <= 7 ? "soon" : ""}">${esc(fmtDay(c.next_deadline.date))}</span><small>${esc(c.next_deadline.label.replace(/hearing (\d{4}-\d\d-\d\d)/, (_, d) => "hearing " + fmtDay(d)))}</small>` : `<span class="muted">No hearing yet</span>`;
+    const dl = c.next_deadline ? `<span class="${c._days <= 7 ? "soon" : ""}">${esc(fmtDay(c.next_deadline.date))}</span><small>${esc(deadlineLabel(c.next_deadline.label).replace(/hearing (\d{4}-\d\d-\d\d)/, (_, d) => "hearing " + fmtDay(d)))}</small>` : `<span class="muted">No hearing yet</span>`;
     const open = [c.open_blocking ? `<span style="color:var(--bad)">${c.open_blocking} required open</span>` : "", c.pending_review ? `<span>${plural(c.pending_review, "event")} to review</span>` : ""].filter(Boolean).join("") || `<span class="muted">—</span>`;
     const openable = !!c.has_demo_data, tag = openable ? "button" : "div";
     return `<${tag} class="cl-row p-${c.priority}${openable ? "" : " demo"}" ${openable ? `data-action="open-case" data-id="${c.id}" type="button"` : `role="listitem" aria-disabled="true"`}>
@@ -951,7 +957,7 @@ function viewCases() {
     </${tag}>`;
   }).join("");
   return `<div class="view-head"><div><h1>Caseload</h1><p>Your open maintenance cases. The order follows fixed rules (received-by dates first, then required items), so you can always see why a case is on top.</p></div><button class="btn" data-action="new-case">New case</button></div>${newCaseForm()}
-    <div class="summary-row"><span><b>${cs.length}</b>open cases</span><span><b>${review}</b>need your review</span><span><b>${week}</b>must be received in 7 days</span></div>
+    <div class="summary-row"><span><b>${cs.length}</b>open ${cs.length === 1 ? "case" : "cases"}</span><span><b>${review}</b>${review === 1 ? "needs" : "need"} your review</span><span><b>${week}</b>${week === 1 ? "case" : "cases"} due within 7 days</span></div>
     <div class="panel cl" role="list"><div class="cl-head"><span></span><span>Tenant · issue</span><span>Stage</span><span>Next deadline</span><span>Open items</span><span>Language</span></div>${rows}</div>
     <div class="note"><span class="note-ico">i</span><span>Rows marked <b>Demo row</b> show what a caseload looks like. They have no case view and cannot be opened.</span></div>
     ${contract("cases", { me: S.me, cases: S.cases.map(({ _days, _not_sent, ...c }) => c) })}`;
@@ -1140,7 +1146,7 @@ function viewForm() {
     <div class="panel form-grid">${rows}</div>
     <h2 class="section-h">Details of the problem</h2>
     <div class="panel panel-pad" style="display:grid;gap:10px">${f.narrative.text ? `<p class="narr">${narrHtml}</p>` : `<p class="narr">No accepted events yet.</p>`}
-      <span class="muted">Built from ${f.narrative.event_ids.length} accepted events. Caseworker notes are never included. ${left ? `<a href="#timeline">${left} events still need review</a> and are left out.` : "All events reviewed."}</span></div>
+      <span class="muted">Built from ${f.narrative.event_ids.length} accepted events. Caseworker notes are never included. ${left ? `<a href="#timeline">${left} ${left === 1 ? "event still needs" : "events still need"} review</a> and are left out.` : "All events reviewed."}</span></div>
     ${contract("form", f)}`;
 }
 

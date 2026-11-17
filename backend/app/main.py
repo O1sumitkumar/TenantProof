@@ -74,6 +74,23 @@ app = FastAPI(title="TenantProof API", version="0.1.0", lifespan=lifespan)
 # this keeps it however the app is served. Applying it twice gives the same client.
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=get_settings().forwarded_allow_ips)
 
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+}
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """The same three headers on every answer: the UI, the API, errors and downloads. No
+    Content-Security-Policy: the UI is one page with inline script and style."""
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers[name] = value
+    return response
+
+
 api = FastAPI(title="TenantProof API")
 api.state.limiter = limiter
 api.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]

@@ -2,7 +2,7 @@
 
 import pytest
 from sqlalchemy import delete
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app import seed as seed_module
 from app.config import get_settings
@@ -123,3 +123,41 @@ def test_the_live_case_has_its_own_intake_link_that_is_not_the_demo_cases(
 def test_the_demo_case_is_unchanged_by_the_live_case(fresh_db, client):
     assert len(client.get(f"/api/cases/{CASE}/evidence").json()) == 7
     assert len(client.get(f"/api/cases/{CASE}/timeline").json()) == 9
+
+
+# --- seeded deadlines stay ahead of today and in one wording ------------------------------------
+
+
+def test_the_seeded_caseload_never_shows_a_past_deadline_or_the_old_wording(fresh_db, client):
+    from datetime import date
+
+    rows = [c for c in client.get("/api/cases").json() if c["next_deadline"]]
+    assert len(rows) == 2
+    for row in rows:
+        assert date.fromisoformat(row["next_deadline"]["date"]) >= date.today()
+        assert row["next_deadline"]["label"].startswith("Must be received by · hearing ")
+        assert not row["priority_reason"].startswith("Deadline passed")
+    due = sorted(row["next_deadline"]["date"] for row in rows)
+    assert due[0] < due[1]  # the seed's order is kept
+
+
+def test_an_old_seed_still_reads_ahead_of_today_later(fresh_db, client, session, monkeypatch):
+    """A database seeded days ago: the stored date is stale, the row it reads as is not."""
+    from datetime import date, timedelta
+
+    from app.models import CaseRow
+
+    for case in session.exec(select(CaseRow)):
+        if case.next_deadline:
+            case.next_deadline = {
+                **case.next_deadline, "label": case.next_deadline["label"].replace(
+                    "Must be received by", "Evidence due"),
+                "date": (date.today() - timedelta(days=3)).isoformat(),
+            }
+            session.add(case)
+    session.commit()
+
+    for row in client.get("/api/cases").json():
+        if row["next_deadline"]:
+            assert date.fromisoformat(row["next_deadline"]["date"]) >= date.today()
+            assert row["next_deadline"]["label"].startswith("Must be received by")
