@@ -66,8 +66,11 @@ def test_the_new_strings_are_written_in_their_script(page: dict, lang: str) -> N
     assert SCRIPT[lang].search(page["UPLOAD_SOON"][lang])
 
 
-@pytest.mark.parametrize("lang", ["ru", "hi"])
-def test_the_new_string_sets_are_marked_machine_translated(lang: str) -> None:
+@pytest.mark.parametrize(("lang", "mark"), [
+    ("ru", "ru reviewed by Lameda12 2026-11-17"),
+    ("hi", "machine-translated, needs native-speaker review"),
+])
+def test_the_new_string_sets_say_how_far_they_were_checked(lang: str, mark: str) -> None:
     lines = INDEX.read_text(encoding="utf-8").splitlines()
     at = next(i for i, line in enumerate(lines) if line.startswith(f"  {lang}: {{ showEn"))
-    assert "machine-translated, needs native-speaker review" in lines[at - 1]
+    assert mark in lines[at - 1]
