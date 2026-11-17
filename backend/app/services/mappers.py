@@ -31,6 +31,7 @@ from app.schemas import (
     Run,
     TimelineEvent,
 )
+from app.services.dates import demo_deadline
 from app.services.legal.corpus import FORM_J_DRAFT_LABEL
 from app.services.narrative import build_narrative
 from app.services.priority import PriorityInput, compute_priority, sort_key
@@ -154,7 +155,7 @@ def to_summary(
     case: CaseRow, blocking: int, pending: int, last_at: datetime | None, today: date,
     analysed: bool | None = None,
 ) -> tuple[CaseSummary, tuple[int, int, int, int]]:
-    deadline = case.next_deadline
+    deadline = demo_deadline(case.next_deadline, today) if case.next_deadline else None
     result = compute_priority(
         PriorityInput(
             stage=case.stage,

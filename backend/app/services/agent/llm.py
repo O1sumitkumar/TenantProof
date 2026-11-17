@@ -1,8 +1,7 @@
 """LLM provider protocol, the Anthropic provider and the fixture provider.
 
 Tests and CI use `FixtureProvider` only and never reach the network. The API key is read from
-the environment in one place (`_live_api_key`), and only in live mode. TODO (schema: PR):
-`anthropic_api_key`, `llm_model` and `record_fixtures` move into `config.py`.
+the environment in one place (`_live_api_key`), and only in live mode.
 """
 
 import asyncio
