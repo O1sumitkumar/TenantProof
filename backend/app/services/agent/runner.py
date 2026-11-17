@@ -9,16 +9,17 @@ Crash safety: the loop commits once per turn, and the runner writes the step (to
 and a checkpoint of the conversation) in that same commit. A killed worker loses at most the
 open turn together with its rows, and `execute_run` on that run continues from the checkpoint.
 
-All steps but `ingest` exist: `extract`, `timeline`, `rules`, `gaps` and `draft`. `extract` runs
-first, at the start of a run, so it needs nothing from ingest: it reads the `evidence_page` rows
-that ingest wrote. `rules` is deterministic (WS4): it gives the case the corpus sources and the
-evidence deadline, and it runs after `timeline` because the hearing date it needs comes from
-there. `gaps` (WS4) writes the deterministic gaps first, then runs an agent loop that reads the
-evidence and drafts requests to the tenant. `draft` (#40) runs last: an agent loop that fills the
-form fields still `missing` from the evidence, each value copied from a citation the verifier
-accepts and saved as `needs_confirmation`. BUILD_PLAN planned it deterministic, but the extracted
-facts carry no field key, so per-field patterns would not hold across documents and languages.
-With nothing to fill it makes no model call. `ingest` needs WS1 and stays `pending` here.
+All steps but `ingest` exist, in this order: `extract`, `timeline`, `rules`, `draft`, `gaps`.
+`extract` runs first, at the start of a run, so it needs nothing from ingest: it reads the
+`evidence_page` rows that ingest wrote. `rules` is deterministic (WS4): it gives the case the
+corpus sources and the evidence deadline, and it runs after `timeline` because the hearing date it
+needs comes from there. `draft` (#40) is an agent loop that fills the form fields still `missing`
+from the evidence, each value copied from a citation the verifier accepts and saved as
+`needs_confirmation`. BUILD_PLAN planned it deterministic, but the extracted facts carry no field
+key, so per-field patterns would not hold across documents and languages. With nothing to fill it
+makes no model call. It runs before `gaps`, so the gaps step only asks the tenant for what the
+evidence does not say. `gaps` (WS4) writes the deterministic gaps first, then runs an agent loop
+that reads the evidence and drafts requests to the tenant. `ingest` needs WS1 and stays `pending`.
 
 Pause and resume: when the agent calls ask_caseworker the step becomes `needs_input` and the
 conversation is saved in the step's `checkpoint` key (the API never returns it). Call
@@ -82,10 +83,12 @@ STEP_LABELS = {
     "extract": "Extract facts",
     "timeline": "Build timeline",
     "rules": "Look up official rules",
-    "gaps": "Find missing information",
+    # `draft` runs before `gaps` (#40): once the form agent has filled what the evidence states,
+    # the gaps step no longer asks the tenant for her own name or the landlord's address.
     "draft": "Draft form",
+    "gaps": "Find missing information",
 }
-IMPLEMENTED_STEPS = ("extract", "timeline", "rules", "gaps", "draft")
+IMPLEMENTED_STEPS = ("extract", "timeline", "rules", "draft", "gaps")
 HEARING_QUESTION = "What is the hearing date? It is not in the evidence."
 log = logging.getLogger(__name__)
 

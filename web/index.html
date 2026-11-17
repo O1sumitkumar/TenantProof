@@ -691,7 +691,7 @@ const S = { me: null, cases: [], case: null, evidence: [], run: null, timeline: 
   attest: { reviewed_fields: false, remedy_confirmed_with_tenant: false, explained_not_legal_advice: false }, pkgError: null,
   intake: { view: null, lang: null, files: [], attest: false, consent: false, sent: false } };
 const RESUMABLE = ["extract", "timeline", "gaps"];  // steps the runner can resume after an answer (the others' needs_input is not a question)
-const BUILT = ["extract", "timeline", "rules", "gaps", "draft"];  // steps the runner implements; `rules` is deterministic and never pauses
+const BUILT = ["extract", "timeline", "rules", "draft", "gaps"];  // steps the runner implements; `rules` is deterministic and never pauses
 S.askError = ""; S.askDraft = ""; S.answering = false;
 /* pure:start (counts and empty states; tests/test_empty_states.py runs it under node) */
 const NOTHING = "Nothing yet";

@@ -100,7 +100,7 @@ deterministic. Pattern: **agent proposes, rules verify, caseworker approves.**
 | `timeline` | **agent loop** | Case agent builds events from facts, reading evidence deeper when sources conflict. |
 | `rules` | deterministic + retrieval | Deadlines from hearing date, `LegalSource` retrieval from a curated corpus, verify status. |
 | `gaps` | **agent loop** | Gap agent checks the form and evidence for what's missing, drafts tenant requests in the tenant's language. |
-| `draft` | **agent loop** | Form agent fills the fields still missing from the evidence: each value is copied from a verified citation and saved as `needs_confirmation`. The narrative is built from accepted events. Planned as deterministic; changed in #40 because the extracted facts carry no field key. |
+| `draft` | **agent loop** | Form agent fills the fields still missing from the evidence: each value is copied from a verified citation and saved as `needs_confirmation`. The narrative is built from accepted events. Planned as deterministic; changed in #40 because the extracted facts carry no field key. It runs before `gaps`, so the tenant is asked only for what the evidence does not say. |
 
 **Agent tools** (read-only or draft-only; no tool can send, delete or reach the internet):
 

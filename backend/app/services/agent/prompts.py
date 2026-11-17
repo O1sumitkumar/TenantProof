@@ -66,7 +66,7 @@ def timeline_run_note(nonce: str) -> str:
 
 # --------------------------------------------------------------------------- the gaps step
 
-GAPS_PROMPT_VERSION = "gaps-v4"
+GAPS_PROMPT_VERSION = "gaps-v5"
 GAPS_TOOLS = [
     "list_evidence", "read_evidence", "get_metadata", "search_facts", "list_form_fields",
     "search_legal_sources", "create_gap", "draft_tenant_message", "ask_caseworker", "finish",
@@ -99,7 +99,8 @@ them. Do not create those again. Add a gap only for something the evidence shows
 misses.
 2. Read before you write: list_form_fields, then list_evidence and read_evidence for the items \
 that matter. Use search_facts for what was already extracted and search_legal_sources when a gap \
-rests on a rule.
+rests on a rule. The form step ran before you: a field marked needs_confirmation already has a \
+value taken from the evidence, and the caseworker confirms it. Never ask the tenant for it.
 3. For every open gap that the tenant can fix, call draft_tenant_message once: in the tenant's \
 language for `message`, with the same text in English for `message_en`. Keep it short and plain, \
 about a grade-6 reading level, in a polite second person. Write it in your own words. Quote \

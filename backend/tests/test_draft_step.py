@@ -10,7 +10,7 @@ from sqlmodel import Session, col, select
 from app.models import ActivityRow, CaseRow, EvidenceRow, FormFieldRow, GapRow, RunRow
 from app.services.agent import prompts, runner
 from app.services.agent import tools as t
-from app.services.legal import gaps
+from app.services.legal import gap_checks, gaps
 from tests.agent_support import (
     CASE,
     LEASE,
@@ -444,3 +444,20 @@ def test_a_rerun_after_confirmation_leaves_the_caseworkers_value(fresh_db, sessi
     row = field(session, "landlord_name")
     assert (row.status, row.value) == ("user_entered", "HL Ltd.")
     assert draft_step(done)["summary"] == "Tried. (0 fields filled, 1 attempts rejected)"
+
+
+def test_draft_runs_before_gaps_so_a_filled_field_gets_no_missing_gap(fresh_db, session):
+    """The gaps step's missing-field check runs after the form agent: a field it drafted from the
+    evidence waits for the caseworker, and the tenant is never asked for it."""
+    order = list(runner.IMPLEMENTED_STEPS)
+    assert order.index("draft") < order.index("gaps")
+    assert list(runner.STEP_LABELS).index("draft") < list(runner.STEP_LABELS).index("gaps")
+    live = session.get(CaseRow, LIVE)
+    assert live is not None
+    gaps.ensure_form_fields(session, live)
+    row = field(session, "landlord_name", LIVE)
+    row.status, row.value = "needs_confirmation", "Harbour Ltd."
+    session.add(row)
+    session.commit()
+    keys = {spec.field_key for spec in gap_checks.specs(gaps.case_facts(session, live))}
+    assert "landlord_name" not in keys and "landlord_address" in keys
