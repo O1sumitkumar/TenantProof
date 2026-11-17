@@ -3,7 +3,7 @@ from functools import lru_cache
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _MODEL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$")
@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # evidence text sent to the model go to this host, so only https (or plain http to
     # localhost, for a local proxy) is accepted.
     anthropic_base_url: str = ""
+    # Seconds one analysis run may take, all steps together. When it passes, the step in progress
+    # ends with what it has and the later steps do not run. One model call stays capped at 60 s.
+    run_budget_s: float = Field(default=180.0, ge=10, le=900)
     # Session cookie. Secure must stay true anywhere but plain-http localhost (compose sets false).
     cookie_secure: bool = True
     session_ttl_hours: int = 12
