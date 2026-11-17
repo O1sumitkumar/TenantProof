@@ -271,6 +271,11 @@ textarea.field{min-height:72px;resize:vertical}
 .draft-h{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--accent)}
 .draft-msg{background:var(--surface);border-radius:5px;padding:10px 12px;font-size:14.5px;margin:0}
 .draft-en{font-size:13px;color:var(--ink-2);margin:0}
+.draft-l{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;color:var(--ink-2)}
+.draft-l textarea{font-weight:400;font-size:14.5px;color:var(--ink)}
+.phone .req-en{margin-top:6px;font-size:13px}
+.phone .req-en summary{cursor:pointer;color:var(--ink-2)}
+.phone .req-en p{margin:4px 0 0}
 .sources{list-style:none;margin:0;padding:0}
 .sources li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 14px;padding:12px 16px;border-top:1px solid var(--line);align-items:start}
 .sources li:first-child{border-top:0}
@@ -444,7 +449,7 @@ const ENDPOINTS = {
   evidence: ["GET /cases/{id}/evidence", "POST /cases/{id}/evidence (multipart)", "POST /cases/{id}/intake-link"],
   run: ["POST /cases/{id}/runs", "GET /cases/{id}/runs/latest", "GET /runs/{run_id}  (poll)", "POST /runs/{run_id}/answer"],
   timeline: ["GET /cases/{id}/timeline", "PATCH /timeline/{event_id}"],
-  gaps: ["GET /cases/{id}/gaps", "PATCH /gaps/{gap_id}", "POST /gaps/{gap_id}/tenant-request", "GET /cases/{id}/sources"],
+  gaps: ["GET /cases/{id}/gaps", "PATCH /gaps/{gap_id}", "POST /gaps/{gap_id}/tenant-request", "POST /gaps/{gap_id}/tenant-request/translate", "GET /cases/{id}/sources"],
   form: ["GET /cases/{id}/form-draft", "PATCH /cases/{id}/form-draft/fields/{key}"],
   package: ["POST /cases/{id}/package", "GET /cases/{id}/activity"],
   intake: ["GET /intake/{token}", "POST /intake/{token}/files (multipart)", "POST /intake/{token}/submit"]
@@ -612,10 +617,19 @@ function mockRoute(method, path, body) {
     log("caseworker", `${{ resolved: "Resolved", dismissed: "Dismissed", open: "Reopened" }[g.status]} “${g.title}”`);
     return clone(g);
   }
+  if (method === "POST" && (m = path.match(/^\/gaps\/(gap_\w+)\/tenant-request\/translate$/))) {  /* #48: mock only, no model */
+    const g = db.gaps.find(x => x.id === m[1]);
+    return clone({ message: body.message_en === g.tenant_request.message_en ? g.tenant_request.message : `（演示模式，未翻译）${body.message_en}` });
+  }
   if (method === "POST" && (m = path.match(/^\/gaps\/(gap_\w+)\/tenant-request$/))) {
     const g = db.gaps.find(x => x.id === m[1]);
+    if (body && (body.message !== g.tenant_request.message || body.message_en !== g.tenant_request.message_en)) {  /* #48 */
+      Object.assign(g.tenant_request, { message: body.message, message_en: body.message_en });
+      log("caseworker", `Edited the request to the tenant: “${g.title}”`);
+    }
     g.status = "waiting_tenant"; g.resolution_note = `Request sent to ${db.case.tenant.name} through the intake link`;
-    db.intakeRequests.push({ id: g.id, message: g.tenant_request.message });
+    db.intakeRequests = db.intakeRequests.filter(r => r.id !== g.id);
+    db.intakeRequests.push({ id: g.id, message: g.tenant_request.message, message_en: g.tenant_request.message_en });
     log("caseworker", `Approved and sent a request to the tenant: “${g.title}”`);
     return clone(g);
   }
@@ -682,10 +696,10 @@ async function mockUpload(path, files) {
    ===================================================================== */
 const LANGS = { en: "English", zh: "中文", fr: "Français", es: "Español", ar: "العربية" };
 const I18N = {
-  en: { title: "Share evidence for your case", intro: "{org} is helping you with the repair problem at {unit}. Upload what you have. You don't need to organize anything.", what: "What helps", items: ["Photos of the problem. Use the originals from your camera roll, not copies from chat apps.", "Your lease", "Messages or emails with your landlord", "Receipts for costs you paid"], req: "{org} asked for", choose: "Choose files", selected: "{n} file(s) selected", privacy: "Location and device data are removed before any file is analyzed by AI. Only {org} can see your files.", attest: "These files are genuine and I haven't changed what they show.", consent: "I agree to share these files with {org} for my case.", send: "Send to {org}", sent: "Sent. {org} will contact you after reviewing your files.", lang: "Language", sendHint: "To send, choose at least one file and tick both boxes above.", sendHint: "To send, choose at least one file and tick both boxes above." },
-  zh: { title: "为你的案件提交证据", intro: "{org} 正在协助处理你在 {unit} 的维修问题。把你手上的材料上传就行，不需要自己整理。", what: "有用的材料", items: ["问题的照片。请上传相册里的原图，不要用聊天软件转发的图片。", "租约", "和房东的聊天记录或邮件", "你自己垫付费用的收据"], req: "{org} 需要你补充", choose: "选择文件", selected: "已选择 {n} 个文件", privacy: "在 AI 分析之前，会先删除文件里的位置和设备信息。只有 {org} 能看到你的文件。", attest: "这些文件是真实的，我没有修改过其中的内容。", consent: "我同意把这些文件提供给 {org}，用于处理我的案件。", send: "发送给 {org}", sent: "已发送。{org} 审核文件后会联系你。", lang: "语言", sendHint: "要发送，请先选择至少一个文件，并勾选上面的两个框。", sendHint: "要发送，请先选择至少一个文件，并勾选上面的两个框。" },
-  fr: { title: "Partagez vos preuves pour votre dossier", intro: "{org} vous aide avec votre problème de réparation au {unit}. Téléversez ce que vous avez. Vous n'avez rien à organiser.", what: "Ce qui aide", items: ["Des photos du problème. Utilisez les originaux de votre galerie, pas des copies envoyées par messagerie.", "Votre bail", "Vos messages ou courriels avec le propriétaire", "Les reçus des dépenses que vous avez payées"], req: "{org} vous demande", choose: "Choisir des fichiers", selected: "{n} fichier(s) sélectionné(s)", privacy: "Les données de localisation et d'appareil sont retirées avant toute analyse par l'IA. Seul {org} peut voir vos fichiers.", attest: "Ces fichiers sont authentiques et je n'ai pas modifié ce qu'ils montrent.", consent: "J'accepte de partager ces fichiers avec {org} pour mon dossier.", send: "Envoyer à {org}", sent: "Envoyé. {org} vous contactera après avoir examiné vos fichiers.", lang: "Langue", sendHint: "Pour envoyer, choisissez au moins un fichier et cochez les deux cases ci-dessus.", sendHint: "Pour envoyer, choisissez au moins un fichier et cochez les deux cases ci-dessus." },
-  es: { title: "Comparta pruebas para su caso", intro: "{org} le está ayudando con su problema de reparación en {unit}. Suba lo que tenga. No necesita organizar nada.", what: "Lo que ayuda", items: ["Fotos del problema. Use las originales de su galería, no copias de aplicaciones de chat.", "Su contrato de arrendamiento", "Mensajes o correos con su arrendador", "Recibos de gastos que usted pagó"], req: "{org} le pide", choose: "Elegir archivos", selected: "{n} archivo(s) seleccionado(s)", privacy: "Los datos de ubicación y del dispositivo se eliminan antes de que la IA analice cualquier archivo. Solo {org} puede ver sus archivos.", attest: "Estos archivos son auténticos y no he cambiado lo que muestran.", consent: "Acepto compartir estos archivos con {org} para mi caso.", send: "Enviar a {org}", sent: "Enviado. {org} se comunicará con usted después de revisar sus archivos.", lang: "Idioma", sendHint: "Para enviar, elija al menos un archivo y marque las dos casillas de arriba." }
+  en: { showEn: "Show in English", title: "Share evidence for your case", intro: "{org} is helping you with the repair problem at {unit}. Upload what you have. You don't need to organize anything.", what: "What helps", items: ["Photos of the problem. Use the originals from your camera roll, not copies from chat apps.", "Your lease", "Messages or emails with your landlord", "Receipts for costs you paid"], req: "{org} asked for", choose: "Choose files", selected: "{n} file(s) selected", privacy: "Location and device data are removed before any file is analyzed by AI. Only {org} can see your files.", attest: "These files are genuine and I haven't changed what they show.", consent: "I agree to share these files with {org} for my case.", send: "Send to {org}", sent: "Sent. {org} will contact you after reviewing your files.", lang: "Language", sendHint: "To send, choose at least one file and tick both boxes above.", sendHint: "To send, choose at least one file and tick both boxes above." },
+  zh: { showEn: "显示英文", title: "为你的案件提交证据", intro: "{org} 正在协助处理你在 {unit} 的维修问题。把你手上的材料上传就行，不需要自己整理。", what: "有用的材料", items: ["问题的照片。请上传相册里的原图，不要用聊天软件转发的图片。", "租约", "和房东的聊天记录或邮件", "你自己垫付费用的收据"], req: "{org} 需要你补充", choose: "选择文件", selected: "已选择 {n} 个文件", privacy: "在 AI 分析之前，会先删除文件里的位置和设备信息。只有 {org} 能看到你的文件。", attest: "这些文件是真实的，我没有修改过其中的内容。", consent: "我同意把这些文件提供给 {org}，用于处理我的案件。", send: "发送给 {org}", sent: "已发送。{org} 审核文件后会联系你。", lang: "语言", sendHint: "要发送，请先选择至少一个文件，并勾选上面的两个框。", sendHint: "要发送，请先选择至少一个文件，并勾选上面的两个框。" },
+  fr: { showEn: "Afficher en anglais", title: "Partagez vos preuves pour votre dossier", intro: "{org} vous aide avec votre problème de réparation au {unit}. Téléversez ce que vous avez. Vous n'avez rien à organiser.", what: "Ce qui aide", items: ["Des photos du problème. Utilisez les originaux de votre galerie, pas des copies envoyées par messagerie.", "Votre bail", "Vos messages ou courriels avec le propriétaire", "Les reçus des dépenses que vous avez payées"], req: "{org} vous demande", choose: "Choisir des fichiers", selected: "{n} fichier(s) sélectionné(s)", privacy: "Les données de localisation et d'appareil sont retirées avant toute analyse par l'IA. Seul {org} peut voir vos fichiers.", attest: "Ces fichiers sont authentiques et je n'ai pas modifié ce qu'ils montrent.", consent: "J'accepte de partager ces fichiers avec {org} pour mon dossier.", send: "Envoyer à {org}", sent: "Envoyé. {org} vous contactera après avoir examiné vos fichiers.", lang: "Langue", sendHint: "Pour envoyer, choisissez au moins un fichier et cochez les deux cases ci-dessus.", sendHint: "Pour envoyer, choisissez au moins un fichier et cochez les deux cases ci-dessus." },
+  es: { showEn: "Ver en inglés", title: "Comparta pruebas para su caso", intro: "{org} le está ayudando con su problema de reparación en {unit}. Suba lo que tenga. No necesita organizar nada.", what: "Lo que ayuda", items: ["Fotos del problema. Use las originales de su galería, no copias de aplicaciones de chat.", "Su contrato de arrendamiento", "Mensajes o correos con su arrendador", "Recibos de gastos que usted pagó"], req: "{org} le pide", choose: "Elegir archivos", selected: "{n} archivo(s) seleccionado(s)", privacy: "Los datos de ubicación y del dispositivo se eliminan antes de que la IA analice cualquier archivo. Solo {org} puede ver sus archivos.", attest: "Estos archivos son auténticos y no he cambiado lo que muestran.", consent: "Acepto compartir estos archivos con {org} para mi caso.", send: "Enviar a {org}", sent: "Enviado. {org} se comunicará con usted después de revisar sus archivos.", lang: "Idioma", sendHint: "Para enviar, elija al menos un archivo y marque las dos casillas de arriba." }
 };
 
 /* =====================================================================
@@ -853,7 +867,7 @@ function renderChrome() {
 function resetCaseState() {
   clearInterval(poller);
   S.intake.view = null; S.pkg = null; S.pkgError = null; S.run = null;
-  S.editing = null; S.drafting = null; S.askError = ""; S.askDraft = "";
+  S.editing = null; S.drafting = null; S.draftEdit = null; S.draftError = ""; S.askError = ""; S.askDraft = "";
   S.attest = { reviewed_fields: false, remedy_confirmed_with_tenant: false, explained_not_legal_advice: false };
 }
 const NEW_CASE_LANGS = ["en", "zh", "fr", "es"];  // the languages the tenant page has text for
@@ -1014,6 +1028,56 @@ function viewTimeline() {
     <ol class="tl">${items}</ol>${contract("timeline", S.timeline)}`;
 }
 
+/* #48: editRequest:start. The request to the tenant, editable before it is sent. The English is
+   translated by one model call (POST /gaps/{id}/tenant-request/translate), or the caseworker writes
+   the tenant's language themselves. Both go through the same checks as the agent's draft. */
+function startDraft(g) {
+  const r = g.tenant_request;
+  S.drafting = g.id; S.draftError = "";
+  S.draftEdit = { id: g.id, en: r.message_en, msg: r.message, pairEn: r.message_en, busy: false };
+}
+const isEnglish = lang => (lang || "").toLowerCase().split("-")[0] === "en";
+const draftStale = d => d.en.trim() !== d.pairEn.trim();
+function draftBox(g) {
+  const d = S.draftEdit, lang = g.tenant_request.language, name = LANGS[lang] || lang, en = isEnglish(lang);
+  const edited = d.en !== g.tenant_request.message_en || d.msg !== g.tenant_request.message;
+  return `<div class="draft"><span class="draft-h">Request to ${esc(S.case.tenant.name)} · ${esc(name)} · ${edited ? "edited by you" : "written by the agent"}</span>
+    <label class="draft-l">English${en ? "" : " (what you mean)"}<textarea class="field" id="draft-en-${g.id}" data-draft="en" maxlength="1500" rows="3" ${d.busy ? "readonly" : ""}>${esc(d.en)}</textarea></label>
+    ${en ? "" : `<div class="btn-row"><button class="btn small" data-action="translate-draft" data-id="${g.id}" ${d.busy ? "disabled" : ""}>${d.busy ? "Translating…" : `Translate into ${esc(name)}`}</button></div>
+    <label class="draft-l">${esc(name)} (what the tenant reads first)<textarea class="field" id="draft-msg-${g.id}" data-draft="msg" lang="${esc(lang)}" maxlength="3000" rows="3" ${d.busy ? "readonly" : ""}>${esc(d.msg)}</textarea></label>
+    <p class="muted draft-stale" ${draftStale(d) ? "" : "hidden"}>You changed the English after the ${esc(name)} text was written. Translate again, or change the ${esc(name)} text yourself.</p>`}
+    ${S.draftError ? `<div class="note bad"><span class="note-ico">×</span><span>${esc(S.draftError)}</span></div>` : ""}
+    <p class="muted" style="margin:0">${en ? "The tenant reads this text." : `The tenant sees the ${esc(name)} text, with the English under “Show in English”.`} Quotes from the evidence must be word for word, in quotation marks.</p>
+    <div class="btn-row"><button class="btn primary small" data-action="send-request" data-id="${g.id}" ${d.busy ? "disabled" : ""}>Approve and send through intake link</button><button class="btn small" data-action="cancel-draft">Cancel</button></div></div>`;
+}
+document.addEventListener("input", ev => {
+  const t = ev.target, d = S.draftEdit;
+  if (!t.dataset || !t.dataset.draft || !d) return;
+  if (t.dataset.draft === "en") d.en = t.value;
+  else { d.msg = t.value; d.pairEn = d.en; }  // written by hand: it now goes with this English
+  const hint = t.closest(".draft") && t.closest(".draft").querySelector(".draft-stale");
+  if (hint) hint.hidden = !draftStale(d);
+});
+async function translateDraft(id) {
+  const d = S.draftEdit; if (!d || d.busy) return;
+  d.busy = true; S.draftError = ""; render();
+  const asked = d.en;  // the reply translates this English, even if the box changed meanwhile
+  try { const r = await request("POST", `/gaps/${id}/tenant-request/translate`, { message_en: asked }); d.msg = r.message; d.pairEn = asked; }
+  catch (err) { S.draftError = err.message; }
+  d.busy = false; render();
+}
+async function sendDraft(id) {
+  const d = S.draftEdit, g = S.gaps.find(x => x.id === id); if (!d || !g || d.busy) return;
+  const en = isEnglish(g.tenant_request.language);
+  if (!en && draftStale(d)) { S.draftError = "The English and the tenant's text no longer match. Translate again, or change the tenant's text, before sending."; render(); return; }
+  d.busy = true; S.draftError = ""; render();
+  try {
+    await request("POST", `/gaps/${id}/tenant-request`, { message: en ? d.en : d.msg, message_en: d.en });
+    S.drafting = null; S.draftEdit = null; toast("Sent to the tenant's intake page"); await refresh(["gaps", "intake", "activity"]);
+  } catch (err) { d.busy = false; S.draftError = err.message; render(); }
+}
+/* editRequest:end */
+
 function viewGaps() {
   const src = id => S.sources.find(s => s.id === id);
   const gapCard = g => {
@@ -1021,9 +1085,7 @@ function viewGaps() {
     let input = "";
     if (open && g.input && g.input.type === "text") input = `<form class="gap-input" data-action="resolve-text" data-id="${g.id}"><input class="field" id="gap-in-${g.id}" name="value" placeholder="${esc(g.input.placeholder)}" required><button class="btn primary small" type="submit">Save</button></form>`;
     if (open && g.input && g.input.type === "choice") input = `<form data-action="resolve-choice" data-id="${g.id}" style="display:grid;gap:10px"><span class="muted">Record the tenant's choice:</span><div class="choices">${g.input.options.map((o, i) => `<label><input type="checkbox" id="gap-${g.id}-${i}" name="opt" value="${esc(o)}">${esc(o)}</label>`).join("")}</div><div class="btn-row"><button class="btn primary small" type="submit">Save tenant's choice</button></div></form>`;
-    const draft = open && g.tenant_request && S.drafting === g.id ? `<div class="draft"><span class="draft-h">Draft to ${esc(S.case.tenant.name)} · ${esc(LANGS[g.tenant_request.language])} · written by the agent</span>
-        <p class="draft-msg" lang="${esc(g.tenant_request.language)}">${esc(g.tenant_request.message)}</p><p class="draft-en"><b>English:</b> ${esc(g.tenant_request.message_en)}</p>
-        <div class="btn-row"><button class="btn primary small" data-action="send-request" data-id="${g.id}">Approve and send through intake link</button><button class="btn small" data-action="cancel-draft">Cancel</button></div></div>` : "";
+    const draft = open && g.tenant_request && S.drafting === g.id ? draftBox(g) : "";
     const status = g.status === "resolved" ? `<span class="pill ok">Resolved</span>` : g.status === "dismissed" ? `<span class="pill plain">Dismissed</span>` : g.status === "waiting_tenant" ? `<span class="pill info">Waiting for tenant</span>` : g.severity === "blocking" ? `<span class="pill bad">Required</span>` : `<span class="pill warn">Suggested</span>`;
     const acts = [];
     if (open && g.tenant_request && S.drafting !== g.id) acts.push(`<button class="btn small" data-action="draft" data-id="${g.id}">Ask tenant</button>`);
@@ -1106,7 +1168,7 @@ function viewIntake() {
   const v = S.intake.view; if (!v) return "<p>Loading…</p>";
   if (v.noLink) return `<div class="view-head"><div><h1>Tenant view</h1><p>Send the intake link first, then you can preview what the tenant sees. For security the link is only shown when it is created.</p></div></div><div class="btn-row"><button class="btn primary" type="button" data-action="resend">Send intake link</button></div>`;
   const lang = S.intake.lang || v.language, t = I18N[lang] || I18N.en, vars = { org: v.org_name, unit: v.unit };
-  const reqs = v.requests.map(r => `<div class="req"><b>${esc(tpl(t.req, vars))}</b>${esc(r.message ?? "")}</div>`).join("");
+  const reqs = v.requests.map(r => `<div class="req"><b>${esc(tpl(t.req, vars))}</b>${esc(r.message ?? "")}${r.message_en && r.message_en !== r.message ? `<details class="req-en"><summary>${esc(t.showEn)}</summary><p lang="en">${esc(r.message_en)}</p></details>` : ""}</div>`).join("");  /* #48: the English too */
   const body = S.intake.sent ? `<div class="done">${esc(tpl(t.sent, vars))}</div>` : `
       <p>${esc(tpl(t.intro, vars))}</p>${reqs}
       <div><strong style="font-size:14.5px">${esc(t.what)}</strong><ul>${t.items.map(i => `<li>${esc(i)}</li>`).join("")}</ul></div>
@@ -1261,9 +1323,10 @@ document.addEventListener("click", async ev => {
     for (const e of S.timeline.filter(e => e.review_status === "pending" && e.strength !== "needs_support")) await request("PATCH", `/timeline/${e.id}`, { review_status: "accepted" });
     toast("Accepted. Events that need support were left for you."); await refresh(["timeline", "form"]);
   }
-  if (a === "draft") { S.drafting = id; render(); }
-  if (a === "cancel-draft") { S.drafting = null; render(); }
-  if (a === "send-request") { await request("POST", `/gaps/${id}/tenant-request`); S.drafting = null; toast("Sent to the tenant's intake page"); await refresh(["gaps", "intake"]); }
+  if (a === "draft") { const g = S.gaps.find(x => x.id === id); if (g && g.tenant_request) { startDraft(g); render(); const el = document.getElementById(`draft-en-${id}`); el && el.focus(); } }  /* #48 */
+  if (a === "cancel-draft") { S.drafting = null; S.draftEdit = null; S.draftError = ""; render(); }
+  if (a === "translate-draft") return translateDraft(id);
+  if (a === "send-request") return sendDraft(id);
   if (a === "gap") { const st = b.dataset.status; await request("PATCH", `/gaps/${id}`, { status: st, resolution_note: st === "resolved" ? "Marked done" : st === "dismissed" ? "Dismissed by caseworker" : null }); await refresh(["gaps", "form", "intake"]); }
   if (a === "build") {
     try { S.pkg = await request("POST", `${C}/package`, { attestations: S.attest }); S.pkgError = null; toast("Package built"); }

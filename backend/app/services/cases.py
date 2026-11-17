@@ -31,7 +31,7 @@ LABELS = {
 ANGLES = ("<", "＜", "﹤")
 
 
-def _clean(value: str, limit: int) -> str:
+def clean_typed(value: str, limit: int) -> str:
     """No control characters (`clean_text`) and no invisible format characters (zero-width
     spaces, the byte-order mark, bidi overrides that reverse how text displays)."""
     visible = "".join(ch for ch in value if unicodedata.category(ch) != "Cf")
@@ -42,10 +42,10 @@ def cleaned(body: CaseCreate) -> dict[str, str]:
     """The typed text, cleaned like any text a model reads later (the title and the tenant name go
     into the agent's prompts and the filing package). With "<" refused first (`problems`), the
     cleaning only removes characters, so nothing grows past its limit."""
-    return {key: _clean(getattr(body, key), limit) for key, limit in LIMITS.items()}
+    return {key: clean_typed(getattr(body, key), limit) for key, limit in LIMITS.items()}
 
 
-def _blank(value: str) -> bool:
+def blank(value: str) -> bool:
     return not any(ch.isprintable() and not ch.isspace() for ch in value)
 
 
@@ -57,7 +57,7 @@ def problems(body: CaseCreate) -> list[str]:
     for key in LIMITS:
         if any(angle in getattr(body, key) for angle in ANGLES):
             reasons.append(f"{LABELS[key]}: remove the < character")
-        elif _blank(text[key]):
+        elif blank(text[key]):
             reasons.append(f"{LABELS[key]}: enter some text")
     return reasons
 

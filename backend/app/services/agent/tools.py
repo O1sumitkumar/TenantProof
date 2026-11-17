@@ -820,16 +820,18 @@ def _quoted_spans(text: str) -> list[str]:
     return [m.group(1) for pattern in QUOTE_SPAN for m in pattern.finditer(text)]
 
 
-def _case_pages(ctx: ToolContext) -> list[tuple[str, dict[str, str]]]:
+def case_pages(
+    session: Session, texts: EvidenceTextStore, case_id: str
+) -> list[tuple[str, dict[str, str]]]:
     """Every page of this case's evidence, as (evidence id, locator -> text). Never leaves the
-    server: the draft checks read it, nothing here is returned to the model."""
-    return [
-        (row.id, {p.locator: p.text for p in ctx.texts.pages(ctx.case_id, row.id)})
-        for row in _case_evidence(ctx)
-    ]
+    server: the draft checks read it (the tool's, and the caseworker's edit, #48), nothing here
+    is returned to the model."""
+    stmt = select(EvidenceRow).where(EvidenceRow.case_id == case_id)
+    rows = session.exec(stmt.order_by(col(EvidenceRow.position))).all()
+    return [(row.id, {p.locator: p.text for p in texts.pages(case_id, row.id)}) for row in rows]
 
 
-def _copy_problem(text: str, pages: list[tuple[str, dict[str, str]]]) -> str | None:
+def copy_problem(text: str, pages: list[tuple[str, dict[str, str]]]) -> str | None:
     """Why `text` may not go to the tenant, or None. Quotes must verify against this case's
     evidence; copying a long run without quotes is refused."""
     quoted = _quoted_spans(text)
@@ -930,9 +932,9 @@ class DraftTenantMessage(BaseTool):
         # No control characters or "<" in what the caseworker reads and the tenant may be sent.
         message = clean_text(args.message, MESSAGE_MAX * 4)
         message_en = clean_text(args.message_en, MESSAGE_MAX * 4)
-        pages = _case_pages(ctx)
+        pages = case_pages(ctx.session, ctx.texts, case.id)
         for text in (message, message_en):
-            problem = _copy_problem(text, pages)
+            problem = copy_problem(text, pages)
             if problem is not None:
                 return ToolError(tool=self.name, kind="invalid_input", message=problem)
         wrong_language = language_problem(case.tenant_language, message, message_en)
