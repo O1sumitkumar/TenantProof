@@ -80,3 +80,32 @@ def test_only_an_svg_data_uri_is_used_as_the_qr_image() -> None:
         for q in ["javascript:alert(1)", "https://evil.example/qr.svg", "data:text/html,x", 7]
     ]
     assert shown(*calls, fn="sessionQr") == [None, None, None, None]
+
+
+# The Tenant view previews one case's tenant page, so it is reached from inside a case (the case
+# rail and the Evidence page), never from the top bar, where no case is named.
+
+
+def _function_body(html: str, name: str) -> str:
+    start = html.index(f"function {name}(")
+    return html[start:html.index("\n}\n", start)]
+
+
+def test_the_top_bar_has_no_tenant_view_link() -> None:
+    chrome = _function_body(INDEX.read_text(encoding="utf-8"), "renderChrome")
+    topnav = next(line for line in chrome.splitlines() if '$("#topnav").innerHTML = `' in line
+                  and "TENANT_MODE" not in line)
+    assert "#intake" not in topnav and "Tenant view" not in topnav
+
+
+def test_the_case_rail_links_to_the_tenant_view() -> None:
+    html = INDEX.read_text(encoding="utf-8")
+    assert 'href="#intake"' in _function_body(html, "renderChrome")
+    assert 'const IN_CASE = [...CASE_ROUTES, "intake"];' in html
+
+
+def test_re_sending_a_sent_link_asks_first() -> None:
+    html = INDEX.read_text(encoding="utf-8")
+    start = html.index('if (a === "resend")')
+    handler = html[start:html.index('request("POST", `${C}/intake-link`)', start)]
+    assert 'ik.status !== "not_sent" && !confirm(' in handler
