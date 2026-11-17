@@ -6,10 +6,11 @@ nothing to be "done", so the check is neutral grey "Nothing yet", not a green ti
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+
+from tests.node_support import node_json
 
 INDEX = Path(__file__).resolve().parents[2] / "web" / "index.html"
 BLOCK = re.compile(r"/\* pure:start.*?\*/(.*?)/\* pure:end \*/", re.S)
@@ -28,8 +29,7 @@ def js(expr: str) -> object:
     match = BLOCK.search(INDEX.read_text(encoding="utf-8"))
     assert match, "pure block not found in web/index.html"
     script = match.group(1) + f"\nconsole.log(JSON.stringify({expr}));"
-    out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
-    return json.loads(out.stdout)
+    return node_json(script)
 
 
 def rail(st: dict, files: int = 0) -> dict:

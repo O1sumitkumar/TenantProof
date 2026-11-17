@@ -23,13 +23,15 @@ Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to 
 
 ## In progress
 
-Open draft PRs into `dev` (2026-11-15), all Lameda12's. None of them waits on WS1.
+Open draft PRs into `dev` (2026-11-15), Lameda12's unless noted. None of them waits on WS1.
 
 | PR | Area | What | Depends on |
 |---|---|---|---|
+| `NineJZ356/fix-36-node-utf8` (NineJZ356) | tests | Issue #36: the tests that run `web/index.html` under node read its output as UTF-8 (`tests/node_support.py`), so they pass on a Chinese Windows (cp936) without `PYTHONUTF8`. `tests/test_subprocess_encoding.py` fails on any subprocess call under `backend/` with `text=True` and no `encoding=` | none. `test_intake_link.py` on #38's branch got the same `encoding="utf-8"` (`fddb08b`), so the check passes whichever merges first |
 | #21 | WS3 | Prompt caching on the Anthropic provider (`services/agent/`) | none |
 | #22 | infra | `make up` without an API key and with a broken IPv6 resolver (Dockerfile, compose) | none |
 | #23 | demo | Synthetic demo files for the live run (`demo/landlord_repair_notice.pdf`, `demo/chat_zh.txt`, a stock photo kept out of git) and an empty seeded case `case_live_001` | WS1 uploads (merged) |
+| `NineJZ356/fix-38-intake-link` (NineJZ356) | UI | Issue #38: the Tenant view shows the new intake link and a Copy button right after "Send intake link"; Copy selects the link when the clipboard is blocked | none |
 
 Open issues: #9 (tell tenants that original photos, GPS included, go into the package), #10 (about 500 MB can be spooled to disk before the intake token is checked; WS2), #11 (Big5 and GBK TXT outside GB2312 get 415). #13, #14 and #4 track WS3 work that looks done but is not closed. WS2 and WS5 are unassigned.
 
