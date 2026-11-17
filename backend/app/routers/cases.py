@@ -2,6 +2,7 @@ from collections.abc import Mapping
 from datetime import UTC, date, datetime
 from typing import Annotated, Any
 
+import segno
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from pydantic import ValidationError
 
@@ -79,6 +80,12 @@ def get_case(case: CaseDep, session: SessionDep) -> Case:
     return to_case(case, assignee.name if assignee else "")
 
 
+def qr_data_uri(url: str) -> str:
+    """#56: the link as a QR code, an SVG data URI. Black on white with the standard 4-module
+    margin, so a phone can scan it from a dark screen too."""
+    return segno.make(url, error="m").svg_data_uri(scale=4, border=4, dark="#000", light="#fff")
+
+
 @router.post("/cases/{case_id}/intake-link", response_model=Intake)
 def send_intake_link(
     case: CaseDep,
@@ -99,4 +106,5 @@ def send_intake_link(
     session.add(case)
     session.commit()
     session.refresh(case)
-    return to_intake(case, url=f"{settings.public_base_url}/i/{token}")
+    url = f"{settings.public_base_url}/i/{token}"
+    return to_intake(case, url=url, qr_svg=qr_data_uri(url))

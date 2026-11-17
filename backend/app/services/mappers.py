@@ -49,10 +49,12 @@ def iso_req(dt: datetime) -> str:
     return iso(dt) or ""
 
 
-def to_intake(case: CaseRow, url: str | None = None) -> Intake:
+def to_intake(case: CaseRow, url: str | None = None, qr_svg: str | None = None) -> Intake:
+    """`url` and `qr_svg` only for the response that issues the link; None everywhere else."""
     return Intake.model_validate(
         {
             "url": url,
+            "qr_svg": qr_svg,
             "status": case.intake_status,
             "sent_at": iso(case.intake_sent_at),
             "last_upload_at": iso(case.intake_last_upload_at),
