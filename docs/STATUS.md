@@ -23,13 +23,13 @@ Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to 
 
 ## In progress
 
-Open draft PRs into `dev` (2026-11-15), all Lameda12's. None of them waits on WS1.
+Open draft PRs into `dev` (2026-11-16), all opoeci6's. (#21, #22 and #23 are merged.)
 
 | PR | Area | What | Depends on |
 |---|---|---|---|
-| #21 | WS3 | Prompt caching on the Anthropic provider (`services/agent/`) | none |
-| #22 | infra | `make up` without an API key and with a broken IPv6 resolver (Dockerfile, compose) | none |
-| #23 | demo | Synthetic demo files for the live run (`demo/landlord_repair_notice.pdf`, `demo/chat_zh.txt`, a stock photo kept out of git) and an empty seeded case `case_live_001` | WS1 uploads (merged) |
+| #42 | WS3 (#40) | The `draft` step: an agent fills missing form fields from verified quotes, as `needs_confirmation`; a Confirm button on the form | the `schema:` PR below, for its contract rows |
+| `schema:` | shared files | `CaseCreate` and `POST /cases` in the contract; CONTRACT_CHANGES #35 (`POST /cases`), #36 (the `draft` step and how a field is saved), two UI exceptions waiting for team approval | none |
+| New case (#41) | caseload | `POST /cases` (`routers/cases.py`, `services/cases.py`), the "New case" form on the caseload, "Not sent yet" and "Send intake link" for a case whose link was never sent | the `schema:` PR |
 
 Open issues: #9 (tell tenants that original photos, GPS included, go into the package), #10 (about 500 MB can be spooled to disk before the intake token is checked; WS2), #11 (Big5 and GBK TXT outside GB2312 get 415). #13, #14 and #4 track WS3 work that looks done but is not closed. WS2 and WS5 are unassigned.
 

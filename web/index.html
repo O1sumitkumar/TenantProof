@@ -91,6 +91,9 @@ main{min-width:0;display:flex;flex-direction:column;gap:20px}
 .view-head p{margin:4px 0 0;color:var(--ink-2);max-width:64ch}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
 .panel-pad{padding:18px}
+/* --- new case (#41) --- */
+.new-case{display:grid;gap:12px;max-width:560px;margin:0 0 16px}.new-case label{display:grid;gap:4px;font-weight:600;font-size:13.5px}.nc-actions{display:flex;gap:8px;flex-wrap:wrap}
+/* --- end new case --- */
 .note{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;color:var(--ink-2);background:var(--surface-2);border-radius:var(--r);padding:10px 12px}
 .note b{color:var(--ink)}
 .note.warn{background:var(--warn-soft);color:var(--ink)}
@@ -582,6 +585,7 @@ function mockRoute(method, path, body) {
   const C = `/cases/${CASE_ID}`;
   if (method === "GET" && path === "/me") return clone(ME);
   if (method === "GET" && path === "/cases") return clone(caseload());
+  if (method === "POST" && path === "/cases") return mockNewCase(body);  /* #41 */
   if (method === "GET" && path === C) return clone(db.case);
   if (method === "POST" && path === `${C}/intake-link`) { db.case.intake.sent_at = new Date().toISOString(); log("caseworker", "Re-sent the intake link in 中文"); return clone(db.case.intake); }
   if (method === "GET" && path === `${C}/evidence`) return clone(db.evidence);
@@ -835,13 +839,50 @@ function renderChrome() {
   $("#rail").innerHTML = `<a class="rail-back" href="#cases">← Caseload</a><div class="rail-label">Case workflow</div>` + items.map((it, i) => `<a class="step-link${it.done ? " is-done" : it.attn ? " is-attn" : ""}" href="#${it.id}" ${r === it.id ? 'aria-current="page"' : ""}><span class="step-no">${it.done ? "✓" : i + 1}</span><span class="step-name">${it.name}</span><span class="step-meta">${esc(it.meta)}</span></a>`).join("");
 }
 
+/* --- new case (#41): POST /cases, CONTRACT_CHANGES #35 --- */
+const NEW_CASE_LANGS = ["en", "zh", "fr", "es"];  // the languages the tenant page has text for
+function newCaseForm() {
+  const n = S.newCase; if (!n) return "";
+  const v = k => esc(n.values[k] || "");
+  const opts = NEW_CASE_LANGS.map(k => `<option value="${k}"${n.values.tenant_language === k ? " selected" : ""}>${esc(LANGS[k])}</option>`).join("");
+  return `<form class="panel panel-pad new-case" data-action="create-case" aria-labelledby="nc-h">
+    <h2 class="section-h" id="nc-h">New case</h2>
+    ${n.error ? `<div class="note bad" role="alert"><span class="note-ico">×</span><span>${esc(n.error)}</span></div>` : ""}
+    <label>Tenant name<input class="field" name="tenant_name" maxlength="120" required autocomplete="off" value="${v("tenant_name")}"></label>
+    <label>Preferred language<select class="field" name="tenant_language" required>${opts}</select></label>
+    <label>Unit address<input class="field" name="unit" maxlength="200" required autocomplete="off" value="${v("unit")}"></label>
+    <label>What is wrong<input class="field" name="title" maxlength="120" required autocomplete="off" placeholder="For example: water leak and mould in the bathroom" value="${v("title")}"></label>
+    <div class="nc-actions"><button class="btn primary" type="submit"${n.busy ? " disabled" : ""}>${n.busy ? "Creating…" : "Create case"}</button><button class="btn" type="button" data-action="cancel-new-case">Cancel</button></div>
+  </form>`;
+}
+async function createCase(form) {
+  const fd = new FormData(form);
+  const body = Object.fromEntries(["tenant_name", "tenant_language", "unit", "title"].map(k => [k, String(fd.get(k) || "").trim()]));
+  S.newCase = { values: body, busy: true, error: null }; render();
+  let made;
+  try { made = await request("POST", "/cases", body); }
+  catch (err) { S.newCase = { values: body, busy: false, error: err.message }; render(); return; }
+  S.newCase = null;
+  if (USE_MOCK) { await refresh(["cases"]); render(); toast("Case added to the caseload. Mock mode has one case view, so it shows as a demo row."); return; }
+  setCase(made.id); await refresh(); location.hash = "evidence"; render();
+  toast("Case created. Send the intake link to the tenant.");
+}
+function mockNewCase(body) {
+  const b = body || {}, blank = ["tenant_name", "unit", "title"].filter(k => !String(b[k] || "").trim());
+  if (blank.length || !NEW_CASE_LANGS.includes(b.tenant_language)) throw Object.assign(new Error("Fill in every field"), { status: 422 });
+  const id = `case_mock_${db.otherCases.length + 1}`;
+  db.otherCases.push({ id, tenant_name: b.tenant_name, title: b.title, unit: b.unit, dispute_type: "maintenance", stage: "waiting_tenant", next_deadline: null, open_blocking: 0, pending_review: 0, tenant_language: b.tenant_language, updated_at: new Date().toISOString(), has_demo_data: false });
+  return { id, dispute_type: "maintenance", title: b.title, unit: b.unit, assigned_to: { id: ME.id, name: ME.name }, tenant: { name: b.tenant_name, preferred_language: b.tenant_language }, intake: { url: null, status: "not_sent", sent_at: null, last_upload_at: null, tenant_attested_genuine: false, tenant_attested_at: null }, created_at: new Date().toISOString(), synthetic: true };
+}
+/* --- end new case --- */
+
 /* ---------- caseload ---------- */
 // The server says `analysed` (a completed run or an accepted/edited event). Without it, a case that
 // looks "ready to file" is really just empty. Undefined (mock data) means: say nothing.
 const notAnalysed = c => !!c && c.analysed === false && c.stage === "ready_to_file";
 function viewCases() {
   const cs = S.cases;
-  if (!cs.length) return `<div class="view-head"><div><h1>Caseload</h1><p>Your open maintenance cases appear here.</p></div></div>
+  if (!cs.length) return `<div class="view-head"><div><h1>Caseload</h1><p>Your open maintenance cases appear here.</p></div><button class="btn" data-action="new-case">New case</button></div>${newCaseForm()}
     <div class="panel panel-pad"><strong>No cases yet</strong><p class="muted">Cases assigned to you will show up here. Nothing is shared with you from other organizations.</p></div>`;
   const review = cs.filter(c => c.stage === "needs_review").length;
   const week = cs.filter(c => c._days !== null && c._days !== undefined && c._days <= 7).length;
@@ -861,7 +902,7 @@ function viewCases() {
       <span class="cl-reason">${fresh ? (openable ? "Not analysed yet. Open the case and run the analysis." : "Not analysed yet.") : `${c.priority === "high" ? "High priority: " : ""}${esc(c.priority_reason)}`}</span>
     </${tag}>`;
   }).join("");
-  return `<div class="view-head"><div><h1>Caseload</h1><p>Your open maintenance cases. The order follows fixed rules (received-by dates first, then required items), so you can always see why a case is on top.</p></div><button class="btn" data-action="new-case">New case</button></div>
+  return `<div class="view-head"><div><h1>Caseload</h1><p>Your open maintenance cases. The order follows fixed rules (received-by dates first, then required items), so you can always see why a case is on top.</p></div><button class="btn" data-action="new-case">New case</button></div>${newCaseForm()}
     <div class="summary-row"><span><b>${cs.length}</b>open cases</span><span><b>${review}</b>need your review</span><span><b>${week}</b>must be received in 7 days</span></div>
     <div class="panel cl" role="list"><div class="cl-head"><span></span><span>Tenant · issue</span><span>Stage</span><span>Next deadline</span><span>Open items</span><span>Language</span></div>${rows}</div>
     <div class="note"><span class="note-ico">i</span><span>Rows marked <b>Demo row</b> show what a caseload looks like. They have no case view and cannot be opened.</span></div>
@@ -888,9 +929,9 @@ function viewEvidence() {
     <div class="panel panel-pad intake-panel">
       ${!(S.case.tenant.preferred_language in I18N) ? `<div class="ip-main"><span class="ip-title">Tenant intake link · ${esc(LANGS[S.case.tenant.preferred_language])}</span><span class="muted">The tenant page has no ${esc(LANGS[S.case.tenant.preferred_language])} text yet, so no link can be sent or previewed for this case.</span></div>` : `
       <div class="ip-main"><span class="ip-title">Tenant intake link · ${esc(LANGS[S.case.tenant.preferred_language])}</span>
-        <span class="muted">Sent ${fmtTime(ik.sent_at)} · last upload ${fmtTime(ik.last_upload_at)} · ${ik.tenant_attested_genuine ? `<span style="color:var(--ok)">tenant confirmed files are genuine</span>` : "not confirmed yet"}</span>
-        ${ik.url || S.lastLink ? `<span class="linkbox"><code>${esc(ik.url || S.lastLink)}</code><button class="copy" type="button" data-action="copy" data-text="${esc(ik.url || S.lastLink)}">Copy link</button></span>` : `<span class="muted">The link is shown once, when you send it. Re-send to create a new link (the old one stops working).</span>`}</div>
-      <div class="btn-row"><a class="btn" href="#intake">Open tenant view</a><button class="btn" type="button" data-action="resend">Re-send link</button></div>`}
+        <span class="muted">${ik.status === "not_sent" ? "Not sent yet" : `Sent ${fmtTime(ik.sent_at)}`} · last upload ${fmtTime(ik.last_upload_at)} · ${ik.tenant_attested_genuine ? `<span style="color:var(--ok)">tenant confirmed files are genuine</span>` : "not confirmed yet"}</span>
+        ${ik.url || S.lastLink ? `<span class="linkbox"><code>${esc(ik.url || S.lastLink)}</code><button class="copy" type="button" data-action="copy" data-text="${esc(ik.url || S.lastLink)}">Copy link</button></span>` : `<span class="muted">The link is shown once, when you send it.${ik.status === "not_sent" ? "" : " Re-send to create a new link (the old one stops working)."}</span>`}</div>
+      <div class="btn-row"><a class="btn" href="#intake">Open tenant view</a><button class="btn${ik.status === "not_sent" ? " primary" : ""}" type="button" data-action="resend">${ik.status === "not_sent" ? "Send intake link" : "Re-send link"}</button></div>`}
     </div>
     <label class="drop" id="drop" for="fileIn"><input class="file-in" type="file" id="fileIn" multiple accept="${UPLOAD_ACCEPT}"><div><strong>Add files yourself</strong><p>For files the tenant brought to the clinic. JPG, PNG, HEIC, PDF or TXT, up to 25 MB each.</p></div><span class="btn primary">Choose files</span></label>
     <div class="panel ev-list">${rows}</div>
@@ -1181,7 +1222,8 @@ document.addEventListener("click", async ev => {
   if (a === "close-brief") return closeBrief();
   if (a === "copy") { ev.preventDefault(); try { await navigator.clipboard.writeText(b.dataset.text); toast("Copied"); } catch { toast(b.dataset.text); } }
   if (a === "open-case") { const c = S.cases.find(x => x.id === id); if (c && c.has_demo_data) { if (id !== CASE_ID) { setCase(id); await refresh(); } location.hash = "timeline"; } }
-  if (a === "new-case") toast("Creating cases isn't part of this prototype yet.");
+  if (a === "new-case") { S.newCase = S.newCase || { values: {} }; render(); const first = document.querySelector("form.new-case [name=tenant_name]"); if (first) first.focus(); return; }  /* #41 */
+  if (a === "cancel-new-case") { S.newCase = null; render(); return; }
   if (a === "resend") { const r = await request("POST", `${C}/intake-link`); S.lastLink = r.url; S.intake.view = null; toast("Intake link created. Copy it now: it is only shown once."); await refresh(["case", "intake"]); }
   if (a === "run") { S.run = await request("POST", `${C}/runs`); location.hash = "run"; render(); pollRun(); }
   if (a === "review") { await request("PATCH", `/timeline/${id}`, { review_status: b.dataset.status }); S.editing = null; await refresh(["timeline", "form"]); }
@@ -1212,6 +1254,7 @@ document.addEventListener("click", async ev => {
 document.addEventListener("submit", async ev => {
   const f = ev.target; if (!f.dataset.action) return; ev.preventDefault();
   const id = f.dataset.id, a = f.dataset.action;
+  if (a === "create-case") return createCase(f);  /* #41 */
   if (a === "login") {
     const fd = new FormData(f);
     try { S.me = await request("POST", "/auth/login", { email: fd.get("email"), password: fd.get("password") }); S.needLogin = false; await ensureCase(); await refresh(); location.hash = "cases"; }
