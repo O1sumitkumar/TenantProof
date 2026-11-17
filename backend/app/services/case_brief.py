@@ -26,7 +26,7 @@ from app.models import (
     TimelineEventRow,
 )
 from app.services.mappers import OPEN_GAP, has_completed_run
-from app.services.package import NOT_ANALYSED, new_pdf
+from app.services.package import HINDI_NOTE, NOT_ANALYSED, new_pdf, pdf_text
 from app.services.verifier import normalize, verify_citation
 
 NEEDS = "NEEDS CASEWORKER VERIFICATION"
@@ -40,7 +40,7 @@ def _write(pdf: FPDF, text: str, *, bold: bool = False, size: int = 10, gap: flo
     any character."""
     cjk = any("\u2e80" <= ch <= "\u9fff" or "\uff00" <= ch <= "\uffef" for ch in text)
     pdf.set_font("NotoSans", "B" if bold else "", size)
-    pdf.multi_cell(0, size * 0.5 + 1.5, text, new_x="LMARGIN", new_y="NEXT",
+    pdf.multi_cell(0, size * 0.5 + 1.5, pdf_text(pdf, text), new_x="LMARGIN", new_y="NEXT",
                    wrapmode=WrapMode.CHAR if cjk else WrapMode.WORD)
     pdf.ln(gap)
 
@@ -260,7 +260,7 @@ def build_brief(session: Session, case: CaseRow, *, now: datetime | None = None)
     _evidence(body, evidence, events)
     _gaps(body, gaps, sources, latest)
 
-    pdf = new_pdf()
+    pdf = new_pdf(case.tenant_language)
     pdf.set_title(f"Case brief {case.id}")
     stamp = _when(now or datetime.now(UTC))
     _write(pdf, "Case brief for caseworker review", bold=True, size=16, gap=2)
@@ -273,6 +273,8 @@ def build_brief(session: Session, case: CaseRow, *, now: datetime | None = None)
         "included.",
         size=9, gap=3,
     )
+    if case.tenant_language == "hi":
+        _write(pdf, HINDI_NOTE, size=9, gap=3)
     count = len(body.flagged)
     _write(pdf, f"{count} item{'s' if count != 1 else ''} need caseworker verification.", bold=True)
     styles = {"h2": dict(bold=True, size=13, gap=2), "b": dict(bold=True), "small": dict(size=9),

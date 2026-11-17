@@ -20,7 +20,7 @@ BODY = {
     "unit": "Unit 2, 10 Sample Road, Halifax, NS",
     "title": "No hot water since October",
 }
-CHOOSE = "Preferred language: choose English, 中文, Français or Español"
+CHOOSE = "Preferred language: choose English, 中文, Français, Español, Русский or हिन्दी"
 
 
 def create(client, **changes) -> dict:
@@ -205,3 +205,18 @@ def test_a_run_starts_on_a_new_case(fresh_db, client, session: Session, provider
     session.expire_all()
     run = session.get(RunRow, r.json()["id"])
     assert run is not None and run.status != "failed"
+
+
+@pytest.mark.parametrize(("code", "name"), [("ru", "Russian (Русский)"), ("hi", "Hindi (हिन्दी)")])
+def test_a_case_can_be_created_in_russian_and_hindi(fresh_db, client, session, code, name):
+    """#68, #69: the language is stored, the tenant page opens in it, and the log names it."""
+    body = create(client, tenant_language=code)
+    assert body["tenant"]["preferred_language"] == code
+    link = client.post(f"{URL}/{body['id']}/intake-link").json()["url"].rsplit("/", 1)[1]
+    assert client.get(f"/api/intake/{link}").json()["language"] == code
+    assert name in cases_service_log(session, body["id"])
+
+
+def cases_service_log(session: Session, case_id: str) -> str:
+    rows = session.exec(select(ActivityRow).where(ActivityRow.case_id == case_id)).all()
+    return " | ".join(r.action for r in rows)

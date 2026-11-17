@@ -360,8 +360,8 @@ class CaseCreate(BaseModel):
     from the server, never from the body; `dispute_type` is always "maintenance"."""
 
     tenant_name: str = Field(min_length=1, max_length=120)
-    # The languages the tenant page has text for (no Arabic yet).
-    tenant_language: Literal["en", "zh", "fr", "es"]
+    # The languages the tenant page has text for: en, zh, fr, es, ru, hi (no Arabic yet).
+    tenant_language: Literal["en", "zh", "fr", "es", "ru", "hi"]
     unit: str = Field(min_length=1, max_length=200)  # the rental unit's address
     title: str = Field(min_length=1, max_length=120)  # one line: what is wrong
     # Stripped before the length checks, so a whitespace-only value is refused as empty.

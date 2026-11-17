@@ -18,7 +18,7 @@ from app.services.mappers import list_case_rows, to_case, to_intake, to_summary
 # For the activity log a caseworker reads: the English name first, the native one after it (#48).
 LANG_NAMES = {
     "en": "English", "zh": "Chinese (中文)", "fr": "French (Français)", "es": "Spanish (Español)",
-    "ar": "Arabic (العربية)",
+    "ru": "Russian (Русский)", "hi": "Hindi (हिन्दी)", "ar": "Arabic (العربية)",
 }  # fmt: skip
 
 router = APIRouter()
@@ -45,7 +45,7 @@ def _plain(err: Mapping[str, Any]) -> str:
         return f"{field[:40]}: not a field of a new case"
     kind, ctx = err["type"], err.get("ctx") or {}
     if field == "tenant_language" and kind in ("missing", "literal_error"):
-        return f"{label}: choose English, 中文, Français or Español"
+        return f"{label}: choose English, 中文, Français, Español, Русский or हिन्दी"
     if kind in ("missing", "string_too_short"):
         return f"{label}: enter some text"
     if kind == "string_too_long":
