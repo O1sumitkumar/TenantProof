@@ -67,3 +67,15 @@ def test_a_row_without_a_url_is_matched_by_title():
 def test_an_unknown_url_does_not_fall_back_to_the_title():
     form = next(e for e in corpus.CORPUS if e.kind == "form")
     assert corpus.entry_for("https://example.test/other.pdf", form.title) is None
+
+
+def test_the_three_entries_checked_by_hand_are_confirmed():
+    """NineJZ356 checked these against the official documents on 2026-11-16 (PR #35). Form J and
+    the Regulations entry are not confirmed yet."""
+    confirmed = {e.id for e in corpus.CORPUS if e.confirmed_by}
+    assert confirmed == {
+        "ns-rta-statutory-conditions",
+        "ns-evidence-policy-42-deadline",
+        "ns-evidence-policy-42-formats",
+    }
+    assert all(e.excerpt and e.confirmed_on for e in corpus.CORPUS if e.confirmed_by)

@@ -195,9 +195,12 @@ def test_an_unreachable_document_keeps_the_last_verified_time(fresh_db, session,
     assert after.last_verified_at == verified_at
 
 
-def test_an_unconfirmed_entry_clears_the_last_verified_time(fresh_db, session):
+def test_an_unconfirmed_entry_clears_the_last_verified_time(fresh_db, session, monkeypatch):
     """A row says unchanged with a date, but nobody confirmed the entry: after the command it
-    is unverified, and must not still say when it was "last checked"."""
+    is unverified, and must not still say when it was "last checked". The corpus is made
+    unconfirmed here, so the test does not depend on which entries a person has signed off."""
+    unconfirmed = tuple(replace(e, confirmed_by=None, confirmed_on=None) for e in corpus.CORPUS)
+    monkeypatch.setattr(verify, "CORPUS", unconfirmed)
     _mark_checked(session)
 
     def never(url: str) -> verify.Fetched:

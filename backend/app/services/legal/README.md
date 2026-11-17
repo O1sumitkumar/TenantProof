@@ -1,9 +1,11 @@
 # Legal sources: the human confirmation checklist
 
-**Due Nov 16, before the demo.** `confirmed_by` is still empty on every entry: this file was
-checked against the official documents by a tool, not signed off by a person. An agent may not confirm a legal source, so this is a person's
-job: open each URL, check the section, the form name and the wording, then fill in
-`confirmed_by` and `confirmed_on` on the entry in `corpus.py`.
+**Status 2026-11-16:** NineJZ356 checked entries 1 to 3 by hand against the official documents
+(PR #35) and they are confirmed. Form J (4) has its title line as the excerpt but is not
+confirmed yet, and the Regulations entry (5) was added after that check, so both still show as
+`unverified`. An agent may not confirm a legal source, so this is a person's job: open each URL,
+check the section, the form name and the wording, then fill in `confirmed_by` and
+`confirmed_on` on the entry in `corpus.py`.
 
 Until an entry has a `confirmed_by`, the app reports it as `unverified` whatever the URL check
 finds, and the caseworker sees that in the sources list. Nothing else in the app depends on it:
@@ -23,10 +25,10 @@ How to confirm one entry (about 20 minutes for the five):
 
 | # | Entry id | What it is | URL | Locator | Confirmed? by whom |
 |---|---|---|---|---|---|
-| 1 | `ns-rta-statutory-conditions` | Residential Tenancies Act (Nova Scotia), statutory conditions | https://nslegislature.ca/sites/default/files/legc/statutes/residential%20tenancies.pdf | section 9(1), statutory condition 1 (Condition of Premises) | **no** |
-| 2 | `ns-evidence-policy-42-deadline` | Evidence Policy #42, the 5-day submission deadline | https://www.novascotia.ca/sites/default/files/documents/1-1319/evidence-policy-42-residential-tenancies-en.pdf | page 1, Details | **no** |
-| 3 | `ns-evidence-policy-42-formats` | Evidence Policy #42, accepted formats | same document, `#page=4` | page 4, Types of Evidence | **no** |
-| 4 | `ns-form-j` | Application to Director (Form J), edition 2024-01 | https://www.novascotia.ca/sites/default/files/documents/2-419/form-j-application-director-en.pdf | pages F1 to F3 (the form), G1 to G4 (the guide) | **no** |
+| 1 | `ns-rta-statutory-conditions` | Residential Tenancies Act (Nova Scotia), statutory conditions | https://nslegislature.ca/sites/default/files/legc/statutes/residential%20tenancies.pdf | section 9(1), statutory condition 1 (Condition of Premises) | yes, NineJZ356, 2026-11-16 |
+| 2 | `ns-evidence-policy-42-deadline` | Evidence Policy #42, the 5-day submission deadline | https://www.novascotia.ca/sites/default/files/documents/1-1319/evidence-policy-42-residential-tenancies-en.pdf | page 1, Details | yes, NineJZ356, 2026-11-16 |
+| 3 | `ns-evidence-policy-42-formats` | Evidence Policy #42, accepted formats | same document, `#page=4` | page 4, Types of Evidence | yes, NineJZ356, 2026-11-16 |
+| 4 | `ns-form-j` | Application to Director (Form J), edition 2024-01 | https://www.novascotia.ca/sites/default/files/documents/2-419/form-j-application-director-en.pdf | pages F1 to F3 (the form), G1 to G4 (the guide) | **no** (title-line excerpt added; labels matched by NineJZ356) |
 | 5 | `ns-rtr-25a` | Residential Tenancies Regulations, section 25A (the legal basis of the evidence deadline) | https://novascotia.ca/just/regulations/regs/rtgenrl.htm | section 25A(2) | **no** |
 
 ## What each excerpt says

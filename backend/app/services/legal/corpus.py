@@ -92,6 +92,8 @@ CORPUS: tuple[CorpusEntry, ...] = (
         ),
         keywords=("repair", "repairs", "mould", "mold", "maintenance", "habitable",
                   "landlord duty", "维修", "发霉"),
+        confirmed_by="NineJZ356",  # checked by hand against the official document (PR #35)
+        confirmed_on="2026-11-16",
     ),
     CorpusEntry(
         id="ns-evidence-policy-42-deadline",
@@ -111,6 +113,8 @@ CORPUS: tuple[CorpusEntry, ...] = (
         ),
         keywords=("deadline", "due date", "submit evidence", "5 days", "five days", "hearing"),
         rule={"evidence_days_before_hearing": 5},
+        confirmed_by="NineJZ356",  # the 5 matches "at least 5 days" (PR #35)
+        confirmed_on="2026-11-16",
     ),
     CorpusEntry(
         id="ns-rtr-25a",
@@ -147,6 +151,8 @@ CORPUS: tuple[CorpusEntry, ...] = (
             "Microsoft Office Excel or Adobe PDF"
         ),
         keywords=("format", "pdf", "word", "excel", "text messages", "photo", "scan"),
+        confirmed_by="NineJZ356",  # checked by hand against page 4 (PR #35)
+        confirmed_on="2026-11-16",
     ),
     CorpusEntry(
         id="ns-form-j",
@@ -155,9 +161,9 @@ CORPUS: tuple[CorpusEntry, ...] = (
         url=FORM_J_URL,
         used_for="The application this draft fills in; its fields are what the form is built on.",
         locator="page 1, applicant and dispute details",
-        # The published PDF is encrypted, so its text could not be read here. A person fills
-        # this in from the form itself (README.md), which also confirms the field labels.
-        excerpt="",
+        # The title line NineJZ356 read from the published PDF on 2026-11-16 (PR #35). Not
+        # confirmed yet: confirmed_by stays unset until a person signs the entry off.
+        excerpt="Form J: Application to Director",
         keywords=("form", "application", "form j", "apply", "director", "file"),
         form_fields=FORM_J_FIELDS,
     ),

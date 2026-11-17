@@ -78,9 +78,12 @@ def _seeded_unchanged(session) -> LegalSourceRow:
     return checked
 
 
-def test_an_unconfirmed_entry_does_not_copy_a_seeded_status(fresh_db, session):
+def test_an_unconfirmed_entry_does_not_copy_a_seeded_status(fresh_db, session, monkeypatch):
     """A demo case row says unchanged, but nobody has confirmed the entry: a new case must not
-    show it as checked."""
+    show it as checked. The corpus is made unconfirmed here, so the test does not depend on which
+    entries a person has signed off."""
+    unconfirmed = tuple(replace(e, confirmed_by=None, confirmed_on=None) for e in corpus.CORPUS)
+    monkeypatch.setattr(rules, "CORPUS", unconfirmed)
     _seeded_unchanged(session)
     live = session.get(CaseRow, LIVE)
     rules.ensure_case_sources(session, live)
