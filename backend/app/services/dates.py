@@ -135,9 +135,10 @@ def demo_deadline(deadline: dict[str, Any], today: date) -> dict[str, str]:
 
 def evidence_deadline(hearing: date, days: int = EVIDENCE_DAYS_BEFORE_HEARING) -> dict[str, str]:
     """`Case.next_deadline` for a hearing: the day evidence must be *received* by, `days` before
-    it (Regulations s. 25A(2)). It is a receipt date, not a send-by date: mail counts as
-    received 3 days after it is sent and e-mail sent after 4 p.m. the next day (s. 25A(3B),
-    (3C)). The label has the ISO hearing date in it, like the seeded cases. The rules step
+    it (Regulations s. 25A(2)). It is a receipt date, not a send-by date: registered mail,
+    express post or courier counts as received on the 3rd day after it is sent, and e-mail
+    sent at or after 4 p.m. the next day (s. 25A(3B), (3C)). The label has the ISO hearing date
+    in it, like the seeded cases. The rules step
     passes the number the legal corpus carries, so a change to the policy moves this deadline
     with it."""
     due = hearing - timedelta(days=days)

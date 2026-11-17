@@ -26,11 +26,10 @@ Single source of truth. Update the relevant section in every PR.
 | M3 (#36, #38) | Locale-independent tests; the Tenant view shows the new intake link | PRs #43 to #45 (NineJZ356) |
 | M3 (#49) | `RUN_BUDGET_S` setting: the whole run may take 180 s by default, one model call 60 s | PRs #50, #51 |
 | M3 (#48) | The caseworker edits the request to the tenant and translates it with one model call; the tenant page shows the English too; language names in English first; English preview on the Tenant view | PRs #52, #53 (`074748a`) |
-<<<<<<< HEAD
-| Submission polish | README rewrite (pitch, architecture, live-mode setup, 3-minute demo, team), LICENSE, SECURITY.md statuses, security headers, system fonts, planning files moved to `docs/archive/`, API_CONTRACT rows; caseload wording ("Deadline passed (N days ago)", plurals, one "Must be received by" wording for stored labels) and seeded deadlines kept relative to today | `Lameda12/submission-polish` |
-=======
 | M2 (WS2: #56 to #59) | QR code of a new intake link; rate limits on the real client IP behind a trusted proxy (`FORWARDED_ALLOW_IPS`); expired logins deleted at login and hourly; `docs/DEPLOY.md` for the hosted demo | PRs #62 to #64, #55 (`596b455`) |
->>>>>>> origin/dev
+| Submission polish | README rewrite (pitch, architecture, live-mode setup, 3-minute demo, team), LICENSE, SECURITY.md statuses, security headers, system fonts, planning files moved to `docs/archive/`, API_CONTRACT rows; caseload wording ("Deadline passed (N days ago)", plurals, one "Must be received by" wording for stored labels) and seeded deadlines kept relative to today | `Lameda12/submission-polish` |
+| UI fix (Tenant view) | The Tenant view lives in the case rail, not the top bar; re-sending a sent intake link asks first | PRs #70, #71 (`292a6d7`) |
+| M3 (#54) | Form J and Regulations s. 25A confirmed by a person (all five sources confirmed); the Form J draft is labelled partial; `pypdf[crypto]` reads Form J's locked PDF | PR #66 |
 
 Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #38).
 
@@ -40,15 +39,13 @@ Open PRs (2026-11-17), all drafts into `dev`:
 
 | PR | Area | What |
 |---|---|---|
-| #65 | submission (Lameda12) | README, LICENSE, security headers, deadline wording, demo deadlines kept relative to today |
-| #66 | WS4 (Lameda12) | Form J and Reg 25A confirmed (closes #54); the Form J draft is labelled partial |
-| #70 | `schema:` | UI row for #71; merge before #71 |
-| #71 | UI fix | The Tenant view moves from the top bar into the case rail; re-sending a sent intake link asks first |
+| #72 | `schema:` | Received-by wording in `API_CONTRACT.md` and a `CONTRACT_CHANGES.md` note; merge before #73 |
+| #73 | WS4 fix | Only registered mail, express post or courier counts as received on the 3rd day; e-mail sent at or after 4 p.m. counts the next day (leozhang5867's check on #54). Package reminders, source notes, mock |
 
 Open issues:
-- **#54 (closed by the confirm-legal-sources PR):** Lameda12 confirmed Form J (the full title line, edition 2024-01) and Regulations s. 25A(2) on 2026-11-17, so all five sources are confirmed. The Form J confirmation covers the title and URL only: the draft is partial (seven tenant-applicant fields; the caseworker completes the rest; F4 is out of scope). Full coverage is a post-submission issue.
+- **#54 (closed, PR #66):** Lameda12 confirmed Form J (the full title line, edition 2024-01) and Regulations s. 25A(2) on 2026-11-17, so all five sources are confirmed. The Form J confirmation covers the title and URL only: the draft is partial (seven tenant-applicant fields; the caseworker completes the rest; F4 is out of scope). Full coverage is a post-submission issue. leozhang5867 also checked 25A(3B) and (3C): the app's "mail" and "after 4 p.m." wording is fixed in #73.
 - **#9:** tell tenants that original photos go into the package. The GPS data is already removed from the package copies.
-- **#10:** about 500 MB can be spooled to disk before the intake token is checked (WS2).
+- **#10:** about 500 MB can be spooled to disk before the intake token is checked (WS2; YCL0609 is working on it on `YCL0609/m2-deploy`).
 - **#4:** WS3 follow-ups from the PR #2 review.
 - **#68, #69:** add Hindi and Russian as tenant languages (Hindi also needs text shaping in the PDFs).
 - **#60:** remove personal details from evidence text before it goes to the model (to discuss).

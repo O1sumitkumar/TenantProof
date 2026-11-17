@@ -74,9 +74,11 @@ courier, **on the 3rd day after it was sent** (25A(3B)); by e-mail, the same day
 evidence later, up to and during the hearing (25A(6)); the Program says this is for exceptional
 circumstances only (Policy #42, page 2).
 
-The date the app shows is therefore a **must be received by** date, not a send-by date. Mailed
-evidence has to be sent about 8 days before the hearing. The excerpt is stored unconfirmed and the
-Regulations consolidation on novascotia.ca is unofficial ("amended to N.S. Reg. 76/2025,
+The date the app shows is therefore a **must be received by** date, not a send-by date. Evidence
+sent by registered mail, express post or courier has to be sent at least 8 days before the
+hearing. Policy #42 (page 3) says the same about registered mail, express post, courier and
+e-mail; it does not give a received-by rule for ordinary mail. The excerpt is stored unconfirmed
+and the Regulations consolidation on novascotia.ca is unofficial ("amended to N.S. Reg. 76/2025,
 effective April 30, 2025"), so check the Royal Gazette Part II for later amendments.
 
 ## Decisions a person should look at
@@ -115,4 +117,5 @@ effective April 30, 2025"), so check the Royal Gazette Part II for later amendme
   - The app's TXT-to-PDF copy matches "text messages must be submitted digitally or printed". The
     gaps are Word and Excel (the app refuses them) and video and audio (it takes none). That is a
     WS1 decision, noted here so it is not a surprise at the demo.
-- **Mailed and e-mailed evidence is counted from the day it is received**, not sent (see #5).
+- **Evidence sent by registered mail, express post, courier or e-mail is counted from the day it
+  counts as received**, not sent (see #5). Only those three mail services get the 3rd-day rule.
