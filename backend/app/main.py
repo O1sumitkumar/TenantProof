@@ -29,8 +29,11 @@ from app.routers import (
     timeline,
 )
 from app.services.evidence.http import UploadBodyLimit
+from app.services.intake_gate import IntakeTokenGate
 
 app = FastAPI(title="TenantProof API", version="0.1.0")
+# Issue #10: an intake upload with a bad token is refused before its body is read.
+app.add_middleware(IntakeTokenGate)
 logger = logging.getLogger(__name__)
 
 api = FastAPI(title="TenantProof API")

@@ -69,6 +69,25 @@ replica in production and keep the volume attached.
 `{"status": "degraded", "db": ..., "redis": ...}` when either is down. Both compose (the
 `api` healthcheck) and Railway (`railway.toml` `healthcheckPath`) use it to gate traffic.
 
+## Upload limits (issue #10)
+
+The two upload routes (`POST /cases/{id}/evidence`, `POST /intake/{token}/files`) can carry
+20 x 25 MiB + 1 MiB, about 501 MB, and FastAPI reads a multipart body before its dependencies
+run. Three layers keep that from being a cheap unauthenticated disk write:
+
+1. nginx allows 2 concurrent uploads per client and one new upload per second (burst 4),
+   answers 429 beyond that, and streams the body (`proxy_request_buffering off`) instead of
+   buffering it to this proxy's disk.
+2. `IntakeTokenGate` (`backend/app/services/intake_gate.py`) answers 404 for an unknown,
+   revoked or expired intake link before FastAPI parses the multipart body, so a bad link
+   spools nothing on a replica. The route checks the token again.
+3. `UploadBodyLimit` still cuts every body at 501 MB, chunked or not.
+
+The per-client cap keys on the address nginx sees. Locally that is the client. If another
+load balancer sits in front of this proxy (for example a platform edge), configure
+`set_real_ip_from` / `real_ip_header` for its ranges, or rely on the platform's own rate
+limiting; layers 2 and 3 do not depend on the client address.
+
 ## Local verification
 
 ```bash
