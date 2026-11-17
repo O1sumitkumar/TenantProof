@@ -732,7 +732,8 @@ class CreateGap(BaseTool):
     name = "create_gap"
     description = (
         "Record something missing from the evidence or form, with the source it rests on. It "
-        "starts open. A gap with the same title is never created twice."
+        "starts open. A gap with the same title, or for the same form field, is never created "
+        "twice. A blocking gap must name the form field its answer fills (field_key)."
     )
     effect: ClassVar[Effect] = "draft"
     input_model = CreateGapInput
@@ -745,6 +746,16 @@ class CreateGap(BaseTool):
         if case is None:
             return not_found(self.name, "Case")
         key = args.field_key
+        if args.severity == "blocking" and key is None:
+            # The caseworker closes a required item by filling its field; one without a field
+            # has no way to be closed in the UI and blocks the package for good.
+            return ToolError(
+                tool=self.name, kind="invalid_input",
+                message=(
+                    "A blocking gap must name the form field its answer fills: pass field_key "
+                    "from list_form_fields. Anything else is severity recommended."
+                ),
+            )  # fmt: skip
         if key is not None and ctx.session.get(FormFieldRow, (case.id, key)) is None:
             return ToolError(
                 tool=self.name, kind="invalid_input",
@@ -768,6 +779,8 @@ class CreateGap(BaseTool):
         for gap in existing:  # a retry, or a gap the caseworker dismissed, is not a new gap
             if gap.title.casefold() == title.casefold():
                 return CreateGapOutput(gap_id=gap.id)
+            if key is not None and (gap.input or {}).get("field_key") == key:
+                return CreateGapOutput(gap_id=gap.id)  # that field already has its gap
         gap = GapRow(
             id=_new_id("gap"), case_id=case.id, position=len(existing), severity=args.severity,
             title=title, why=why, how_to_fix=how_to_fix, status="open",

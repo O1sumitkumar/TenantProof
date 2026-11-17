@@ -499,15 +499,20 @@ def test_search_legal_sources_returns_rows_and_never_invents_an_excerpt(session:
 
 
 def test_create_gap_opens_a_gap_linked_to_a_form_field(fresh_db: None, session: Session) -> None:
-    raw = {"severity": "blocking", "title": "Hearing date", "why": "w", "how_to_fix": "h",
-           "field_key": "landlord_address"}  # fmt: skip
+    # monthly_rent is the seeded field that needs confirmation and has no gap yet
+    raw = {"severity": "blocking", "title": "Monthly rent", "why": "w", "how_to_fix": "h",
+           "field_key": "monthly_rent"}  # fmt: skip
     res = call("create_gap", make_ctx(session), raw)
     assert isinstance(res, t.CreateGapOutput)
     session.commit()
     gap = session.get(GapRow, res.gap_id)
     assert gap is not None and gap.status == "open" and gap.tenant_request is None
-    assert gap.input == {"type": "text", "field_key": "landlord_address", "placeholder": ""}
+    assert gap.input == {"type": "text", "field_key": "monthly_rent", "placeholder": ""}
     assert gap.case_id == CASE and gap.position == 5
+    # landlord_address already has the seeded gap_01: that gap comes back, no second one
+    again = call("create_gap", make_ctx(session), {**raw, "title": "Landlord's mailing address",
+                                                   "field_key": "landlord_address"})
+    assert isinstance(again, t.CreateGapOutput) and again.gap_id == "gap_01"
 
 
 def test_create_gap_is_idempotent_and_checks_the_field_key(
@@ -522,7 +527,8 @@ def test_create_gap_is_idempotent_and_checks_the_field_key(
 
 
 def new_gap(session: Session, title: str = "Hearing date") -> str:
-    raw = {"severity": "blocking", "title": title, "why": "w", "how_to_fix": "h"}
+    # recommended: a blocking gap must name a form field (see test_legal_gaps)
+    raw = {"severity": "recommended", "title": title, "why": "w", "how_to_fix": "h"}
     res = call("create_gap", make_ctx(session), raw)
     session.commit()
     return res.gap_id

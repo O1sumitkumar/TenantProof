@@ -319,3 +319,33 @@ def test_a_rejected_event_gets_no_support_gap():
 
     found = specs(_facts(EventFact("Not part of the case", "needs_support", rejected=True)))
     assert not [s for s in found if s.title.startswith("Support for:")]
+
+
+# --- create_gap: a required item the caseworker can close ------------------------------------
+
+
+def test_a_blocking_gap_without_a_field_is_refused(fresh_db, session):
+    """A required item is closed by filling its field. Without one the UI has no way to close it,
+    so the package would stay blocked after the tenant answered."""
+    res = call("create_gap", make_ctx(session), {
+        "severity": "blocking", "title": "Monthly rent needs confirmation",
+        "why": "w", "how_to_fix": "h",
+    })  # fmt: skip
+    assert isinstance(res, t.ToolError) and res.kind == "invalid_input"
+    assert "field_key" in res.message
+    assert "Monthly rent needs confirmation" not in titles(session, CASE)
+
+
+def test_a_gap_for_a_field_that_already_has_one_returns_that_gap(fresh_db, session):
+    prepare(session, LIVE)  # an empty case: the form, and a gap per missing field
+    before = len(gaps_of(session, LIVE))
+    existing = next(
+        g for g in gaps_of(session, LIVE) if (g.input or {}).get("field_key") == "monthly_rent"
+    )
+    res = call("create_gap", make_ctx(session, case_id=LIVE), {
+        "severity": "blocking", "title": "Monthly rent needs confirmation",
+        "why": "w", "how_to_fix": "h", "field_key": "monthly_rent",
+    })  # fmt: skip
+    assert isinstance(res, t.CreateGapOutput) and res.gap_id == existing.id
+    session.commit()
+    assert len(gaps_of(session, LIVE)) == before

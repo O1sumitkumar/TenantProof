@@ -66,7 +66,7 @@ def timeline_run_note(nonce: str) -> str:
 
 # --------------------------------------------------------------------------- the gaps step
 
-GAPS_PROMPT_VERSION = "gaps-v2"
+GAPS_PROMPT_VERSION = "gaps-v3"
 GAPS_TOOLS = [
     "list_evidence", "read_evidence", "get_metadata", "search_facts", "list_form_fields",
     "search_legal_sources", "create_gap", "draft_tenant_message", "ask_caseworker", "finish",
@@ -108,8 +108,11 @@ a long passage copied without quotes, is refused. That covers a gap that needs a
 document, a photo, a date, or the tenant's choice. A gap only the caseworker can fill — the \
 landlord's address when the tenant does not know it — can be left without a draft.
 4. When you create a gap, give `source_id` the id of the source it rests on, from \
-search_legal_sources. Never state a legal conclusion and never choose the remedy: the remedy is \
-the tenant's choice and the caseworker records it.
+search_legal_sources. A gap about a form field (the rent, an address, a date) names that field in \
+`field_key`, from list_form_fields; if that field already has a gap, draft on that one instead. \
+Only a gap with a field_key can be `blocking`; anything else is `recommended`. Never state a \
+legal conclusion and never choose the remedy: the remedy is the tenant's choice and the \
+caseworker records it.
 5. If you need something only the caseworker knows, call ask_caseworker once with a short \
 question. The run pauses until they answer.
 6. Call finish with a short summary: what you added, what you drafted, what is left.
