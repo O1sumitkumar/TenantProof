@@ -156,6 +156,7 @@ main{min-width:0;display:flex;flex-direction:column;gap:20px}
 .intake-panel .ip-main{display:flex;flex-direction:column;gap:6px;min-width:0}
 .intake-panel .ip-title{font-weight:700}
 .linkbox{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}
+.linkbox .qr{width:132px;height:132px;flex:none;background:#fff;border:1px solid var(--line);border-radius:6px;image-rendering:pixelated}
 .linkbox code{font-family:var(--font-mono);font-size:12px;background:var(--surface-2);padding:3px 8px;border-radius:4px;overflow-wrap:anywhere}
 .ev-list{display:flex;flex-direction:column}
 .ev{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1.3fr) minmax(0,1fr);gap:8px 18px;padding:14px 18px;border-top:1px solid var(--line)}
@@ -779,6 +780,11 @@ function runState(run) {
 // the page keeps it in memory as { caseId, url } for the case it was made for. That case's Evidence
 // page and Tenant view show it until the page reloads; another case never does.
 const sessionLink = (last, caseId) => (last && caseId && last.caseId === caseId ? last.url : null);
+// WS2 #56: the QR code of that link (Intake.qr_svg), kept beside it. Only an SVG data URI is shown.
+const sessionQr = (last, caseId) => {
+  const qr = sessionLink(last, caseId) && last.qr;
+  return typeof qr === "string" && qr.startsWith("data:image/svg+xml") ? qr : null;
+};
 /* intakeLink:end */
 const UPLOAD_SOON = { en: "Uploading files is coming soon. For now, confirm below and send.", zh: "文件上传功能即将推出。现在请先勾选下面的确认并发送。", fr: "Le téléversement de fichiers arrive bientôt. Pour l'instant, confirmez ci-dessous et envoyez.", es: "La subida de archivos llegará pronto. Por ahora, confirme abajo y envíe." };
 const CASE_ROUTES = ["evidence", "run", "timeline", "gaps", "form", "package"];
@@ -786,7 +792,7 @@ const ROUTES = ["cases", "intake", ...CASE_ROUTES];
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 // Fix #38: the intake link and its Copy button, shared by the Evidence page and the Tenant view.
-const linkBox = url => `<span class="linkbox"><code>${esc(url)}</code><button class="copy" type="button" data-action="copy" data-text="${esc(url)}">Copy link</button></span>`;
+const linkBox = (url, qr) => `<span class="linkbox">${qr ? `<img class="qr" src="${esc(qr)}" alt="QR code of the intake link" title="Scan with a phone camera to open the link">` : ""}<code>${esc(url)}</code><button class="copy" type="button" data-action="copy" data-text="${esc(url)}">Copy link</button></span>`;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const BASIS = { exif: "from photo metadata", message_timestamp: "from message time", document_text: "from document text", filename: "from filename, inferred", user: "entered by caseworker" };
 const STAGE = { waiting_tenant: ["Waiting for tenant", "plain"], needs_review: ["Needs your review", "warn"], ready_to_file: ["Ready to file", "ok"], hearing_scheduled: ["Hearing scheduled", "info"] };
@@ -947,7 +953,7 @@ function viewCases() {
 
 /* ---------- case views ---------- */
 function viewEvidence() {
-  const ik = S.case.intake, link = ik.url || sessionLink(S.lastLink, CASE_ID);
+  const ik = S.case.intake, link = ik.url || sessionLink(S.lastLink, CASE_ID), qr = sessionQr(S.lastLink, CASE_ID);
   const rows = S.evidence.map(e => {
     const fc = e.format_check, md = e.metadata;
     const fcPill = !fc.accepted ? `<span class="pill bad">Rejected</span>` : fc.action === "converted" ? `<span class="pill info">Converted to JPG</span>` : fc.action === "will_export_pdf" ? `<span class="pill info">Export to PDF</span>` : `<span class="pill ok">Format OK</span>`;
@@ -966,7 +972,7 @@ function viewEvidence() {
       ${!(S.case.tenant.preferred_language in I18N) ? `<div class="ip-main"><span class="ip-title">Tenant intake link · ${esc(langLabel(S.case.tenant.preferred_language))}</span><span class="muted">The tenant page has no ${esc(langLabel(S.case.tenant.preferred_language))} text yet, so no link can be sent or previewed for this case.</span></div>` : `
       <div class="ip-main"><span class="ip-title">Tenant intake link · ${esc(langLabel(S.case.tenant.preferred_language))}</span>
         <span class="muted">${ik.status === "not_sent" ? "Not sent yet" : `Sent ${fmtTime(ik.sent_at)}`} · last upload ${fmtTime(ik.last_upload_at)} · ${ik.tenant_attested_genuine ? `<span style="color:var(--ok)">tenant confirmed files are genuine</span>` : "not confirmed yet"}</span>
-        ${link ? linkBox(link) : `<span class="muted">The link is shown once, when you send it.${ik.status === "not_sent" ? "" : " Re-send to create a new link (the old one stops working)."}</span>`}</div>
+        ${link ? linkBox(link, qr) : `<span class="muted">The link is shown once, when you send it.${ik.status === "not_sent" ? "" : " Re-send to create a new link (the old one stops working)."}</span>`}</div>
       <div class="btn-row"><a class="btn" href="#intake">Open tenant view</a><button class="btn${ik.status === "not_sent" ? " primary" : ""}" type="button" data-action="resend">${ik.status === "not_sent" ? "Send intake link" : "Re-send link"}</button></div>`}
     </div>
     <label class="drop" id="drop" for="fileIn"><input class="file-in" type="file" id="fileIn" multiple accept="${UPLOAD_ACCEPT}"><div><strong>Add files yourself</strong><p>For files the tenant brought to the clinic. JPG, PNG, HEIC, PDF or TXT, up to 25 MB each.</p></div><span class="btn primary">Choose files</span></label>
@@ -1206,8 +1212,9 @@ function viewIntake() {
       ${(() => { const ok = (S.intake.files.length || !UPLOADS_ENABLED) && S.intake.attest && S.intake.consent;
         return `<button class="btn primary" data-action="intake-send" ${ok ? "" : `disabled aria-describedby="send-hint"`}>${esc(tpl(t.send, vars))}</button>${ok ? "" : `<p class="muted send-hint" id="send-hint">${esc(t.sendHint)}</p>`}`; })()}`;
   const link = TENANT_MODE ? null : sessionLink(S.lastLink, CASE_ID);  // Fix #38: the link just sent, for this case only
+  const qr = TENANT_MODE ? null : sessionQr(S.lastLink, CASE_ID);
   return `<div class="view-head"><div><h1>Tenant view</h1><p>What ${esc(v.tenant_first_name)} sees after opening the intake link on a phone. No account needed. It opens in the tenant's preferred language, and the tenant never sees the caseworker workspace.</p></div></div>
-    ${link ? `<div class="panel panel-pad intake-panel"><div class="ip-main"><span class="ip-title">Intake link for ${esc(v.tenant_first_name)}</span><span class="muted">Copy it now and send it to the tenant. For security it is shown only until you reload this page or send a link for another case; after that, re-sending makes a new link and the old one stops working.</span>${linkBox(link)}</div></div>` : ""}
+    ${link ? `<div class="panel panel-pad intake-panel"><div class="ip-main"><span class="ip-title">Intake link for ${esc(v.tenant_first_name)}</span><span class="muted">Copy it now and send it to the tenant, or let them scan the QR code with their phone. For security it is shown only until you reload this page or send a link for another case; after that, re-sending makes a new link and the old one stops working.</span>${linkBox(link, qr)}</div></div>` : ""}
     <div class="intake-wrap">
       <div class="intake-side">
         ${previewBar(v, lang)}
@@ -1340,7 +1347,7 @@ document.addEventListener("click", async ev => {
   if (a === "open-case") { const c = S.cases.find(x => x.id === id); if (c && c.has_demo_data) { if (id !== CASE_ID) { resetCaseState(); setCase(id); await refresh(); } location.hash = "timeline"; } }
   if (a === "new-case") { S.newCase = S.newCase || { values: {} }; render(); const first = document.querySelector("form.new-case [name=tenant_name]"); if (first) first.focus(); return; }  /* #41 */
   if (a === "cancel-new-case") { S.newCase = null; render(); return; }
-  if (a === "resend") { const r = await request("POST", `${C}/intake-link`); S.lastLink = { caseId: CASE_ID, url: r.url }; S.intake.view = null; toast("Intake link created. Copy it now: it is only shown once."); await refresh(["case", "intake"]); }
+  if (a === "resend") { const r = await request("POST", `${C}/intake-link`); S.lastLink = { caseId: CASE_ID, url: r.url, qr: r.qr_svg }; S.intake.view = null; toast("Intake link created. Copy it now: it is only shown once."); await refresh(["case", "intake"]); }
   if (a === "confirm-field") { const v = document.getElementById(`fld-${b.dataset.key}`).value.trim(); if (!v) return; await request("PATCH", `${C}/form-draft/fields/${b.dataset.key}`, { value: v }); await refresh(["form", "gaps"]); return; }  /* #40: keep the agent's drafted value */
   if (a === "run") { S.run = await request("POST", `${C}/runs`); location.hash = "run"; render(); pollRun(); }
   if (a === "review") { await request("PATCH", `/timeline/${id}`, { review_status: b.dataset.status }); S.editing = null; await refresh(["timeline", "form"]); }

@@ -20,11 +20,11 @@ pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="needs node
 LINK = "https://tenantproof.example/i/not-a-real-token"
 
 
-def shown(*calls: tuple[object, object]) -> list[object]:
+def shown(*calls: tuple[object, object], fn: str = "sessionLink") -> list[object]:
     match = BLOCK.search(INDEX.read_text(encoding="utf-8"))
     assert match, "intakeLink block not found in web/index.html"
     args = ", ".join(f"[{json.dumps(last)}, {json.dumps(case_id)}]" for last, case_id in calls)
-    call = f"[{args}].map(a => sessionLink(...a))"
+    call = f"[{args}].map(a => {fn}(...a))"
     script = match.group(1) + f"\nconsole.log(JSON.stringify({call}));"
     out = subprocess.run(["node", "-e", script], capture_output=True, encoding="utf-8", check=True)
     return json.loads(out.stdout)
@@ -50,4 +50,33 @@ def test_no_case_selected_shows_none() -> None:
 def test_the_link_box_markup_is_shared_by_the_evidence_page_and_the_tenant_view() -> None:
     html = INDEX.read_text(encoding="utf-8")
     assert html.count('<span class="linkbox">') == 1, "one link box template, used by both views"
-    assert html.count("linkBox(link)") == 2
+    assert html.count("linkBox(link, qr)") == 2
+
+
+# WS2 #56: the QR code kept beside the link (Intake.qr_svg from the same POST).
+QR = "data:image/svg+xml;charset=utf-8,%3Csvg%3E%3C/svg%3E"
+
+
+def test_the_qr_code_shows_with_its_link_for_its_case_only() -> None:
+    last = {"caseId": "case_demo_001", "url": LINK, "qr": QR}
+    assert shown((last, "case_demo_001"), (last, "case_002"), (last, None), fn="sessionQr") == [
+        QR, None, None,
+    ]
+
+
+def test_no_qr_code_without_a_link_or_in_mock_mode() -> None:
+    """Mock mode's POST returns no qr_svg, so the link shows alone."""
+    assert shown(
+        (None, "case_demo_001"),
+        ({"caseId": "case_demo_001", "url": LINK}, "case_demo_001"),
+        ({"caseId": "case_demo_001", "url": None, "qr": QR}, "case_demo_001"),
+        fn="sessionQr",
+    ) == [None, None, None]
+
+
+def test_only_an_svg_data_uri_is_used_as_the_qr_image() -> None:
+    calls = [
+        ({"caseId": "c1", "url": LINK, "qr": q}, "c1")
+        for q in ["javascript:alert(1)", "https://evil.example/qr.svg", "data:text/html,x", 7]
+    ]
+    assert shown(*calls, fn="sessionQr") == [None, None, None, None]
