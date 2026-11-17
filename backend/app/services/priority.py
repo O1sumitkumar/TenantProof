@@ -33,6 +33,15 @@ def _plural(n: int, word: str) -> str:
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
+def deadline_phrase(days: int) -> str:
+    """How the caseload says when evidence must be received: today, in N days, or passed."""
+    if days < 0:
+        return f"Deadline passed ({_plural(-days, 'day')} ago)"
+    if days == 0:
+        return "Must be received today"
+    return f"Must be received in {_plural(days, 'day')}"
+
+
 def compute_priority(case: PriorityInput, today: date) -> PriorityResult:
     days = days_until(case.next_deadline_date, today)
     priority = "normal"
@@ -40,13 +49,12 @@ def compute_priority(case: PriorityInput, today: date) -> PriorityResult:
 
     if days is not None and days <= EVIDENCE_WINDOW_DAYS:
         priority = "high"
-        reason = (
-            f"Must be received in {_plural(days, 'day')} "
-            f"({EVIDENCE_DAYS_BEFORE_HEARING} days before hearing)"
-        )
+        reason = deadline_phrase(days)
+        if days >= 0:
+            reason += f" ({EVIDENCE_DAYS_BEFORE_HEARING} days before hearing)"
     if case.open_blocking and case.stage == "hearing_scheduled":
         priority = "high"
-        blocked = f"{case.open_blocking} required item open with a hearing scheduled"
+        blocked = f"{_plural(case.open_blocking, 'required item')} open with a hearing scheduled"
         reason = f"{reason} and {blocked}" if reason else blocked
 
     if reason is None:
@@ -55,10 +63,11 @@ def compute_priority(case: PriorityInput, today: date) -> PriorityResult:
         elif case.stage == "waiting_tenant":
             reason = "Intake link sent. No files from the tenant yet."
         elif days is not None:
-            reason = f"Must be received in {days} days"
+            reason = deadline_phrase(days)
         elif case.open_blocking or case.pending_review:
             reason = (
-                f"{case.pending_review} events to review · {case.open_blocking} required items open"
+                f"{_plural(case.pending_review, 'event')} to review · "
+                f"{_plural(case.open_blocking, 'required item')} open"
             )
         else:
             reason = "No open items"

@@ -231,6 +231,7 @@ backend/storage/
 !backend/.env.example
 .claude/settings.local.json
 .claude/*.local.*
+.claude/worktrees/
 playwright-report/
 test-results/
 data/

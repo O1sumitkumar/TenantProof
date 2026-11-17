@@ -1,7 +1,8 @@
 """Seed Postgres from seed_data.json (dumped from the prototype's mock data).
 
 Run: uv run python -m app.seed [--force]   (seeds only an empty DB unless --force wipes and reloads)
-Deadlines in the dump are relative to its `dumped_on` date, so they are shifted to today."""
+Deadlines in the dump are relative to its `dumped_on` date, so they are shifted to today, and
+kept relative to today when read (`demo_offset_days`)."""
 
 import json
 import sys
@@ -113,8 +114,13 @@ def seed(session: Session) -> None:
     def add_case(c: dict, *, demo: bool) -> CaseRow:
         deadline = c.get("next_deadline")
         if deadline:
+            # `demo_offset_days` keeps the deadline relative to today when it is read (see
+            # `dates.demo_deadline`), so a database seeded days ago never shows a past deadline.
+            dumped = date.fromisoformat(raw["dumped_on"])
+            offset = (date.fromisoformat(deadline["date"]) - dumped).days
             deadline = {"date": shift_day(deadline["date"], delta),
-                        "label": shift_label(deadline["label"], delta)}
+                        "label": shift_label(deadline["label"], delta),
+                        "demo_offset_days": offset}
         intake = c.get("intake")
         row = CaseRow(
             id=c["id"], org_id=org["id"], assigned_to_id=me["id"], title=c["title"], unit=c["unit"],
