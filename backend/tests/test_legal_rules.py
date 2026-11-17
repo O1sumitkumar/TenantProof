@@ -163,7 +163,7 @@ def test_setting_the_deadline_is_logged(fresh_db, session):
         a.action for a in session.exec(select(ActivityRow).where(ActivityRow.case_id == LIVE)).all()
         if a.actor_name == rules.ACTOR_NAME
     ]
-    assert any("evidence deadline to 2026-11-16" in line for line in lines)
+    assert any("must-be-received-by date to 2026-11-16" in line for line in lines)
 
 
 def test_the_same_deadline_twice_is_not_logged_twice(fresh_db, session):
@@ -179,7 +179,7 @@ def test_the_same_deadline_twice_is_not_logged_twice(fresh_db, session):
 
     lines = [
         a for a in session.exec(select(ActivityRow).where(ActivityRow.case_id == LIVE)).all()
-        if "evidence deadline" in a.action
+        if "must-be-received-by" in a.action
     ]
     assert len(lines) == 1
 
@@ -210,7 +210,7 @@ def test_the_summary_names_the_deadline_when_there_is_one(fresh_db, session):
     result = rules.run(session, case)
     session.commit()
 
-    assert result.summary.endswith("evidence due 2026-11-16")
+    assert result.summary.endswith("must be received by 2026-11-16")
 
 
 def test_another_case_is_never_touched(fresh_db, session):
@@ -250,6 +250,7 @@ def test_the_rules_step_runs_in_a_run_and_records_one_tool_call(fresh_db, sessio
 
     step = next(s for s in done.steps if s["key"] == "rules")
     assert step["status"] == "done"
-    assert step["summary"] == f"{len(corpus.CORPUS)} sources (0 checked), evidence due 2026-11-16"
+    expected = f"{len(corpus.CORPUS)} sources (0 checked), must be received by 2026-11-16"
+    assert step["summary"] == expected
     assert [call["tool"] for call in step["tool_calls"]] == ["rules"]
     assert "2026-11-16" in step["tool_calls"][0]["output"]

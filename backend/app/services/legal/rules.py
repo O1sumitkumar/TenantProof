@@ -155,7 +155,7 @@ def apply_deadline(session: Session, case: CaseRow) -> str | None:
         session.add(case)
         activity.log(
             session, case.id, "agent", ACTOR_NAME,
-            f"Set the evidence deadline to {due['date']} "
+            f"Set the must-be-received-by date to {due['date']} "
             f"({EVIDENCE_DAYS_BEFORE_HEARING} days before the hearing on {hearing.isoformat()})",
         )  # fmt: skip
     return due["date"]
@@ -166,5 +166,5 @@ def run(session: Session, case: CaseRow) -> RulesResult:
     added, total, checked = ensure_case_sources(session, case)
     due = apply_deadline(session, case)
     sources = f"{total} source{'s' if total != 1 else ''} ({checked} checked)"
-    summary = f"{sources}, evidence due {due}" if due else f"{sources}, no hearing date yet"
+    summary = f"{sources}, must be received by {due}" if due else f"{sources}, no hearing date yet"
     return RulesResult(added=added, total=total, checked=checked, deadline=due, summary=summary)

@@ -14,7 +14,7 @@ def case(**kw):
 def test_deadline_within_7_days_is_high():
     r = compute_priority(case(next_deadline_date=date(2026, 11, 8)), TODAY)
     assert r.priority == "high"
-    assert r.reason == "Evidence due in 2 days (5 days before hearing)"
+    assert r.reason == "Must be received in 2 days (5 days before hearing)"
 
 
 def test_deadline_exactly_7_days_is_high_and_8_is_normal():

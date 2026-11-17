@@ -39,7 +39,7 @@ def compute_priority(case: PriorityInput, today: date) -> PriorityResult:
     if days is not None and days <= EVIDENCE_WINDOW_DAYS:
         priority = "high"
         reason = (
-            f"Evidence due in {_plural(days, 'day')} "
+            f"Must be received in {_plural(days, 'day')} "
             f"({EVIDENCE_DAYS_BEFORE_HEARING} days before hearing)"
         )
     if case.open_blocking and case.stage == "hearing_scheduled":
@@ -51,7 +51,7 @@ def compute_priority(case: PriorityInput, today: date) -> PriorityResult:
         if case.stage == "waiting_tenant":
             reason = "Intake link sent. No files from the tenant yet."
         elif days is not None:
-            reason = f"Evidence due in {days} days"
+            reason = f"Must be received in {days} days"
         elif case.open_blocking or case.pending_review:
             reason = (
                 f"{case.pending_review} events to review · {case.open_blocking} required items open"

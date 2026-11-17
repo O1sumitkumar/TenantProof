@@ -136,7 +136,7 @@ def test_a_hearing_date_is_saved_and_logged(
     assert client.post(URL.format(run.id), json={"answer": typed}).status_code == 200
     assert hearing(session) == "2026-11-21"
     lines = activity_lines(session)
-    assert "Set the hearing date to 2026-11-21 (evidence due 2026-11-16)" in lines
+    assert "Set the hearing date to 2026-11-21 (must be received by 2026-11-16)" in lines
     assert f"Answered the agent's question on {run.id}" in lines
 
 
@@ -368,7 +368,7 @@ def test_the_caseload_follows_the_new_deadline(
     [mine] = [c for c in client.get("/api/cases").json() if c["id"] == CASE]
     assert mine["stage"] == "hearing_scheduled" and mine["priority"] == "high"
     assert mine["next_deadline"]["date"] == (near - timedelta(days=5)).isoformat()
-    assert "Evidence due in 3 days" in mine["priority_reason"]
+    assert "Must be received in 3 days" in mine["priority_reason"]
 
 
 def test_a_far_hearing_is_scheduled_without_a_deadline_warning(
@@ -379,7 +379,7 @@ def test_a_far_hearing_is_scheduled_without_a_deadline_warning(
     client.post(URL.format(run.id), json={"answer": far.isoformat()})
     [mine] = [c for c in client.get("/api/cases").json() if c["id"] == CASE]
     assert mine["stage"] == "hearing_scheduled"
-    assert "Evidence due in" not in mine["priority_reason"]
+    assert "Must be received in" not in mine["priority_reason"]
     assert "open with a hearing scheduled" in mine["priority_reason"]  # existing rule 2
 
 

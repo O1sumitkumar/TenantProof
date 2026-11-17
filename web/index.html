@@ -558,9 +558,9 @@ function demoSummary() {
 function prioritize(c) {
   const days = c.next_deadline ? Math.round((new Date(c.next_deadline.date + "T12:00:00") - new Date(plusDays(0) + "T12:00:00")) / 864e5) : null;
   let priority = "normal", reason;
-  if (days !== null && days <= 7) { priority = "high"; reason = `Evidence due in ${days} day${days === 1 ? "" : "s"} (5 days before hearing)`; }
+  if (days !== null && days <= 7) { priority = "high"; reason = `Must be received in ${days} day${days === 1 ? "" : "s"} (5 days before hearing)`; }
   if (c.open_blocking && c.stage === "hearing_scheduled") { priority = "high"; reason = (reason ? reason + " and " : "") + `${c.open_blocking} required item open with a hearing scheduled`; }
-  if (!reason) reason = c.stage === "waiting_tenant" ? "Intake link sent. No files from the tenant yet." : days !== null ? `Evidence due in ${days} days` : c.open_blocking || c.pending_review ? `${plural(c.pending_review, "event")} to review · ${c.open_blocking} required items open` : "No open items";
+  if (!reason) reason = c.stage === "waiting_tenant" ? "Intake link sent. No files from the tenant yet." : days !== null ? `Must be received in ${days} days` : c.open_blocking || c.pending_review ? `${plural(c.pending_review, "event")} to review · ${c.open_blocking} required items open` : "No open items";
   return { ...c, priority, priority_reason: reason, _days: days };
 }
 function caseload() {
@@ -852,8 +852,8 @@ function viewCases() {
       <span class="cl-reason">${fresh ? (openable ? "Not analysed yet. Open the case and run the analysis." : "Not analysed yet.") : `${c.priority === "high" ? "High priority: " : ""}${esc(c.priority_reason)}`}</span>
     </${tag}>`;
   }).join("");
-  return `<div class="view-head"><div><h1>Caseload</h1><p>Your open maintenance cases. The order follows fixed rules (evidence deadlines first, then required items), so you can always see why a case is on top.</p></div><button class="btn" data-action="new-case">New case</button></div>
-    <div class="summary-row"><span><b>${cs.length}</b>open cases</span><span><b>${review}</b>need your review</span><span><b>${week}</b>evidence deadline in 7 days</span></div>
+  return `<div class="view-head"><div><h1>Caseload</h1><p>Your open maintenance cases. The order follows fixed rules (received-by dates first, then required items), so you can always see why a case is on top.</p></div><button class="btn" data-action="new-case">New case</button></div>
+    <div class="summary-row"><span><b>${cs.length}</b>open cases</span><span><b>${review}</b>need your review</span><span><b>${week}</b>must be received in 7 days</span></div>
     <div class="panel cl" role="list"><div class="cl-head"><span></span><span>Tenant · issue</span><span>Stage</span><span>Next deadline</span><span>Open items</span><span>Language</span></div>${rows}</div>
     <div class="note"><span class="note-ico">i</span><span>Rows marked <b>Demo row</b> show what a caseload looks like. They have no case view and cannot be opened.</span></div>
     ${contract("cases", { me: S.me, cases: S.cases.map(({ _days, ...c }) => c) })}`;

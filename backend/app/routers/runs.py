@@ -160,7 +160,7 @@ def answer_run(
         session.add(case)
         activity.log(session, case.id, "caseworker", user.name,
                      f"Set the hearing date to {hearing.isoformat()} "
-                     f"(evidence due {deadline['date']})")
+                     f"(must be received by {deadline['date']})")
     activity.log(session, case.id, "caseworker", user.name,
                  f"Answered the agent's question on {row.id}")
     try:
