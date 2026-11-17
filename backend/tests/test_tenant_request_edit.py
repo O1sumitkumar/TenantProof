@@ -227,6 +227,12 @@ def test_the_tenant_page_gets_the_english_too(pages, client, session, token) -> 
     assert {"id": GAP, "message": ZH, "message_en": EN} in view["requests"]
 
 
+def test_the_activity_log_names_the_language_in_english_first(pages, client, session) -> None:
+    """Caseworkers read the log: "Chinese (中文)", not only the native name."""
+    assert client.post(f"/api/cases/{CASE}/intake-link").status_code == 200
+    assert "Re-sent the intake link in Chinese (中文)" in actions(session)
+
+
 # --------------------------------------------------------------------------- translating
 
 

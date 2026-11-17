@@ -274,6 +274,8 @@ textarea.field{min-height:72px;resize:vertical}
 .draft-l{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;color:var(--ink-2)}
 .draft-l textarea{font-weight:400;font-size:14.5px;color:var(--ink)}
 .phone .req-en{margin-top:6px;font-size:13px}
+.preview-bar{display:flex;flex-direction:column;gap:8px}
+.preview-bar .ip-title{font-weight:700}
 .phone .req-en summary{cursor:pointer;color:var(--ink-2)}
 .phone .req-en p{margin:4px 0 0}
 .sources{list-style:none;margin:0;padding:0}
@@ -522,7 +524,7 @@ const SEED = {
     { at: "2026-10-29T09:30:00-03:00", actor: "caseworker", actor_name: "Sam Rivera", action: "Accepted event “Tenancy starts”" },
     { at: "2026-10-28T14:09:31-03:00", actor: "agent", actor_name: "TenantProof agent", action: "Finished run_001: 9 events, 2 required items, 4 tenant requests drafted" },
     { at: "2026-10-28T14:07:40-03:00", actor: "tenant", actor_name: "Jordan Lee", action: "Uploaded 7 files and confirmed they are genuine (中文)" },
-    { at: "2026-10-27T10:14:00-03:00", actor: "caseworker", actor_name: "Sam Rivera", action: "Created the case and sent the intake link in 中文" }
+    { at: "2026-10-27T10:14:00-03:00", actor: "caseworker", actor_name: "Sam Rivera", action: "Created the case and sent the intake link in Chinese (中文)" }
   ]
 };
 
@@ -592,7 +594,7 @@ function mockRoute(method, path, body) {
   if (method === "GET" && path === "/cases") return clone(caseload());
   if (method === "POST" && path === "/cases") return mockNewCase(body);  /* #41 */
   if (method === "GET" && path === C) return clone(db.case);
-  if (method === "POST" && path === `${C}/intake-link`) { db.case.intake.sent_at = new Date().toISOString(); log("caseworker", "Re-sent the intake link in 中文"); return clone(db.case.intake); }
+  if (method === "POST" && path === `${C}/intake-link`) { db.case.intake.sent_at = new Date().toISOString(); log("caseworker", "Re-sent the intake link in Chinese (中文)"); return clone(db.case.intake); }
   if (method === "GET" && path === `${C}/evidence`) return clone(db.evidence);
   if (method === "POST" && path === `${C}/runs`) { const r = makeRun(false); db.latestRun = r.id; log("caseworker", `Started ${r.id}`); return clone(r); }
   if (method === "GET" && path === `${C}/runs/latest`) return clone(db.runs[db.latestRun]);
@@ -660,7 +662,7 @@ function mockRoute(method, path, body) {
     const n = db.evidence.filter(e => e._pendingIntake).length;
     db.evidence.forEach(e => { if (e._pendingIntake) { delete e._pendingIntake; e.processing = e.format_check.accepted ? "queued" : "failed"; } });
     db.case.intake.last_upload_at = new Date().toISOString(); db.case.intake.tenant_attested_genuine = true; db.case.intake.tenant_attested_at = new Date().toISOString();
-    log("tenant", `Uploaded ${n} file${n === 1 ? "" : "s"} and confirmed they are genuine (${LANGS[body.language] || body.language})`);
+    log("tenant", `Uploaded ${n} file${n === 1 ? "" : "s"} and confirmed they are genuine (${langLabel(body.language)})`);
     return { ok: true };
   }
   throw Object.assign(new Error(`No mock for ${method} ${path}`), { status: 404 });
@@ -694,7 +696,10 @@ async function mockUpload(path, files) {
 /* =====================================================================
    TENANT INTAKE STRINGS (agent-drafted requests arrive in the tenant's language)
    ===================================================================== */
-const LANGS = { en: "English", zh: "中文", fr: "Français", es: "Español", ar: "العربية" };
+const LANGS = { en: "English", zh: "中文", fr: "Français", es: "Español", ar: "العربية" };  // native names, for the tenant
+// #48: caseworker screens name a language in English first, with the native name after it.
+const LANG_EN = { en: "English", zh: "Chinese", fr: "French", es: "Spanish", ar: "Arabic" };
+const langLabel = k => k === "en" ? "English" : LANG_EN[k] ? `${LANG_EN[k]} (${LANGS[k]})` : (k || "");
 const I18N = {
   en: { showEn: "Show in English", title: "Share evidence for your case", intro: "{org} is helping you with the repair problem at {unit}. Upload what you have. You don't need to organize anything.", what: "What helps", items: ["Photos of the problem. Use the originals from your camera roll, not copies from chat apps.", "Your lease", "Messages or emails with your landlord", "Receipts for costs you paid"], req: "{org} asked for", choose: "Choose files", selected: "{n} file(s) selected", privacy: "Location and device data are removed before any file is analyzed by AI. Only {org} can see your files.", attest: "These files are genuine and I haven't changed what they show.", consent: "I agree to share these files with {org} for my case.", send: "Send to {org}", sent: "Sent. {org} will contact you after reviewing your files.", lang: "Language", sendHint: "To send, choose at least one file and tick both boxes above.", sendHint: "To send, choose at least one file and tick both boxes above." },
   zh: { showEn: "显示英文", title: "为你的案件提交证据", intro: "{org} 正在协助处理你在 {unit} 的维修问题。把你手上的材料上传就行，不需要自己整理。", what: "有用的材料", items: ["问题的照片。请上传相册里的原图，不要用聊天软件转发的图片。", "租约", "和房东的聊天记录或邮件", "你自己垫付费用的收据"], req: "{org} 需要你补充", choose: "选择文件", selected: "已选择 {n} 个文件", privacy: "在 AI 分析之前，会先删除文件里的位置和设备信息。只有 {org} 能看到你的文件。", attest: "这些文件是真实的，我没有修改过其中的内容。", consent: "我同意把这些文件提供给 {org}，用于处理我的案件。", send: "发送给 {org}", sent: "已发送。{org} 审核文件后会联系你。", lang: "语言", sendHint: "要发送，请先选择至少一个文件，并勾选上面的两个框。", sendHint: "要发送，请先选择至少一个文件，并勾选上面的两个框。" },
@@ -874,7 +879,7 @@ const NEW_CASE_LANGS = ["en", "zh", "fr", "es"];  // the languages the tenant pa
 function newCaseForm() {
   const n = S.newCase; if (!n) return "";
   const v = k => esc(n.values[k] || "");
-  const opts = `<option value="" disabled${n.values.tenant_language ? "" : " selected"}>Choose…</option>` + NEW_CASE_LANGS.map(k => `<option value="${k}"${n.values.tenant_language === k ? " selected" : ""}>${esc(LANGS[k])}</option>`).join("");
+  const opts = `<option value="" disabled${n.values.tenant_language ? "" : " selected"}>Choose…</option>` + NEW_CASE_LANGS.map(k => `<option value="${k}"${n.values.tenant_language === k ? " selected" : ""}>${esc(langLabel(k))}</option>`).join("");
   return `<form class="panel panel-pad new-case" data-action="create-case" aria-labelledby="nc-h">
     <h2 class="section-h" id="nc-h">New case</h2>
     <p class="muted">This is a shared demo: use invented names and addresses.</p>
@@ -929,7 +934,7 @@ function viewCases() {
       <span class="cl-stage"><span class="pill ${stCls}">${stLabel}</span></span>
       <span class="cl-dead">${dl}</span>
       <span class="cl-open">${open}</span>
-      <span class="cl-lang muted">${esc(LANGS[c.tenant_language] || c.tenant_language)}</span>
+      <span class="cl-lang muted">${esc(langLabel(c.tenant_language))}</span>
       <span class="cl-reason">${fresh ? (openable ? "Not analysed yet. Open the case and run the analysis." : "Not analysed yet.") : `${c.priority === "high" ? "High priority: " : ""}${esc(c.priority_reason)}`}</span>
     </${tag}>`;
   }).join("");
@@ -958,8 +963,8 @@ function viewEvidence() {
   }).join("");
   return `<div class="view-head"><div><h1>Evidence</h1><p>Files come from the tenant's intake link or from you. Each gets an exhibit label, a SHA-256 fingerprint and a server receipt time. Location and device data are removed before anything goes to the AI model.</p></div></div>
     <div class="panel panel-pad intake-panel">
-      ${!(S.case.tenant.preferred_language in I18N) ? `<div class="ip-main"><span class="ip-title">Tenant intake link · ${esc(LANGS[S.case.tenant.preferred_language])}</span><span class="muted">The tenant page has no ${esc(LANGS[S.case.tenant.preferred_language])} text yet, so no link can be sent or previewed for this case.</span></div>` : `
-      <div class="ip-main"><span class="ip-title">Tenant intake link · ${esc(LANGS[S.case.tenant.preferred_language])}</span>
+      ${!(S.case.tenant.preferred_language in I18N) ? `<div class="ip-main"><span class="ip-title">Tenant intake link · ${esc(langLabel(S.case.tenant.preferred_language))}</span><span class="muted">The tenant page has no ${esc(langLabel(S.case.tenant.preferred_language))} text yet, so no link can be sent or previewed for this case.</span></div>` : `
+      <div class="ip-main"><span class="ip-title">Tenant intake link · ${esc(langLabel(S.case.tenant.preferred_language))}</span>
         <span class="muted">${ik.status === "not_sent" ? "Not sent yet" : `Sent ${fmtTime(ik.sent_at)}`} · last upload ${fmtTime(ik.last_upload_at)} · ${ik.tenant_attested_genuine ? `<span style="color:var(--ok)">tenant confirmed files are genuine</span>` : "not confirmed yet"}</span>
         ${link ? linkBox(link) : `<span class="muted">The link is shown once, when you send it.${ik.status === "not_sent" ? "" : " Re-send to create a new link (the old one stops working)."}</span>`}</div>
       <div class="btn-row"><a class="btn" href="#intake">Open tenant view</a><button class="btn${ik.status === "not_sent" ? " primary" : ""}" type="button" data-action="resend">${ik.status === "not_sent" ? "Send intake link" : "Re-send link"}</button></div>`}
@@ -1039,9 +1044,9 @@ function startDraft(g) {
 const isEnglish = lang => (lang || "").toLowerCase().split("-")[0] === "en";
 const draftStale = d => d.en.trim() !== d.pairEn.trim();
 function draftBox(g) {
-  const d = S.draftEdit, lang = g.tenant_request.language, name = LANGS[lang] || lang, en = isEnglish(lang);
+  const d = S.draftEdit, lang = g.tenant_request.language, name = LANG_EN[lang] || lang, en = isEnglish(lang);
   const edited = d.en !== g.tenant_request.message_en || d.msg !== g.tenant_request.message;
-  return `<div class="draft"><span class="draft-h">Request to ${esc(S.case.tenant.name)} · ${esc(name)} · ${edited ? "edited by you" : "written by the agent"}</span>
+  return `<div class="draft"><span class="draft-h">Request to ${esc(S.case.tenant.name)} · ${esc(langLabel(lang))} · ${edited ? "edited by you" : "written by the agent"}</span>
     <label class="draft-l">English${en ? "" : " (what you mean)"}<textarea class="field" id="draft-en-${g.id}" data-draft="en" maxlength="1500" rows="3" ${d.busy ? "readonly" : ""}>${esc(d.en)}</textarea></label>
     ${en ? "" : `<div class="btn-row"><button class="btn small" data-action="translate-draft" data-id="${g.id}" ${d.busy ? "disabled" : ""}>${d.busy ? "Translating…" : `Translate into ${esc(name)}`}</button></div>
     <label class="draft-l">${esc(name)} (what the tenant reads first)<textarea class="field" id="draft-msg-${g.id}" data-draft="msg" lang="${esc(lang)}" maxlength="3000" rows="3" ${d.busy ? "readonly" : ""}>${esc(d.msg)}</textarea></label>
@@ -1164,11 +1169,32 @@ function viewPackage() {
 }
 
 /* ---------- tenant intake ---------- */
+/* #48: one request on the tenant page. On an English page it reads in English, with the tenant's
+   language under a toggle; otherwise in the tenant's language, with the English under the toggle. */
+function reqHtml(r, pageLang, tenantLang, t, vars) {
+  const message = r.message ?? "", english = r.message_en || "";
+  const flip = pageLang === "en" && english && !isEnglish(tenantLang);
+  const [shown, shownLang, other, otherLang, label] = flip
+    ? [english, "en", message, tenantLang, `Show in ${LANG_EN[tenantLang] || tenantLang}`]
+    : [message, tenantLang, english, "en", t.showEn];
+  const more = other && other !== shown ? `<details class="req-en"><summary>${esc(label)}</summary><p lang="${esc(otherLang)}">${esc(other)}</p></details>` : "";
+  return `<div class="req"><b>${esc(tpl(t.req, vars))}</b><span lang="${esc(shownLang)}">${esc(shown)}</span>${more}</div>`;
+}
+/* #48: above the preview, which language the tenant reads, and a one-click English view. */
+function previewBar(v, lang) {
+  if (TENANT_MODE || isEnglish(v.language)) return "";
+  const btn = (k, text) => `<button class="btn small${lang === k ? " primary" : ""}" type="button" data-action="preview-lang" data-lang="${esc(k)}" aria-pressed="${lang === k}">${esc(text)}</button>`;
+  const english = lang === "en";
+  return `<div class="panel panel-pad preview-bar"><span class="ip-title">${esc(v.tenant_first_name)} reads this page in ${esc(langLabel(v.language))}</span>
+    <div class="btn-row" role="group" aria-label="Preview language">${btn(v.language, `${LANG_EN[v.language] || v.language} (what ${v.tenant_first_name} sees)`)}${btn("en", "English (for you)")}</div>
+    <span class="muted">${english ? `You are reading it in English. ${esc(v.tenant_first_name)}'s page opens in ${esc(LANG_EN[v.language] || v.language)}, with each request's English under “${esc((I18N[v.language] || I18N.en).showEn)}” (Show in English).` :`Switch to English to read the page and each request in English.`}</span></div>`;
+}
+
 function viewIntake() {
   const v = S.intake.view; if (!v) return "<p>Loading…</p>";
   if (v.noLink) return `<div class="view-head"><div><h1>Tenant view</h1><p>Send the intake link first, then you can preview what the tenant sees. For security the link is only shown when it is created.</p></div></div><div class="btn-row"><button class="btn primary" type="button" data-action="resend">Send intake link</button></div>`;
   const lang = S.intake.lang || v.language, t = I18N[lang] || I18N.en, vars = { org: v.org_name, unit: v.unit };
-  const reqs = v.requests.map(r => `<div class="req"><b>${esc(tpl(t.req, vars))}</b>${esc(r.message ?? "")}${r.message_en && r.message_en !== r.message ? `<details class="req-en"><summary>${esc(t.showEn)}</summary><p lang="en">${esc(r.message_en)}</p></details>` : ""}</div>`).join("");  /* #48: the English too */
+  const reqs = v.requests.map(r => reqHtml(r, lang, v.language, t, vars)).join("");  /* #48: the English too */
   const body = S.intake.sent ? `<div class="done">${esc(tpl(t.sent, vars))}</div>` : `
       <p>${esc(tpl(t.intro, vars))}</p>${reqs}
       <div><strong style="font-size:14.5px">${esc(t.what)}</strong><ul>${t.items.map(i => `<li>${esc(i)}</li>`).join("")}</ul></div>
@@ -1184,7 +1210,8 @@ function viewIntake() {
     ${link ? `<div class="panel panel-pad intake-panel"><div class="ip-main"><span class="ip-title">Intake link for ${esc(v.tenant_first_name)}</span><span class="muted">Copy it now and send it to the tenant. For security it is shown only until you reload this page or send a link for another case; after that, re-sending makes a new link and the old one stops working.</span>${linkBox(link)}</div></div>` : ""}
     <div class="intake-wrap">
       <div class="intake-side">
-        <div class="note"><span class="note-ico">i</span><span>Requests you approve on <a href="#gaps">Missing info</a> appear here in the tenant's language. Files sent here show up in the case as <b>Uploaded by tenant</b>.</span></div>
+        ${previewBar(v, lang)}
+        <div class="note"><span class="note-ico">i</span><span>Requests you approve on <a href="#gaps">Missing info</a> appear on this page. Files sent here show up in the case as <b>Uploaded by tenant</b>.</span></div>
         <div class="note"><span class="note-ico">i</span><span>The four languages in this prototype are examples. Agent-drafted requests are written in the tenant's language by the model; fixed page text should be checked by a native speaker.</span></div>
         ${S.intake.sent ? `<div class="btn-row"><a class="btn" href="#evidence">See the files in the case</a><button class="btn" data-action="intake-reset">Reset tenant view</button></div>` : ""}
       </div>
@@ -1326,6 +1353,7 @@ document.addEventListener("click", async ev => {
   if (a === "draft") { const g = S.gaps.find(x => x.id === id); if (g && g.tenant_request) { startDraft(g); render(); const el = document.getElementById(`draft-en-${id}`); el && el.focus(); } }  /* #48 */
   if (a === "cancel-draft") { S.drafting = null; S.draftEdit = null; S.draftError = ""; render(); }
   if (a === "translate-draft") return translateDraft(id);
+  if (a === "preview-lang") { S.intake.lang = b.dataset.lang; render(); return; }  /* #48 */
   if (a === "send-request") return sendDraft(id);
   if (a === "gap") { const st = b.dataset.status; await request("PATCH", `/gaps/${id}`, { status: st, resolution_note: st === "resolved" ? "Marked done" : st === "dismissed" ? "Dismissed by caseworker" : null }); await refresh(["gaps", "form", "intake"]); }
   if (a === "build") {

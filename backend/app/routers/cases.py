@@ -14,7 +14,11 @@ from app.services import cases as cases_service
 from app.services.intake_token import issue_token
 from app.services.mappers import list_case_rows, to_case, to_intake, to_summary
 
-LANG_NAMES = {"en": "English", "zh": "中文", "fr": "Français", "es": "Español", "ar": "العربية"}
+# For the activity log a caseworker reads: the English name first, the native one after it (#48).
+LANG_NAMES = {
+    "en": "English", "zh": "Chinese (中文)", "fr": "French (Français)", "es": "Spanish (Español)",
+    "ar": "Arabic (العربية)",
+}  # fmt: skip
 
 router = APIRouter()
 
