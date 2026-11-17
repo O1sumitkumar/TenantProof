@@ -356,13 +356,18 @@ def test_unknown_gap_is_404(fresh_db, client):
 # --- POST /api/gaps/{id}/tenant-request ------------------------------------------------
 
 
-def test_tenant_request_sets_waiting_and_tenant_sees_only_id_and_message(fresh_db, client, token):
-    message = _gap(client, "gap_01")["tenant_request"]["message"]
+def test_tenant_request_sets_waiting_and_tenant_sees_only_id_and_both_texts(
+    fresh_db, client, token
+):
+    drafted = _gap(client, "gap_01")["tenant_request"]
     r = client.post("/api/gaps/gap_01/tenant-request")
     assert r.status_code == 200
     assert r.json()["status"] == "waiting_tenant"
     requests = client.get(f"/api/intake/{token}").json()["requests"]
-    assert requests == [{"id": "gap_01", "message": message}]
+    # The English goes to the tenant too since #48 (CONTRACT_CHANGES #37); nothing else does.
+    assert requests == [
+        {"id": "gap_01", "message": drafted["message"], "message_en": drafted["message_en"]}
+    ]
 
 
 def test_tenant_request_without_drafted_message_is_409(fresh_db, client):

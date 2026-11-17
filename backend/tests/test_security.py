@@ -104,7 +104,8 @@ def test_tenant_view_only_lists_waiting_tenant_requests(client, token, session):
     try:
         reqs = client.get(f"/api/intake/{token}").json()["requests"]
         assert [r["id"] for r in reqs] == ["gap_01"]
-        assert set(reqs[0]) == {"id", "message"}  # no message_en: English is for the caseworker
+        # The English copy goes to the tenant since #48 (CONTRACT_CHANGES #37); nothing more.
+        assert set(reqs[0]) == {"id", "message", "message_en"}
     finally:
         gap.status = "open"
         session.add(gap)
