@@ -214,3 +214,25 @@ def test_an_unconfirmed_entry_clears_the_last_verified_time(fresh_db, session, m
     assert after is not None
     assert after.verify_status == "unverified"
     assert after.last_verified_at is None
+
+
+def test_an_owner_locked_pdf_is_read_like_any_other():
+    """Form J is AES-256 encrypted with an empty user password (it only blocks editing). Reading
+    it needs the `cryptography` package (the pypdf[crypto] extra); without it the source check
+    said "unreachable" for a document that was served fine."""
+    import io
+
+    from pypdf import PdfReader, PdfWriter
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("helvetica", size=12)
+    pdf.cell(text="Form J: Application to Director (Section 13 of the Act)")
+    writer = PdfWriter(clone_from=PdfReader(io.BytesIO(bytes(pdf.output()))))
+    writer.encrypt(user_password="", owner_password="owner", algorithm="AES-256")
+    locked = io.BytesIO()
+    writer.write(locked)
+
+    text = verify.extract_text(verify.Fetched(locked.getvalue(), "application/pdf"))
+
+    assert "Form J: Application to Director" in text
