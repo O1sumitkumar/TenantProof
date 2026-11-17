@@ -129,6 +129,7 @@ type Intake = {
   last_upload_at: string | null;
   tenant_attested_genuine: boolean;
   tenant_attested_at: string | null;
+  qr_svg: string | null;                 // QR code of url, a data URI starting "data:image/svg+xml" (then ";charset=utf-8,…"); POST /cases/{id}/intake-link only, null elsewhere
 };
 
 type IntakeView = {
