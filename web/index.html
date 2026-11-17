@@ -440,7 +440,7 @@ async function uploadFiles(path, files) {
 }
 
 const ENDPOINTS = {
-  cases: ["GET /me", "GET /cases"],
+  cases: ["GET /me", "GET /cases", "POST /cases"],
   evidence: ["GET /cases/{id}/evidence", "POST /cases/{id}/evidence (multipart)", "POST /cases/{id}/intake-link"],
   run: ["POST /cases/{id}/runs", "GET /cases/{id}/runs/latest", "GET /runs/{run_id}  (poll)", "POST /runs/{run_id}/answer"],
   timeline: ["GET /cases/{id}/timeline", "PATCH /timeline/{event_id}"],
@@ -567,7 +567,7 @@ function prioritize(c) {
   let priority = "normal", reason;
   if (days !== null && days <= 7) { priority = "high"; reason = `Must be received in ${days} day${days === 1 ? "" : "s"} (5 days before hearing)`; }
   if (c.open_blocking && c.stage === "hearing_scheduled") { priority = "high"; reason = (reason ? reason + " and " : "") + `${c.open_blocking} required item open with a hearing scheduled`; }
-  if (!reason) reason = c.stage === "waiting_tenant" ? "Intake link sent. No files from the tenant yet." : days !== null ? `Must be received in ${days} days` : c.open_blocking || c.pending_review ? `${plural(c.pending_review, "event")} to review · ${c.open_blocking} required items open` : "No open items";
+  if (!reason) reason = c.stage === "waiting_tenant" ? (c._not_sent ? "Intake link not sent yet." : "Intake link sent. No files from the tenant yet.") : days !== null ? `Must be received in ${days} days` : c.open_blocking || c.pending_review ? `${plural(c.pending_review, "event")} to review · ${c.open_blocking} required items open` : "No open items";
   return { ...c, priority, priority_reason: reason, _days: days };
 }
 function caseload() {
@@ -840,19 +840,28 @@ function renderChrome() {
 }
 
 /* --- new case (#41): POST /cases, CONTRACT_CHANGES #35 --- */
+// State that belongs to one case. Kept across a switch, the last case's intake link would show
+// (and work) on the next case, with its package, confirmations and run poller.
+function resetCaseState() {
+  clearInterval(poller);
+  S.lastLink = null; S.intake.view = null; S.pkg = null; S.pkgError = null; S.run = null;
+  S.editing = null; S.drafting = null; S.askError = ""; S.askDraft = "";
+  S.attest = { reviewed_fields: false, remedy_confirmed_with_tenant: false, explained_not_legal_advice: false };
+}
 const NEW_CASE_LANGS = ["en", "zh", "fr", "es"];  // the languages the tenant page has text for
 function newCaseForm() {
   const n = S.newCase; if (!n) return "";
   const v = k => esc(n.values[k] || "");
-  const opts = NEW_CASE_LANGS.map(k => `<option value="${k}"${n.values.tenant_language === k ? " selected" : ""}>${esc(LANGS[k])}</option>`).join("");
+  const opts = `<option value="" disabled${n.values.tenant_language ? "" : " selected"}>Choose…</option>` + NEW_CASE_LANGS.map(k => `<option value="${k}"${n.values.tenant_language === k ? " selected" : ""}>${esc(LANGS[k])}</option>`).join("");
   return `<form class="panel panel-pad new-case" data-action="create-case" aria-labelledby="nc-h">
     <h2 class="section-h" id="nc-h">New case</h2>
+    <p class="muted">This is a shared demo: use invented names and addresses.</p>
     ${n.error ? `<div class="note bad" role="alert"><span class="note-ico">×</span><span>${esc(n.error)}</span></div>` : ""}
     <label>Tenant name<input class="field" name="tenant_name" maxlength="120" required autocomplete="off" value="${v("tenant_name")}"></label>
     <label>Preferred language<select class="field" name="tenant_language" required>${opts}</select></label>
     <label>Unit address<input class="field" name="unit" maxlength="200" required autocomplete="off" value="${v("unit")}"></label>
     <label>What is wrong<input class="field" name="title" maxlength="120" required autocomplete="off" placeholder="For example: water leak and mould in the bathroom" value="${v("title")}"></label>
-    <div class="nc-actions"><button class="btn primary" type="submit"${n.busy ? " disabled" : ""}>${n.busy ? "Creating…" : "Create case"}</button><button class="btn" type="button" data-action="cancel-new-case">Cancel</button></div>
+    <div class="nc-actions"><button class="btn primary" type="submit"${n.busy ? " disabled" : ""}>${n.busy ? "Creating…" : "Create case"}</button><button class="btn" type="button" data-action="cancel-new-case"${n.busy ? " disabled" : ""}>Cancel</button></div>
   </form>`;
 }
 async function createCase(form) {
@@ -864,14 +873,14 @@ async function createCase(form) {
   catch (err) { S.newCase = { values: body, busy: false, error: err.message }; render(); return; }
   S.newCase = null;
   if (USE_MOCK) { await refresh(["cases"]); render(); toast("Case added to the caseload. Mock mode has one case view, so it shows as a demo row."); return; }
-  setCase(made.id); await refresh(); location.hash = "evidence"; render();
+  resetCaseState(); setCase(made.id); await refresh(); location.hash = "evidence"; render();
   toast("Case created. Send the intake link to the tenant.");
 }
 function mockNewCase(body) {
   const b = body || {}, blank = ["tenant_name", "unit", "title"].filter(k => !String(b[k] || "").trim());
   if (blank.length || !NEW_CASE_LANGS.includes(b.tenant_language)) throw Object.assign(new Error("Fill in every field"), { status: 422 });
   const id = `case_mock_${db.otherCases.length + 1}`;
-  db.otherCases.push({ id, tenant_name: b.tenant_name, title: b.title, unit: b.unit, dispute_type: "maintenance", stage: "waiting_tenant", next_deadline: null, open_blocking: 0, pending_review: 0, tenant_language: b.tenant_language, updated_at: new Date().toISOString(), has_demo_data: false });
+  db.otherCases.push({ id, tenant_name: b.tenant_name, title: b.title, unit: b.unit, dispute_type: "maintenance", stage: "waiting_tenant", next_deadline: null, open_blocking: 0, pending_review: 0, tenant_language: b.tenant_language, updated_at: new Date().toISOString(), has_demo_data: false, _not_sent: true });
   return { id, dispute_type: "maintenance", title: b.title, unit: b.unit, assigned_to: { id: ME.id, name: ME.name }, tenant: { name: b.tenant_name, preferred_language: b.tenant_language }, intake: { url: null, status: "not_sent", sent_at: null, last_upload_at: null, tenant_attested_genuine: false, tenant_attested_at: null }, created_at: new Date().toISOString(), synthetic: true };
 }
 /* --- end new case --- */
@@ -906,7 +915,7 @@ function viewCases() {
     <div class="summary-row"><span><b>${cs.length}</b>open cases</span><span><b>${review}</b>need your review</span><span><b>${week}</b>must be received in 7 days</span></div>
     <div class="panel cl" role="list"><div class="cl-head"><span></span><span>Tenant · issue</span><span>Stage</span><span>Next deadline</span><span>Open items</span><span>Language</span></div>${rows}</div>
     <div class="note"><span class="note-ico">i</span><span>Rows marked <b>Demo row</b> show what a caseload looks like. They have no case view and cannot be opened.</span></div>
-    ${contract("cases", { me: S.me, cases: S.cases.map(({ _days, ...c }) => c) })}`;
+    ${contract("cases", { me: S.me, cases: S.cases.map(({ _days, _not_sent, ...c }) => c) })}`;
 }
 
 /* ---------- case views ---------- */
@@ -1221,7 +1230,7 @@ document.addEventListener("click", async ev => {
   if (a === "brief") return openBrief();
   if (a === "close-brief") return closeBrief();
   if (a === "copy") { ev.preventDefault(); try { await navigator.clipboard.writeText(b.dataset.text); toast("Copied"); } catch { toast(b.dataset.text); } }
-  if (a === "open-case") { const c = S.cases.find(x => x.id === id); if (c && c.has_demo_data) { if (id !== CASE_ID) { setCase(id); await refresh(); } location.hash = "timeline"; } }
+  if (a === "open-case") { const c = S.cases.find(x => x.id === id); if (c && c.has_demo_data) { if (id !== CASE_ID) { resetCaseState(); setCase(id); await refresh(); } location.hash = "timeline"; } }
   if (a === "new-case") { S.newCase = S.newCase || { values: {} }; render(); const first = document.querySelector("form.new-case [name=tenant_name]"); if (first) first.focus(); return; }  /* #41 */
   if (a === "cancel-new-case") { S.newCase = null; render(); return; }
   if (a === "resend") { const r = await request("POST", `${C}/intake-link`); S.lastLink = r.url; S.intake.view = null; toast("Intake link created. Copy it now: it is only shown once."); await refresh(["case", "intake"]); }

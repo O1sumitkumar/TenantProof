@@ -158,6 +158,7 @@ def to_summary(
             next_deadline_date=date.fromisoformat(deadline["date"]) if deadline else None,
             open_blocking=blocking,
             pending_review=pending,
+            intake_sent=case.intake_status != "not_sent",
         ),
         today,
     )

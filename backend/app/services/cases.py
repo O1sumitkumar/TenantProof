@@ -4,6 +4,7 @@ A new case starts where the live-demo case starts: no evidence, no run, the inta
 yet. The org and the assignee are the signed-in caseworker's; nothing in the body can choose them.
 """
 
+import unicodedata
 import uuid
 
 from sqlmodel import Session
@@ -18,33 +19,52 @@ FORM_DISCLAIMER = (
     "Prepared with the tenant to help fill in the official form. It is information, not legal "
     "advice, and is not submitted anywhere."
 )
-# The CaseCreate limits, applied again after cleaning: escaping "<" can make text longer, and the
-# stored value is cut to the limit.
-LIMITS = {"tenant_name": 120, "unit": 200, "title": 120}
-
-
+LIMITS = {"tenant_name": 120, "unit": 200, "title": 120}  # the CaseCreate limits
 LABELS = {
     "tenant_name": "Tenant name",
     "tenant_language": "Preferred language",
     "unit": "Unit address",
     "title": "What is wrong",
 }
+# "<" and its look-alikes are refused, not escaped: escaped, a typed "Heat < 15C" would be stored
+# and shown (caseload, tenant page, filed PDF) as "Heat &lt; 15C".
+ANGLES = ("<", "＜", "﹤")
+
+
+def _clean(value: str, limit: int) -> str:
+    """No control characters (`clean_text`) and no invisible format characters (zero-width
+    spaces, the byte-order mark, bidi overrides that reverse how text displays)."""
+    visible = "".join(ch for ch in value if unicodedata.category(ch) != "Cf")
+    return clean_text(visible, limit)
 
 
 def cleaned(body: CaseCreate) -> dict[str, str]:
     """The typed text, cleaned like any text a model reads later (the title and the tenant name go
-    into the agent's prompts and the filing package): no control characters, no "<"."""
-    return {key: clean_text(getattr(body, key), limit) for key, limit in LIMITS.items()}
+    into the agent's prompts and the filing package). With "<" refused first (`problems`), the
+    cleaning only removes characters, so nothing grows past its limit."""
+    return {key: _clean(getattr(body, key), limit) for key, limit in LIMITS.items()}
 
 
-def blank_after_cleaning(text: dict[str, str]) -> list[str]:
-    """Reasons for fields that held only control characters: blank once cleaned."""
-    return [f"{LABELS[key]}: enter some text" for key, value in text.items() if not value]
+def _blank(value: str) -> bool:
+    return not any(ch.isprintable() and not ch.isspace() for ch in value)
+
+
+def problems(body: CaseCreate) -> list[str]:
+    """Why a body that passed CaseCreate still cannot be saved, one plain reason per field: a "<",
+    or nothing visible left once control and format characters are removed."""
+    text = cleaned(body)
+    reasons: list[str] = []
+    for key in LIMITS:
+        if any(angle in getattr(body, key) for angle in ANGLES):
+            reasons.append(f"{LABELS[key]}: remove the < character")
+        elif _blank(text[key]):
+            reasons.append(f"{LABELS[key]}: enter some text")
+    return reasons
 
 
 def create_case(session: Session, user: UserRow, body: CaseCreate) -> CaseRow:
-    """The new case, in the user's org and assigned to them. Caller checks
-    `blank_after_cleaning` first, and commits."""
+    """The new case, in the user's org and assigned to them. Caller checks `problems` first, and
+    commits."""
     text = cleaned(body)
     case = CaseRow(
         id=f"case_{uuid.uuid4().hex[:10]}",

@@ -14,6 +14,8 @@ class PriorityInput:
     next_deadline_date: date | None
     open_blocking: int
     pending_review: int
+    # False only while the intake link has never gone out (a case just created, #41).
+    intake_sent: bool = True
 
 
 @dataclass(frozen=True)
@@ -48,7 +50,9 @@ def compute_priority(case: PriorityInput, today: date) -> PriorityResult:
         reason = f"{reason} and {blocked}" if reason else blocked
 
     if reason is None:
-        if case.stage == "waiting_tenant":
+        if case.stage == "waiting_tenant" and not case.intake_sent:
+            reason = "Intake link not sent yet."
+        elif case.stage == "waiting_tenant":
             reason = "Intake link sent. No files from the tenant yet."
         elif days is not None:
             reason = f"Must be received in {days} days"

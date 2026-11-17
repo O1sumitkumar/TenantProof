@@ -19,7 +19,7 @@ Single source of truth. Update the relevant section in every PR.
 | M2 (WS1) | Evidence ingest and tenant uploads: upload routes, type check by signature, metadata, stripped copy, text as `evidence_page` rows, evidence in the zip | PRs #6, #7, #8 (`24a343d`) |
 | M3 (WS3) | Agent tool bodies and loop, `POST /cases/{id}/runs`, the `extract` step writing `evidence_fact`, `POST /runs/{id}/answer`, demo evals for prompt injection and fabricated quotes | PRs #5, #15, #16, #18, #19, #20 |
 
-Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #29).
+Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #36).
 
 ## In progress
 

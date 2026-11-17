@@ -129,12 +129,40 @@ def test_the_activity_log_says_who_created_it(fresh_db, client, session: Session
     assert feed[0]["action"] == "Created the case"
 
 
-def test_typed_text_is_cleaned(fresh_db, client):
-    """The title and name reach the agent's prompts later: no control characters, no "<"."""
-    body = create(client, title="Leak\x00 <script>alert(1)</script>", tenant_name="Ana\x07 Silva")
-    assert "\x00" not in body["title"] and "<" not in body["title"]
-    assert "<script>" not in body["title"] and "script" in body["title"]
-    assert body["tenant"]["name"] == "Ana  Silva"  # the control character became a space
+def test_control_and_invisible_characters_are_removed(fresh_db, client):
+    """The title and name reach the agent's prompts later: no control characters, and no
+    zero-width or bidi characters that hide or reverse text."""
+    body = create(
+        client, title="Leak\x00 in the​ bath﻿room", tenant_name="Ana\x07 ‮Silva"
+    )
+    assert body["title"] == "Leak  in the bathroom"  # the NUL became a space
+    assert body["tenant"]["name"] == "Ana  Silva"
+
+
+@pytest.mark.parametrize("angle", ["<", "＜", "﹤"])
+def test_a_less_than_sign_is_refused_not_stored_escaped(fresh_db, client, angle):
+    """Escaped, "Heat < 15C" would show as "Heat &lt; 15C" on every page and in the filed PDF."""
+    r = client.post(URL, json={**BODY, "title": f"Heat {angle} 15C", "unit": "<script>"})
+    assert r.status_code == 422
+    assert r.json()["detail"]["reasons"] == [
+        "Unit address: remove the < character", "What is wrong: remove the < character"
+    ]
+
+
+@pytest.mark.parametrize("name", ["​", "⁠﻿", "‮", "\x00​ "])
+def test_a_value_with_nothing_visible_is_blank(fresh_db, client, name):
+    r = client.post(URL, json={**BODY, "tenant_name": name})
+    assert r.status_code == 422
+    assert r.json()["detail"]["reasons"] == ["Tenant name: enter some text"]
+
+
+def test_the_caseload_says_the_link_is_not_sent_yet(fresh_db, client):
+    body = create(client)
+    row = next(c for c in client.get(URL).json() if c["id"] == body["id"])
+    assert row["priority_reason"] == "Intake link not sent yet."
+    assert client.post(f"{URL}/{body['id']}/intake-link").status_code == 200
+    row = next(c for c in client.get(URL).json() if c["id"] == body["id"])
+    assert row["priority_reason"] == "Intake link sent. No files from the tenant yet."
 
 
 def test_every_page_of_an_empty_case_answers(fresh_db, client):

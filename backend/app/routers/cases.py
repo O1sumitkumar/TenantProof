@@ -60,9 +60,9 @@ def create_case(
     except ValidationError as exc:
         reasons = list(dict.fromkeys(_plain(err) for err in exc.errors()))
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, {"reasons": reasons}) from None
-    blank = cases_service.blank_after_cleaning(cases_service.cleaned(parsed))
-    if blank:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, {"reasons": blank})
+    refused = cases_service.problems(parsed)
+    if refused:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, {"reasons": refused})
     case = cases_service.create_case(session, user, parsed)
     session.commit()
     session.refresh(case)
