@@ -634,7 +634,7 @@ def test_pdf_child_limits_memory_and_cpu():
              "text.limit_child_resources(); "
              "print(resource.getrlimit(resource.RLIMIT_AS)[0], "
              "resource.getrlimit(resource.RLIMIT_CPU)[0])")
-    out = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True,
+    out = subprocess.run([sys.executable, "-c", probe], capture_output=True, encoding="utf-8",
                          check=True, cwd=Path(__file__).resolve().parent.parent).stdout.split()
     if sys.platform.startswith("linux"):  # macOS refuses a limit on the address space
         assert int(out[0]) <= text.PDF_CHILD_MEMORY
