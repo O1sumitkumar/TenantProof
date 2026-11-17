@@ -58,8 +58,10 @@ def asks(row: RunRow) -> list[dict]:
 
 @pytest.fixture
 def resume() -> Iterator[RecordingProvider]:
-    """The provider the answer route resumes with. Empty script: a call would fail the test."""
-    provider = RecordingProvider({})
+    """The provider the answer route resumes with. Only the gaps step, which runs after the
+    timeline on resume, is scripted: a timeline call would fail the test."""
+    provider = RecordingProvider(
+        {"gaps-turn1": turn(tool_use("finish", "g1", summary="Nothing new to add."))})
     api.dependency_overrides[runs_router.provider_dep] = lambda: provider
     yield provider
     api.dependency_overrides.pop(runs_router.provider_dep, None)
@@ -168,7 +170,8 @@ def test_the_answer_sets_the_date_and_finishes_the_step_without_a_model_call(
     assert step["status"] == "done" and step["summary"] == summary and "checkpoint" not in step
     assert [c["tool"] for c in step["tool_calls"]] == ["finish", "ask_caseworker"]
     assert done.finished_at is not None and runner.paused_question(done) is None
-    assert resume.requests == []  # nothing left for the model to do
+    # The timeline step needs no model call; the only request is the gaps step that follows.
+    assert [request.fixture_key for request in resume.requests] == ["gaps-turn1"]
 
 
 def test_a_bad_date_keeps_the_run_paused_and_the_date_empty(

@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fpdf import FPDF
 from PIL import Image
+from pypdf import PdfReader
 from sqlmodel import Session, col, select
 
 from app.config import get_settings
@@ -679,17 +680,23 @@ def test_package_zip_contains_the_uploaded_originals(fresh_db, client, session):
     assert {"application_draft.pdf", "evidence_manifest.pdf", "manifest.json"} <= set(entries)
     assert set(entries) == {"application_draft.pdf", "evidence_manifest.pdf", "manifest.json",
                             "evidence/E-08.jpg", "evidence/E-09.pdf"}
-    assert entries["evidence/E-08.jpg"] == photo  # the original with its EXIF, not the AI copy
+    # The original's pixels and capture time, with the location taken out (not the AI copy).
+    filed = entries["evidence/E-08.jpg"]
+    assert filed != photo and not exif_of(filed).get_ifd(GPS_IFD)
+    assert capture_time(filed) == capture_time(photo) == "2026:08:14 21:03:12"
+    assert pixels(filed) == pixels(photo)
     assert entries["evidence/E-09.pdf"] == letter
 
     manifest = json.loads(entries["manifest.json"])
     by_label = {e["label"]: e for e in manifest["evidence"]}
     assert len(manifest["evidence"]) == SEEDED + 2
-    assert by_label["E-08"]["sha256"] == sha(photo)
+    assert by_label["E-08"]["sha256"] == sha(photo)  # what was received
+    assert by_label["E-08"]["location_data_removed"] is True
+    assert by_label["E-09"]["location_data_removed"] is False
     assert by_label["E-08"]["in_zip"] == "evidence/E-08.jpg"
     assert by_label["E-09"]["sha256"] == sha(letter)
     assert by_label["E-09"]["in_zip"] == "evidence/E-09.pdf"
-    assert sha(entries[by_label["E-08"]["in_zip"]]) == by_label["E-08"]["sha256"]
+    assert sha(entries[by_label["E-08"]["in_zip"]]) == sha(filed)
     for label in (f"E-{n:02d}" for n in range(1, SEEDED + 1)):
         assert by_label[label]["in_zip"] is None  # seed rows have no stored bytes
 
@@ -697,8 +704,8 @@ def test_package_zip_contains_the_uploaded_originals(fresh_db, client, session):
     listed = {f["filename"]: f for f in body["files"]}
     assert set(listed) == set(entries)
     assert listed["evidence/E-08.jpg"] == {
-        "label": "E-08", "filename": "evidence/E-08.jpg", "sha256": sha(photo),
-        "note": "ceiling.jpg"}
+        "label": "E-08", "filename": "evidence/E-08.jpg", "sha256": sha(filed),
+        "note": "ceiling.jpg; location data removed"}
     assert listed["evidence/E-09.pdf"]["sha256"] == sha(letter)
     assert listed["evidence/E-09.pdf"]["note"] == "letter.pdf"
     for f in body["files"]:
@@ -809,7 +816,7 @@ def test_caseworker_files_and_tenant_duplicates_keep_the_confirmation(
 # --- HEIC (iPhone default) ----------------------------------------------------------------
 
 
-def heic_with_gps() -> bytes:
+def heic_with_gps(colour: tuple[int, int, int] = (10, 200, 30)) -> bytes:
     """A real HEIC (pillow-heif encodes it) with a capture time and a GPS IFD."""
     import pillow_heif
 
@@ -820,7 +827,7 @@ def heic_with_gps() -> bytes:
     gps = exif.get_ifd(GPS_IFD)
     gps[1], gps[2], gps[3], gps[4] = "N", (45.0, 25.0, 0.0), "W", (63.0, 35.0, 0.0)
     out = io.BytesIO()
-    Image.new("RGB", (64, 32), (10, 200, 30)).save(out, "HEIF", exif=exif.tobytes())
+    Image.new("RGB", (64, 32), colour).save(out, "HEIF", exif=exif.tobytes())
     data = out.getvalue()
     with Image.open(io.BytesIO(data)) as check:
         assert check.getexif().get_ifd(GPS_IFD)
@@ -845,35 +852,95 @@ def test_heic_upload_is_converted_and_its_ai_copy_is_a_clean_jpeg(fresh_db, clie
     assert len(img.getexif()) == 0 and b"iPhone" not in data
 
 
-def test_heic_original_goes_in_the_package_as_heic(fresh_db, client):
+def exif_of(data: bytes) -> Image.Exif:
+    with Image.open(io.BytesIO(data)) as img:
+        return img.getexif()
+
+
+def capture_time(data: bytes) -> str:
+    return exif_of(data).get_ifd(EXIF_IFD)[0x9003]
+
+
+def pixels(data: bytes) -> bytes:
+    with Image.open(io.BytesIO(data)) as img:
+        return img.convert("RGB").tobytes()
+
+
+def manifest_text(entries: dict[str, bytes]) -> str:
+    reader = PdfReader(io.BytesIO(entries["evidence_manifest.pdf"]))
+    return " ".join(page.extract_text() for page in reader.pages)
+
+
+def _no_heic_anywhere(entries: dict[str, bytes], manifest: dict) -> None:
+    """The Program does not accept HEIC (Evidence Policy #42): no .heic file, and no manifest
+    path pointing at one."""
+    assert not [n for n in entries if n.lower().endswith((".heic", ".heif"))]
+    assert not [e["in_zip"] for e in manifest["evidence"]
+                if e["in_zip"] and e["in_zip"].lower().endswith((".heic", ".heif"))]
+    assert not [e["rendition"] for e in manifest["evidence"]
+                if e["rendition"] and e["rendition"]["path"].lower().endswith((".heic", ".heif"))]
+
+
+def test_heic_goes_in_the_package_only_as_a_jpg(fresh_db, client, session):
     original = heic_with_gps()
     upload(client, ("IMG_4412.HEIC", original, "image/heic"))
     make_ready(client)
-    client.post(BUILD, json=ATTESTATIONS)
 
     built = client.post(BUILD, json=ATTESTATIONS).json()
 
     entries = unzip(client.get(DOWNLOAD).content)
-    assert entries["evidence/E-08.heic"] == original
-    # The tribunal doesn't take HEIC: a JPG copy rides along, with the original's EXIF.
+    manifest = json.loads(entries["manifest.json"])
+    _no_heic_anywhere(entries, manifest)
+    assert original not in entries.values()
+    # The JPG keeps the capture time but not the location.
     with Image.open(io.BytesIO(entries["evidence/E-08.jpg"])) as copy:
         assert copy.format == "JPEG" and copy.size == (64, 32)
-        assert copy.getexif().get_ifd(GPS_IFD)
-    manifest = json.loads(entries["manifest.json"])
+        assert not copy.getexif().get_ifd(GPS_IFD)
+        assert copy.getexif().get_ifd(EXIF_IFD)[0x9003] == "2026:08:14 21:03:12"
     item = next(e for e in manifest["evidence"] if e["label"] == "E-08")
-    assert item["in_zip"] == "evidence/E-08.heic"
-    assert item["rendition"] == {"path": "evidence/E-08.jpg",
-                                 "sha256": sha(entries["evidence/E-08.jpg"])}
+    assert item["in_zip"] == "evidence/E-08.jpg" and item["rendition"] is None
+    assert item["sha256"] == sha(original)  # what was received is still on record
     listed = {f["filename"]: f for f in built["files"]}
     assert listed["evidence/E-08.jpg"]["sha256"] == sha(entries["evidence/E-08.jpg"])
+    assert "evidence/E-08.heic" not in listed
+    assert "does not accept HEIC" in listed["evidence/E-08.jpg"]["note"]
+    assert item["location_data_removed"] is True
+    assert "location data removed" in listed["evidence/E-08.jpg"]["note"]
+    assert "location data removed" in " ".join(manifest_text(entries).split())
+    # the stored original still has its GPS
+    assert storage.read(evidence_rows(session)[-1].sha256) == original
 
 
+def test_the_manifest_pdf_says_a_heic_was_filed_as_its_jpg(fresh_db, client):
+    upload(client, ("IMG_4412.HEIC", heic_with_gps(), "image/heic"))
+    make_ready(client)
+    client.post(BUILD, json=ATTESTATIONS)
 
-def test_a_heic_that_failed_processing_is_filed_without_a_jpg_copy(
+    entries = unzip(client.get(DOWNLOAD).content)
+
+    text = manifest_text(entries)
+    flat = " ".join(text.split())
+    assert "Filed as evidence/E-08.jpg" in flat
+    assert "Also as evidence/E-08.heic" not in flat and "E-08.heic" not in flat
+
+
+def test_two_heics_never_put_a_heic_in_the_package(fresh_db, client):
+    upload(client, ("a.heic", heic_with_gps(), "image/heic"))
+    upload(client, ("b.HEIC", heic_with_gps((200, 10, 30)), "image/heic"))
+    make_ready(client)
+    client.post(BUILD, json=ATTESTATIONS)
+
+    entries = unzip(client.get(DOWNLOAD).content)
+
+    _no_heic_anywhere(entries, json.loads(entries["manifest.json"]))
+    assert {"evidence/E-08.jpg", "evidence/E-09.jpg"} <= set(entries)
+
+
+def test_a_heic_that_failed_processing_is_left_out_of_the_package(
     fresh_db, client, session, monkeypatch
 ):
-    """Over the pixel limit at ingest: the original is kept and filed, but the package must
-    not decode it at full size to make the JPG copy."""
+    """Over the pixel limit at ingest: the package must not decode it at full size to make the
+    JPG, and it must not file the HEIC itself either (the Program doesn't take it)."""
     from app.services import package
     from app.services.evidence import strip
 
@@ -892,9 +959,115 @@ def test_a_heic_that_failed_processing_is_filed_without_a_jpg_copy(
     client.post(BUILD, json=ATTESTATIONS)
 
     entries = unzip(client.get(DOWNLOAD).content)
-    assert entries["evidence/E-08.heic"] == original
+    manifest = json.loads(entries["manifest.json"])
+    _no_heic_anywhere(entries, manifest)
     assert "evidence/E-08.jpg" not in entries
     assert decoded == []
+    entry = next(e for e in manifest["evidence"] if e["label"] == "E-08")
+    assert entry["in_zip"] is None  # still listed, so the omission is on record
+    text = manifest_text(entries)
+    assert "Not filed: HEIC is not an accepted format" in " ".join(text.split())
+
+
+# --- location data in package images -------------------------------------------------------
+
+
+def image_with_exif(fmt: str, *, gps: bool, orientation: int | None = None,
+                    colour: tuple[int, int, int] = (30, 60, 200)) -> bytes:
+    exif = Image.Exif()
+    exif[0x010F] = "Apple"
+    if orientation is not None:
+        exif[0x0112] = orientation
+    exif.get_ifd(EXIF_IFD)[0x9003] = "2026:08:14 21:03:12"
+    if gps:
+        g = exif.get_ifd(GPS_IFD)
+        g[1], g[2], g[3], g[4] = "N", (45.0, 25.0, 0.0), "W", (63.0, 35.0, 0.0)
+    out = io.BytesIO()
+    Image.new("RGB", (40, 20), colour).save(out, fmt, exif=exif.tobytes())
+    data = out.getvalue()
+    with Image.open(io.BytesIO(data)) as check:
+        assert bool(check.getexif().get_ifd(GPS_IFD)) is gps  # the fixture must be what it says
+    return data
+
+
+def package_entries(client) -> dict[str, bytes]:
+    make_ready(client)
+    assert client.post(BUILD, json=ATTESTATIONS).status_code == 200
+    return unzip(client.get(DOWNLOAD).content)
+
+
+def test_a_gps_tagged_jpg_is_filed_without_gps_but_with_its_capture_time(
+    fresh_db, client, session
+):
+    original = image_with_exif("JPEG", gps=True)
+    upload(client, ("ceiling.jpg", original, "image/jpeg"))
+
+    entries = package_entries(client)
+
+    filed = entries["evidence/E-08.jpg"]
+    assert not exif_of(filed).get_ifd(GPS_IFD)  # no GPS IFD at all
+    assert capture_time(filed) == capture_time(original) == "2026:08:14 21:03:12"
+    assert pixels(filed) == pixels(original)  # not re-encoded
+    assert b"iPhone" not in filed and exif_of(filed)[0x010F] == "Apple"  # the rest is kept
+    stored = evidence_rows(session)[-1]
+    assert storage.read(stored.sha256) == original  # the stored original is untouched
+    assert exif_of(storage.read(stored.sha256)).get_ifd(GPS_IFD)
+    assert "location data removed" in " ".join(manifest_text(entries).split())
+
+
+def test_a_gps_tagged_png_is_filed_without_gps_but_with_its_capture_time(fresh_db, client):
+    original = image_with_exif("PNG", gps=True)
+    upload(client, ("wall.png", original, "image/png"))
+
+    entries = package_entries(client)
+
+    filed = entries["evidence/E-08.png"]
+    assert not exif_of(filed).get_ifd(GPS_IFD)
+    assert capture_time(filed) == "2026:08:14 21:03:12"
+    assert pixels(filed) == pixels(original)
+    with Image.open(io.BytesIO(filed)) as img:
+        img.load()  # the CRCs are right: it still decodes
+    assert json.loads(entries["manifest.json"])["evidence"][-1]["location_data_removed"] is True
+
+
+def test_the_exif_orientation_survives_the_gps_removal(fresh_db, client):
+    upload(client, ("tilted.jpg", image_with_exif("JPEG", gps=True, orientation=6), "image/jpeg"))
+
+    filed = package_entries(client)["evidence/E-08.jpg"]
+
+    assert exif_of(filed)[0x0112] == 6
+    assert not exif_of(filed).get_ifd(GPS_IFD)
+
+
+def test_an_image_without_gps_is_filed_byte_for_byte_and_not_marked(fresh_db, client):
+    original = image_with_exif("JPEG", gps=False)
+    upload(client, ("plain.jpg", original, "image/jpeg"))
+
+    entries = package_entries(client)
+
+    assert entries["evidence/E-08.jpg"] == original
+    assert json.loads(entries["manifest.json"])["evidence"][-1]["location_data_removed"] is False
+    assert "location data removed" not in " ".join(manifest_text(entries).split())
+
+
+def test_an_image_whose_location_cannot_be_removed_is_left_out(
+    fresh_db, client, monkeypatch
+):
+    from app.services.evidence import gps
+
+    def broken(data: bytes, mime: str):
+        raise ValueError("cannot walk this file")
+
+    monkeypatch.setattr(gps, "without_gps", broken)
+    upload(client, ("ceiling.jpg", image_with_exif("JPEG", gps=True), "image/jpeg"))
+
+    entries = package_entries(client)
+
+    assert "evidence/E-08.jpg" not in entries  # never filed with its location in it
+    entry = json.loads(entries["manifest.json"])["evidence"][-1]
+    assert entry["in_zip"] is None
+    flat = " ".join(manifest_text(entries).split())
+    assert "Not filed: the location data in this image could not be removed" in flat
 
 
 # --- request limits -----------------------------------------------------------------------

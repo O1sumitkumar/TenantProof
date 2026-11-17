@@ -65,7 +65,7 @@ def shift_day(value: str, delta: int) -> str:
 
 
 def shift_label(label: str, delta: int) -> str:
-    # Labels embed a date: "Evidence due · hearing 2026-11-12"
+    # Labels embed a date: "Must be received by · hearing 2026-11-12"
     head, _, tail = label.rpartition(" ")
     return f"{head} {shift_day(tail, delta)}" if tail[:2] == "20" else label
 

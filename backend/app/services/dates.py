@@ -100,11 +100,16 @@ def hearing_has_passed(hearing: date, today: date) -> bool:
     return hearing < today
 
 
-EVIDENCE_DAYS_BEFORE_HEARING = 5  # Evidence Policy #42
+EVIDENCE_DAYS_BEFORE_HEARING = 5  # Evidence Policy #42; Regulations s. 25A(2)
 
 
-def evidence_deadline(hearing: date) -> dict[str, str]:
-    """`Case.next_deadline` for a hearing: evidence is due 5 days before it. The label has the
-    ISO hearing date in it, like the seeded cases."""
-    due = hearing - timedelta(days=EVIDENCE_DAYS_BEFORE_HEARING)
-    return {"date": due.isoformat(), "label": f"Evidence due · hearing {hearing.isoformat()}"}
+def evidence_deadline(hearing: date, days: int = EVIDENCE_DAYS_BEFORE_HEARING) -> dict[str, str]:
+    """`Case.next_deadline` for a hearing: the day evidence must be *received* by, `days` before
+    it (Regulations s. 25A(2)). It is a receipt date, not a send-by date: mail counts as
+    received 3 days after it is sent and e-mail sent after 4 p.m. the next day (s. 25A(3B),
+    (3C)). The label has the ISO hearing date in it, like the seeded cases. The rules step
+    passes the number the legal corpus carries, so a change to the policy moves this deadline
+    with it."""
+    due = hearing - timedelta(days=days)
+    label = f"Must be received by · hearing {hearing.isoformat()}"
+    return {"date": due.isoformat(), "label": label}

@@ -43,8 +43,12 @@ def paused_run(session: Session, field: str | None = "hearing_date") -> RunRow:
 
 @pytest.fixture
 def resume() -> Iterator[RecordingProvider]:
-    """The provider the route uses to resume: it finishes the step in one turn."""
-    provider = RecordingProvider({"timeline-turn2": finish()})
+    """The provider the route uses to resume: it finishes the timeline in one turn, and the gaps
+    step that runs after it adds nothing."""
+    provider = RecordingProvider({
+        "timeline-turn2": finish(),
+        "gaps-turn1": turn(tool_use("finish", "u3", summary="Nothing new to add.")),
+    })
     api.dependency_overrides[runs_router.provider_dep] = lambda: provider
     yield provider
     api.dependency_overrides.pop(runs_router.provider_dep, None)
@@ -92,10 +96,12 @@ def test_an_answer_resumes_the_run_and_the_agent_gets_it(
     assert r.json()["status"] == "running" and r.json()["id"] == run.id
 
     assert status_of(session, run.id) == ("needs_review", "done")  # the background task has run
-    [request] = resume.requests
-    assert request.fixture_key == "timeline-turn2"
-    answer = next(b for b in blocks(request.messages[-1]) if b["tool_use_id"] == "u1")
+    first, *later = resume.requests
+    assert first.fixture_key == "timeline-turn2"
+    answer = next(b for b in blocks(first.messages[-1]) if b["tool_use_id"] == "u1")
     assert "2026-11-21" in answer["content"]  # the agent is told the stored date
+    # the resume carries on into the steps after the pause: rules (no model call), then gaps
+    assert [request.fixture_key for request in later] == ["gaps-turn1"]
 
 
 def test_the_field_key_is_saved_with_the_pause_and_is_not_a_field_of_the_run(
@@ -130,7 +136,7 @@ def test_a_hearing_date_is_saved_and_logged(
     assert client.post(URL.format(run.id), json={"answer": typed}).status_code == 200
     assert hearing(session) == "2026-11-21"
     lines = activity_lines(session)
-    assert "Set the hearing date to 2026-11-21 (evidence due 2026-11-16)" in lines
+    assert "Set the hearing date to 2026-11-21 (must be received by 2026-11-16)" in lines
     assert f"Answered the agent's question on {run.id}" in lines
 
 
@@ -257,7 +263,7 @@ def test_two_answers_that_race_for_one_pause_only_one_wins_and_only_it_writes(
     lines = activity_lines(session)
     assert sum(line.startswith("Set the hearing date") for line in lines) == 1
     assert sum(line.startswith("Answered the agent") for line in lines) == 1
-    assert len(resume.requests) == 1  # the model was asked once
+    assert len(resume.requests) == 2  # the model was asked once for the timeline, once for gaps
 
 
 def test_another_orgs_run_is_404_and_nothing_changes(
@@ -347,7 +353,7 @@ def test_a_hearing_date_sets_the_stage_and_the_evidence_deadline(
     case = case_row(session)
     assert case.stage == "hearing_scheduled"  # and the resumed run's stage refresh kept it
     assert case.next_deadline == {
-        "date": "2026-11-16", "label": "Evidence due · hearing 2026-11-21"}
+        "date": "2026-11-16", "label": "Must be received by · hearing 2026-11-21"}
 
 
 def test_the_caseload_follows_the_new_deadline(
@@ -362,7 +368,7 @@ def test_the_caseload_follows_the_new_deadline(
     [mine] = [c for c in client.get("/api/cases").json() if c["id"] == CASE]
     assert mine["stage"] == "hearing_scheduled" and mine["priority"] == "high"
     assert mine["next_deadline"]["date"] == (near - timedelta(days=5)).isoformat()
-    assert "Evidence due in 3 days" in mine["priority_reason"]
+    assert "Must be received in 3 days" in mine["priority_reason"]
 
 
 def test_a_far_hearing_is_scheduled_without_a_deadline_warning(
@@ -373,7 +379,7 @@ def test_a_far_hearing_is_scheduled_without_a_deadline_warning(
     client.post(URL.format(run.id), json={"answer": far.isoformat()})
     [mine] = [c for c in client.get("/api/cases").json() if c["id"] == CASE]
     assert mine["stage"] == "hearing_scheduled"
-    assert "Evidence due in" not in mine["priority_reason"]
+    assert "Must be received in" not in mine["priority_reason"]
     assert "open with a hearing scheduled" in mine["priority_reason"]  # existing rule 2
 
 
@@ -383,4 +389,4 @@ def test_a_far_hearing_is_scheduled_without_a_deadline_warning(
 ])
 def test_evidence_is_due_five_days_before_the_hearing(hearing_day: date, due: str) -> None:
     assert evidence_deadline(hearing_day) == {
-        "date": due, "label": f"Evidence due · hearing {hearing_day.isoformat()}"}
+        "date": due, "label": f"Must be received by · hearing {hearing_day.isoformat()}"}

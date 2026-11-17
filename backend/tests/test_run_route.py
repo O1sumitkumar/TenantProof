@@ -30,6 +30,8 @@ def script() -> dict[str, llm.LLMResponse]:
             sources=[{"evidence_id": "ev_01", "locator": "page 1", "excerpt": LEASE}],
         )),
         "timeline-turn4": turn(tool_use("finish", "u4", summary="One event proposed.")),
+        # the gaps step runs after the timeline in a full run (WS4)
+        "gaps-turn1": turn(tool_use("finish", "u5", summary="Nothing new to add.")),
     }
 
 

@@ -4,7 +4,7 @@ Single source of truth. Update the relevant section in every PR.
 
 **Date:** 2026-11-15 (MVP due Nov 18)
 **Branch:** `dev` is the integration branch (`main` only for releases). Start work from `origin/dev`.
-**Current milestone:** M1 is merged. M2 is half done: WS1 (evidence ingest and tenant uploads) is merged on `dev`, WS2 (deploy) has no owner. M3's WS3 runtime is merged except the worker and the `ingest`, `rules`, `gaps` and `draft` steps; WS4 (legal sources, gaps agent) has no owner.
+**Current milestone:** M1 is merged. M2 is half done: WS1 (evidence ingest and tenant uploads) is merged on `dev`, WS2 (deploy) has no owner. M3: WS3's runtime is merged except the worker and the `ingest` and `draft` steps; WS4 is done on a branch (corpus, source check, `rules` and `gaps`), waiting for review.
 
 ## Done
 
@@ -31,7 +31,7 @@ Open draft PRs into `dev` (2026-11-15), all Lameda12's. None of them waits on WS
 | #22 | infra | `make up` without an API key and with a broken IPv6 resolver (Dockerfile, compose) | none |
 | #23 | demo | Synthetic demo files for the live run (`demo/landlord_repair_notice.pdf`, `demo/chat_zh.txt`, a stock photo kept out of git) and an empty seeded case `case_live_001` | WS1 uploads (merged) |
 
-Open issues: #9 (tell tenants that original photos, GPS included, go into the package), #10 (about 500 MB can be spooled to disk before the intake token is checked; WS2), #11 (Big5 and GBK TXT outside GB2312 get 415). #13, #14 and #4 track WS3 work that looks done but is not closed. WS2, WS4 and WS5 are unassigned.
+Open issues: #9 (tell tenants that original photos, GPS included, go into the package), #10 (about 500 MB can be spooled to disk before the intake token is checked; WS2), #11 (Big5 and GBK TXT outside GB2312 get 415). #13, #14 and #4 track WS3 work that looks done but is not closed. WS2 and WS5 are unassigned.
 
 ## Known issues
 
@@ -41,7 +41,7 @@ Open issues: #9 (tell tenants that original photos, GPS included, go into the pa
 - **Expired sessions are never purged** (WS2).
 - **Font size:** the bundled Noto Sans SC adds about 10 MB to the repo and image.
 - **`docker compose up --scale api=2` does not work yet:** the api service publishes fixed host port 8000. WS2 needs a proxy service.
-- **The filing package files original photos, GPS included.** The HEIC→JPG copy keeps the original EXIF on purpose (`services/package.py`, `heic_to_jpeg`), so location metadata reaches the zip. Issue #9 covers warning the tenant on the intake page and an optional per-file "file the stripped copy instead"; both wait on the open decision below.
+- **The filing package files photos without their GPS data.** Each JPG, PNG and HEIC-made JPG in the zip is a copy with the GPS IFD (and an XMP packet carrying GPS) taken out; the capture time and orientation stay, and the stored original is untouched (`services/evidence/gps.py`). The manifest PDF says "location data removed" for each such file. Not covered: location in a maker note or in a legacy "Raw profile type exif" PNG text chunk. Issue #9's remaining part (warning the tenant on the intake page, an optional per-file "file the stripped copy instead") still waits on the open decision below.
 - **An unauthenticated upload can spool about 500 MB to disk** (20 × 25 MB + 1 MB) before the intake token is checked. Needs a per-client cap at a proxy (issue #10, WS2).
 - **Big5 and GBK TXT files with characters outside GB2312 answer 415** (issue #11). The reason now says "re-save it as UTF-8", which fixes every one of them. Big5 stays refused on purpose: it decodes as GB18030 into private-use characters and no byte pattern tells the two code pages apart, so a guess would file traditional Chinese as different characters. Windows-1252 and Shift-JIS are refused for the same reason.
 - **Verified by an agent on 2026-11-06 (Playwright + rendered pages, see the PR #1 comments):** Chinese glyphs render in the built PDF, second-org isolation in two separate browser contexts, `?mock=1`, the empty-caseload state. **Electron 45 window (2026-11-06, Windows, against `web/index.html?mock=1` over the DevTools protocol):** the mock UI renders, the renderer has no Node, `window.open` is denied, off-origin navigation is blocked. **Electron 45 window against the real API (2026-11-07, Windows 11, NineJZ356, PR #1):** `npm install`, `node check.js` and `npm start` work, login works in the window, the renderer has no Node, `window.open` is denied. **Mac: pending Lameda12's check by eye** (`make desktop` starts the window; install and `check.js` pass).
@@ -58,7 +58,7 @@ Open issues: #9 (tell tenants that original photos, GPS included, go into the pa
 - `RecordingProvider` (`RECORD_FIXTURES=1`) is not built yet. `Run.usage.est_cost_usd` is estimated from the `claude-sonnet-5-5` list price in `llm.py` (input and output tokens only, no cache pricing).
 - **Text and facts store:** `SqlTextStore` (`services/agent/evidence_text.py`) reads the `evidence_page` and `evidence_fact` tables (PR #6); the in-memory store stays for tests. The `extract` step (`services/agent/extract.py`, issue #14) writes the facts at the start of a run; WS1 ingest (PR #8) writes the pages. `runner.py` callers pass `SqlTextStore(session)`.
 - Not built: the arq worker (a run executes as a background task in the API process), and the `ingest`, `rules`, `gaps` and `draft` steps; `IMPLEMENTED_STEPS` is `extract` and `timeline`.
-- `search_legal_sources` returns an empty `excerpt` until WS4 stores the official text.
+- `search_legal_sources` returns the corpus excerpt and its locator (WS4). An entry nobody has confirmed has no excerpt and returns `""`, never invented text.
 - One random evidence nonce per run, saved on the steps so a resume reuses it. `request_hash` masks it, so recordings replay under any nonce.
 - A photo has no text page, so it cannot be cited yet (the seeded "EXIF" locator is rejected); the store needs a metadata locator for photos. An `exif` date candidate must match a cited file's capture time.
 - `flag_conflict` adds a `conflict` flag (contract change #30) and still appends to `strength_reasons`; the review screen shows a "Conflict" badge with the note. Case brief PDF for the caseworker (`GET /cases/{id}/case-brief`, contract change #34, draft PR). Demo-honesty fixes from the AI usability review (draft PR): "Not analysed yet" in the caseload and a banner, package 409 without a completed run or an accepted event (contract change #31), "Not in this prototype" for the unbuilt steps, duration and cost on the run page, Demo rows, a reason next to the disabled Send button, no Arabic link. The runner asks for the hearing date itself when the timeline step ends with none set and the model did not ask (the `ask_caseworker` pause, field `hearing_date`).
@@ -70,7 +70,7 @@ Open issues: #9 (tell tenants that original photos, GPS included, go into the pa
 - Whether WS1 writes an `EXIF` `evidence_page` so the agent can cite a photo's capture time (today a photo has no text page, so it cannot be cited).
 - How tenants are told that originals are filed: #9's warning on the intake page.
 - Whether `SECRET_KEY` is needed at all: sessions are server-side random tokens, so nothing signs with it today. Either WS2 adds a real use or drops it from the guard.
-- Legal sources (WS4): a human must open every URL and confirm section, form name and wording before Nov 16.
+- Legal sources (WS4): a human must open every URL and confirm the section, form name and wording before Nov 16. The checklist is `backend/app/services/legal/README.md`; Policy #28's URL is dead and the entry is left out, which that file explains.
 - `backend/app/config.py` is now a shared file (settings change via `schema:` PRs); workstreams may add their own dependencies to `backend/pyproject.toml`.
 - Whether to keep bundling the 10 MB CJK font or fetch it at build time.
 
@@ -100,5 +100,5 @@ Prompts: `docs/NEXT_PROMPTS.md`.
 | WS1 Evidence ingest + tenant uploads (M2) | opoeci6 | merged (`24a343d`) | done: upload routes, type check by signature, metadata, stripped copy, text as `evidence_page` rows, evidence in the zip (PRs #6, #7, #8). Follow-ups: #9 and #11 | none |
 | WS2 Hosted deploy + infra hardening (M2) | TODO | `<github-username>/m2-deploy` | not started | none (S3 adapter test and QR demo need WS1 for uploads) |
 | WS3 Agent runtime (M3) | Lameda12 | merged | day 1 merged (PR #2); day 2 merged as PRs #5, #15, #18, #19, #20: the 12 tool bodies, `loop.py`, `runner.py` (one nonce per run, 60 s whole-run deadline, pause/resume), `verifier.py`, `strength.py`, `dates.py`, refusal handling, `SqlTextStore` over the #6 tables, `POST /cases/{id}/runs` (issue #13), the `extract` step (issue #14), `POST /runs/{id}/answer` (contract in PR #19) with the run page's answer control, and the demo evals (PR #16). Prompt caching on the Anthropic provider (breakpoints on the last tool and the stable system text, the nonce in a run note after them); cache tokens are in the run's stored usage. Next: the arq worker and the `ingest`, `rules`, `gaps` and `draft` steps; prompt caching in PR #21 | nothing, for what is merged |
-| WS4 Legal sources, rules, gaps agent (M3) | TODO | `<github-username>/m3-legal-gaps` | not started | none (the WS3 `tools.py` protocol is merged) |
+| WS4 Legal sources, rules, gaps agent (M3) | opoeci6 | `opoeci6/m3-legal-gaps` | done on the branch, in two PRs. PR 1: `services/legal/` with the corpus (four official sources, verbatim excerpts), the URL check and its command, excerpts in `search_legal_sources`, and the deterministic `rules` step (sources plus the evidence deadline). PR 2: the `gaps` step — deterministic checks first, then an agent that drafts requests to the tenant in their language. **A person must confirm every source before Nov 16**: `backend/app/services/legal/README.md`. A source check (fix/legal-sources) corrected the README, added the Regulations s. 25A entry, relabelled the deadline "must be received by", and keeps `.heic` out of the package; `confirmed_by` is still empty on every entry | none |
 | WS5 Evals, security, perf, demo (M3 to M4) | TODO | `<github-username>/m4-evals-security-perf` | not started | starts now; fills in as WS1 to WS4 land |

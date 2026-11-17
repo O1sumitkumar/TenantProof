@@ -8,8 +8,10 @@ Rules every tool follows:
 - Bad model input comes back as a `ToolError` the model can read, it does not raise.
 
 Every lookup goes through `ctx` (case, org) and answers `not_found()` for an id that is missing
-or belongs to another case or org. Text and facts come from `ctx.texts`; the legal-source
-excerpt is empty until WS4 stores one. Nothing here calls the network.
+or belongs to another case or org. Text and facts come from `ctx.texts`. A legal source's excerpt
+comes from the corpus (`services/legal/corpus.py`) through the row's URL, never from the model;
+an entry nobody has confirmed has no excerpt and says so by returning "". Nothing here calls the
+network.
 WS4 builds against the Input/Output models and the registry in this file.
 """
 
@@ -30,8 +32,9 @@ from app.schemas import EventDate, Language, SourceRef, ToolCall
 from app.services import activity
 from app.services.agent.evidence_text import EvidenceTextStore, Page
 from app.services.dates import choose_date, date_mismatch, exif_matches
+from app.services.legal import corpus
 from app.services.strength import SourceFacts, compute_strength, event_flags
-from app.services.verifier import verify_citation
+from app.services.verifier import MIN_EXCERPT_CHARS, normalize, verify_citation
 
 Effect = Literal["read", "draft", "control"]
 # No "forbidden": another case's id must look exactly like a missing one (not_found).
@@ -43,6 +46,7 @@ ToolErrorKind = Literal["invalid_input", "not_found", "unavailable"]
 _ANGLE_LOOKALIKES = str.maketrans({"<": "&lt;", "\uff1c": "&lt;", "\ufe64": "&lt;"})
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 SAFE_STR_MAX = 100
+MESSAGE_MAX = 1500  # a drafted tenant message, in characters
 CONFLICT_REASON_MAX = 500  # the input bound: a conflict note is shown whole, never cut
 
 
@@ -666,7 +670,8 @@ class LegalHit(BaseModel):
     source_id: str
     title: str
     kind: Literal["statute", "policy", "form"]
-    excerpt: str
+    locator: str  # where the excerpt sits in the document, for a citation
+    excerpt: str  # verbatim official text, or "" when nobody has confirmed the entry
     verify_status: Literal["unchanged", "changed", "unreachable", "unverified"]
 
 
@@ -676,7 +681,10 @@ class SearchLegalSourcesOutput(BaseModel):
 
 class SearchLegalSources(BaseTool):
     name = "search_legal_sources"
-    description = "Search the curated corpus of official sources. Returns stored excerpts only."
+    description = (
+        "Search the curated corpus of official sources. Returns stored excerpts only, never "
+        "text the model wrote."
+    )
     effect: ClassVar[Effect] = "read"
     input_model = SearchLegalSourcesInput
     output_model = SearchLegalSourcesOutput
@@ -688,15 +696,21 @@ class SearchLegalSources(BaseTool):
             return not_found(self.name, "Case")
         stmt = select(LegalSourceRow).where(LegalSourceRow.case_id == ctx.case_id)
         words = _words(args.query)
-        hits = [
-            {
-                "source_id": r.id, "title": r.title, "kind": r.kind,
-                "excerpt": "",  # WS4 stores the official excerpt; nothing is invented here
-                "verify_status": r.verify_status,
-            }
-            for r in ctx.session.exec(stmt.order_by(col(LegalSourceRow.position))).all()
-            if _matches(words, f"{r.title} {r.used_for}")
-        ][: args.limit]  # fmt: skip
+        hits: list[dict[str, Any]] = []
+        for row in ctx.session.exec(stmt.order_by(col(LegalSourceRow.position))).all():
+            entry = corpus.entry_for(row.url, row.title)
+            # The corpus's search words are what let "mould" find the repair condition.
+            keywords = " ".join(entry.keywords) if entry is not None else ""
+            if not _matches(words, f"{row.title} {row.used_for} {keywords}"):
+                continue
+            hits.append({
+                "source_id": row.id, "title": row.title, "kind": row.kind,
+                "locator": entry.locator if entry else "",
+                "excerpt": entry.excerpt if entry else "",
+                "verify_status": row.verify_status,
+            })
+            if len(hits) >= args.limit:
+                break
         return SearchLegalSourcesOutput.model_validate({"hits": hits})
 
 
@@ -706,6 +720,8 @@ class CreateGapInput(ToolInput):
     why: str = Field(min_length=1, max_length=1000)
     how_to_fix: str = Field(min_length=1, max_length=1000)
     field_key: str | None = Field(default=None, max_length=64)
+    # The source the gap rests on, from search_legal_sources: this case's row, never another's.
+    source_id: str | None = Field(default=None, max_length=64)
 
 
 class CreateGapOutput(BaseModel):
@@ -714,7 +730,11 @@ class CreateGapOutput(BaseModel):
 
 class CreateGap(BaseTool):
     name = "create_gap"
-    description = "Record something missing from the evidence or form. It starts open."
+    description = (
+        "Record something missing from the evidence or form, with the source it rests on. It "
+        "starts open. A gap with the same title, or for the same form field, is never created "
+        "twice. A blocking gap must name the form field its answer fills (field_key)."
+    )
     effect: ClassVar[Effect] = "draft"
     input_model = CreateGapInput
     output_model = CreateGapOutput
@@ -726,33 +746,118 @@ class CreateGap(BaseTool):
         if case is None:
             return not_found(self.name, "Case")
         key = args.field_key
+        if args.severity == "blocking" and key is None:
+            # The caseworker closes a required item by filling its field; one without a field
+            # has no way to be closed in the UI and blocks the package for good.
+            return ToolError(
+                tool=self.name, kind="invalid_input",
+                message=(
+                    "A blocking gap must name the form field its answer fills: pass field_key "
+                    "from list_form_fields. Anything else is severity recommended."
+                ),
+            )  # fmt: skip
         if key is not None and ctx.session.get(FormFieldRow, (case.id, key)) is None:
             return ToolError(
                 tool=self.name, kind="invalid_input",
                 message="field_key is not a field of this case's form. Use list_form_fields.",
             )  # fmt: skip
+        source: LegalSourceRow | None = None
+        if args.source_id is not None:
+            found = ctx.session.get(LegalSourceRow, args.source_id)
+            if found is None or found.case_id != case.id:
+                return ToolError(
+                    tool=self.name, kind="invalid_input",
+                    message="source_id is not a source of this case. Use search_legal_sources.",
+                )  # fmt: skip
+            source = found
+        # Model text that came from evidence: cleaned, because the title is shown to the next
+        # run's agent (the gaps kickoff) and to the caseworker.
+        title = clean_text(args.title, 200 * 4)
+        why = clean_text(args.why, 1000 * 4)
+        how_to_fix = clean_text(args.how_to_fix, 1000 * 4)
         existing = list(ctx.session.exec(select(GapRow).where(GapRow.case_id == case.id)).all())
-        for gap in existing:  # the same call twice (a retry) makes one gap
-            if gap.status == "open" and gap.title.casefold() == args.title.casefold():
+        for gap in existing:  # a retry, or a gap the caseworker dismissed, is not a new gap
+            if gap.title.casefold() == title.casefold():
                 return CreateGapOutput(gap_id=gap.id)
+            if key is not None and (gap.input or {}).get("field_key") == key:
+                return CreateGapOutput(gap_id=gap.id)  # that field already has its gap
         gap = GapRow(
             id=_new_id("gap"), case_id=case.id, position=len(existing), severity=args.severity,
-            title=args.title, why=args.why, how_to_fix=args.how_to_fix, status="open",
+            title=title, why=why, how_to_fix=how_to_fix, status="open",
+            source_id=source.id if source is not None else None,
             input=(
                 {"type": "text", "field_key": args.field_key, "placeholder": ""}
                 if args.field_key is not None else None
             ),
         )  # fmt: skip
         ctx.session.add(gap)
-        activity.log(ctx.session, case.id, "agent", AGENT_ACTOR, f"Added gap “{args.title}”")
+        activity.log(ctx.session, case.id, "agent", AGENT_ACTOR, f"Added gap “{title}”")
         return CreateGapOutput(gap_id=gap.id)
 
 
 class DraftTenantMessageInput(ToolInput):
     gap_id: str = Field(min_length=1, max_length=64)
     language: Language = Field(min_length=2, max_length=16)
-    message: str = Field(min_length=1, max_length=1500)
-    message_en: str = Field(min_length=1, max_length=1500)
+    message: str = Field(min_length=1, max_length=MESSAGE_MAX)
+    message_en: str = Field(min_length=1, max_length=MESSAGE_MAX)
+
+
+# Text the model copies from evidence into a message the tenant will read must go through the
+# verifier. A quotation (curly, straight, CJK or guillemet quotes) has to be found in this case's
+# evidence; a run of this many characters copied without quotes is refused, so nothing a document
+# says reaches the tenant unchecked.
+QUOTE_PAIRS = (("\u201c", "\u201d"), ('"', '"'), ("\u300c", "\u300d"), ("\u300e", "\u300f"),
+               ("\u00ab", "\u00bb"))
+QUOTE_SPAN = [
+    re.compile(f"{re.escape(o)}([^{re.escape(o + c)}]{{1,400}}){re.escape(c)}")
+    for o, c in QUOTE_PAIRS
+]
+UNQUOTED_COPY_CHARS = 30
+
+
+def _quoted_spans(text: str) -> list[str]:
+    return [m.group(1) for pattern in QUOTE_SPAN for m in pattern.finditer(text)]
+
+
+def _case_pages(ctx: ToolContext) -> list[tuple[str, dict[str, str]]]:
+    """Every page of this case's evidence, as (evidence id, locator -> text). Never leaves the
+    server: the draft checks read it, nothing here is returned to the model."""
+    return [
+        (row.id, {p.locator: p.text for p in ctx.texts.pages(ctx.case_id, row.id)})
+        for row in _case_evidence(ctx)
+    ]
+
+
+def _copy_problem(text: str, pages: list[tuple[str, dict[str, str]]]) -> str | None:
+    """Why `text` may not go to the tenant, or None. Quotes must verify against this case's
+    evidence; copying a long run without quotes is refused."""
+    quoted = _quoted_spans(text)
+    for span in quoted:
+        if len(normalize(span)) < MIN_EXCERPT_CHARS:
+            continue  # too short to be a copy of anything
+        if not any(
+            verify_citation(span, locator, page_map).ok
+            for _, page_map in pages for locator in page_map
+        ):
+            return (
+                "A quotation in the message is not in this case's evidence. Quote the words "
+                "exactly as the evidence has them, or leave the quotation marks out and write "
+                "it in your own words."
+            )
+    plain = normalize(text)
+    for span in quoted:
+        plain = plain.replace(normalize(span), " ")  # verified above: they are allowed
+    for _, page_map in pages:
+        for page_text in page_map.values():
+            haystack = normalize(page_text)
+            for start in range(0, max(len(plain) - UNQUOTED_COPY_CHARS + 1, 0)):
+                if plain[start : start + UNQUOTED_COPY_CHARS] in haystack:
+                    return (
+                        f"The message copies {UNQUOTED_COPY_CHARS}+ characters from the evidence "
+                        "without quoting them. Put the exact words in quotation marks, or "
+                        "rewrite them in your own words."
+                    )
+    return None
 
 
 class DraftTenantMessageOutput(BaseModel):
@@ -760,6 +865,35 @@ class DraftTenantMessageOutput(BaseModel):
 
     gap_id: str
     saved: bool
+
+
+# The script a tenant's language is written in. A draft for one of these languages must contain
+# at least one character of it: a "zh" draft written in English would otherwise be saved.
+LANGUAGE_SCRIPTS: dict[str, re.Pattern[str]] = {
+    "zh": re.compile("[一-鿿]"),
+    "ja": re.compile("[぀-ヿ一-鿿]"),
+    "ko": re.compile("[가-힯ᄀ-ᇿ]"),
+    "ar": re.compile("[؀-ۿ]"),
+    "fa": re.compile("[؀-ۿ]"),
+    "ru": re.compile("[Ѐ-ӿ]"),
+    "uk": re.compile("[Ѐ-ӿ]"),
+    "hi": re.compile("[ऀ-ॿ]"),
+}
+
+
+def language_problem(language: str, message: str, message_en: str) -> str | None:
+    """Why a draft is not in the tenant's language, or None. Cheap checks, not detection: a
+    non-English draft must not just repeat the English, and a language with its own script must
+    use it."""
+    base = language.casefold().split("-")[0]
+    if base == "en":
+        return None
+    if message.strip().casefold() == message_en.strip().casefold():
+        return f"message must be written in {language}, not repeat message_en."
+    script = LANGUAGE_SCRIPTS.get(base)
+    if script is not None and not script.search(message):
+        return f"message must be written in {language}; message_en holds the English."
+    return None
 
 
 class DraftTenantMessage(BaseTool):
@@ -792,9 +926,19 @@ class DraftTenantMessage(BaseTool):
                 tool=self.name, kind="invalid_input",
                 message=f"language must be the tenant's language ({case.tenant_language}).",
             )  # fmt: skip
+        # No control characters or "<" in what the caseworker reads and the tenant may be sent.
+        message = clean_text(args.message, MESSAGE_MAX * 4)
+        message_en = clean_text(args.message_en, MESSAGE_MAX * 4)
+        pages = _case_pages(ctx)
+        for text in (message, message_en):
+            problem = _copy_problem(text, pages)
+            if problem is not None:
+                return ToolError(tool=self.name, kind="invalid_input", message=problem)
+        wrong_language = language_problem(case.tenant_language, message, message_en)
+        if wrong_language is not None:
+            return ToolError(tool=self.name, kind="invalid_input", message=wrong_language)
         gap.tenant_request = {
-            "language": case.tenant_language, "message": args.message,
-            "message_en": args.message_en,
+            "language": case.tenant_language, "message": message, "message_en": message_en,
         }  # fmt: skip
         ctx.session.add(gap)
         activity.log(
