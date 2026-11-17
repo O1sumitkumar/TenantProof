@@ -23,9 +23,10 @@ from typing import Any, BinaryIO, Literal
 from PIL import Image
 from sqlmodel import Session, col, func, select
 
+from app.config import get_settings
 from app.models import CaseRow, EvidencePageRow, EvidenceRow, RunRow
 from app.services import activity, storage
-from app.services.evidence import exif, sniff, strip, text
+from app.services.evidence import exif, ocr, sniff, strip, text
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +48,10 @@ _FORMAT: dict[str, dict[str, Any]] = {
 }
 _NAME_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 MAX_NAME = 120
+# Text read by OCR is cited under its own locator, so the caseworker sees it was machine-read.
+PHOTO_OCR_LOCATOR = "text in the photo (OCR)"
+OCR_SKIPPED = ("The text in this file was not read: too many images in one upload. "
+               "The file is kept as it is.")
 
 
 class UploadRejected(Exception):
@@ -132,10 +137,12 @@ def ingest(
                                          col(EvidenceRow.sha256).in_(digests))
     ).all())
     session.rollback()  # nothing written yet: give the connection back while files are processed
+    settings = get_settings()
+    budget = ocr.Budget(settings.ocr_request_seconds) if settings.ocr_enabled else None
     ready: dict[str, _Ready] = {}
     for upload, digest in zip(uploads, digests, strict=True):
         if digest not in known and digest not in ready:
-            ready[digest] = _prepare(upload, digest)
+            ready[digest] = _prepare(upload, digest, budget)
     return _insert(session, case_id, digests, list(ready.values()), uploaded_by, actor_name)
 
 
@@ -162,18 +169,19 @@ def _sha256(source: BinaryIO) -> str:
     return digest.hexdigest()
 
 
-def _prepare(upload: Upload, digest: str) -> _Ready:
+def _prepare(upload: Upload, digest: str, budget: ocr.Budget | None = None) -> _Ready:
     data = upload.source.read()
     stored = storage.put(data)
     assert stored.key == digest
-    return _Ready(upload=upload, sha256=digest, done=_process(data, upload.mime))
+    return _Ready(upload=upload, sha256=digest, done=_process(data, upload.mime, budget))
 
 
-def _process(data: bytes, mime: str) -> _Processed:
+def _process(data: bytes, mime: str, budget: ocr.Budget | None = None) -> _Processed:
+    """`budget` None: no OCR (OCR_ENABLED=false, or a caller that only wants the text layer)."""
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
-            return _process_unchecked(data, mime)
+            return _process_unchecked(data, mime, budget)
     except text.PdfTimeout:
         log.warning("evidence processing timed out for %s", mime)
         return _Processed(processing="failed", error="Reading the text took too long.")
@@ -182,23 +190,71 @@ def _process(data: bytes, mime: str) -> _Processed:
         return _Processed(processing="failed", error="This file could not be read.")
 
 
-def _process_unchecked(data: bytes, mime: str) -> _Processed:
+def _process_unchecked(data: bytes, mime: str, budget: ocr.Budget | None) -> _Processed:
     if mime == sniff.PDF:
         pdf = text.read_pdf_isolated(data)  # a child process with a hard time limit
+        pages, skipped = _ocr_scans(pdf, budget)
+        partial = None if pdf.complete else "Only part of the text could be extracted."
         return _Processed(
             metadata={**exif.NO_META.as_dict(), "software": pdf.software},
-            pages=pdf.pages,
-            error=None if pdf.complete else "Only part of the text could be extracted.",
+            pages=pages,
+            error=partial or (OCR_SKIPPED if skipped else None),
         )
     if mime == sniff.TEXT:
         return _Processed(pages=text.read_txt(data))
     with Image.open(io.BytesIO(data)) as img:
         meta = exif.read_meta(img).as_dict()  # before strip_image changes the image
-        clean, _ = strip.strip_image(img, mime)
+        clean, _ = strip.strip_image(img, mime)  # also turns it upright and checks its size
+        pages = [exif.photo_page(meta["captured_at"])]  # so the agent can cite the capture date
+        skipped = False
+        if budget is not None:
+            if budget.left():
+                found = _ocr(img)
+                if found:
+                    pages.append({"locator": PHOTO_OCR_LOCATOR, "text": found})
+            else:
+                skipped = True
     return _Processed(
-        metadata=meta, stripped_sha256=storage.put(clean).key,
-        pages=[exif.photo_page(meta["captured_at"])],  # so the agent can cite the capture date
+        metadata=meta, stripped_sha256=storage.put(clean).key, pages=pages,
+        error=OCR_SKIPPED if skipped else None,
     )
+
+
+def _ocr(img: Image.Image) -> str:
+    """OCR that can't fail the upload: on any error the file is kept without the text."""
+    try:
+        return ocr.read_text(img)
+    except Exception as exc:
+        log.warning("OCR failed: %s", type(exc).__name__)  # type only
+        return ""
+
+
+def _ocr_png(png: bytes) -> str:
+    """A scanned page's grey PNG, made by our own PDF child process, read by OCR."""
+    try:
+        with Image.open(io.BytesIO(png)) as img:
+            return _ocr(img)
+    except Exception as exc:
+        log.warning("OCR of a scanned page failed: %s", type(exc).__name__)  # type only
+        return ""
+
+
+def _ocr_scans(pdf: text.PdfText, budget: ocr.Budget | None) -> tuple[text.Pages, bool]:
+    """The PDF's pages, with each scanned page's text read by OCR under "page N (OCR)". Returns
+    the pages and whether the budget ran out before every scan was read."""
+    if budget is None or not pdf.scans:
+        return pdf.pages, False
+    pages, skipped = [], False
+    for page in pdf.pages:
+        png = pdf.scans.get(page["locator"])
+        if png is not None and not budget.left():
+            skipped = True
+        elif png is not None:
+            found = _ocr_png(png)
+            if found:
+                page = {"locator": f"{page['locator']} (OCR)", "text": found}
+        pages.append(page)
+    return pages, skipped
 
 
 def _insert(

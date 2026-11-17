@@ -12,7 +12,7 @@ import multiprocessing
 import re
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from pypdf import PdfReader
@@ -42,15 +42,49 @@ class PdfText:
     pages: Pages
     software: str | None  # Producer or Creator, shown like a photo's software
     complete: bool  # False when a limit stopped extraction early
+    # Scanned pages, for OCR: locator ("page 3") -> the page's image as PNG, made here in the
+    # child from pixels only, grey, at most SCAN_SIDE on its long side.
+    scans: dict[str, bytes] = field(default_factory=dict)
 
 
-def read_pdf(data: bytes) -> PdfText:
+SCAN_MIN_CHARS = 20  # a page with less text than this is treated as a scan
+MAX_SCANS = 10  # scanned pages per PDF that get OCR
+SCAN_SIDE = 2000
+SCAN_MIN_SIDE = 300  # smaller images are logos or stamps, not a scanned page
+SCAN_MAX_PIXELS = 60_000_000  # the photo limit (strip.MAX_PIXELS)
+
+
+def _scan_png(page: Any) -> bytes | None:
+    """The page's largest image as a grey PNG, or None. Any decoder error skips the page: its
+    (empty) text layer is kept and the rest of the PDF is read as before."""
+    try:
+        images = [f.image for f in page.images]
+    except Exception as exc:  # an image filter pypdf can't decode (JBIG2, ...)
+        log.debug("scan skipped: %s", type(exc).__name__)
+        return None
+    images = [im for im in images if im is not None and min(im.size) >= SCAN_MIN_SIDE]
+    if not images:
+        return None
+    img = max(images, key=lambda im: im.size[0] * im.size[1])
+    if img.size[0] * img.size[1] > SCAN_MAX_PIXELS:
+        return None
+    grey = img.convert("L")
+    grey.thumbnail((SCAN_SIDE, SCAN_SIDE))
+    out = io.BytesIO()
+    grey.save(out, format="PNG")
+    return out.getvalue()
+
+
+def read_pdf(data: bytes, scans: bool = False) -> PdfText:
+    """Text per page. With `scans`, also the images of up to MAX_SCANS pages that have almost
+    no text, for OCR (uploads only; the legal source check doesn't need them)."""
     reader = PdfReader(io.BytesIO(data))
     if reader.is_encrypted and not reader.decrypt(""):
         raise ValueError("PDF is password-protected")
     deadline = time.monotonic() + PDF_SECONDS
     seen: dict[tuple[int, ...], str] = {}
     pages: Pages = []
+    found: dict[str, bytes] = {}
     budget = MAX_CHARS
     complete = len(reader.pages) <= MAX_PAGES
     for number, page in enumerate(reader.pages[:MAX_PAGES], start=1):
@@ -65,11 +99,16 @@ def read_pdf(data: bytes) -> PdfText:
                 seen[key] = text
         text = text[:budget]
         budget -= len(text)
-        pages.append({"locator": f"page {number}", "text": text})
+        locator = f"page {number}"
+        pages.append({"locator": locator, "text": text})
+        if scans and len(found) < MAX_SCANS and len("".join(text.split())) < SCAN_MIN_CHARS:
+            png = _scan_png(page)
+            if png is not None:
+                found[locator] = png
     info = reader.metadata
     producer = (info.producer or info.creator) if info is not None else None
     software = _clean(str(producer)).strip()[:100] if producer else ""
-    return PdfText(pages=pages, software=software or None, complete=complete)
+    return PdfText(pages=pages, software=software or None, complete=complete, scans=found)
 
 
 def read_pdf_isolated(data: bytes, timeout: float | None = None) -> PdfText:
@@ -134,7 +173,7 @@ class _PipeEnd(Protocol):
 def _read_pdf_child(data: bytes, conn: _PipeEnd) -> None:
     try:
         limit_child_resources()
-        conn.send((True, read_pdf(data)))
+        conn.send((True, read_pdf(data, scans=True)))
     except Exception as exc:  # any parser error: the parent marks the file failed
         conn.send((False, type(exc).__name__))
     finally:
