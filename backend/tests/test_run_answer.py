@@ -44,7 +44,8 @@ def paused_run(session: Session, field: str | None = "hearing_date") -> RunRow:
 @pytest.fixture
 def resume() -> Iterator[RecordingProvider]:
     """The provider the route uses to resume: it finishes the timeline in one turn, and the gaps
-    step that runs after it adds nothing."""
+    step that runs after it adds nothing. The draft step makes no model call: the case has no
+    evidence text in the database here."""
     provider = RecordingProvider({
         "timeline-turn2": finish(),
         "gaps-turn1": turn(tool_use("finish", "u3", summary="Nothing new to add.")),
@@ -100,7 +101,8 @@ def test_an_answer_resumes_the_run_and_the_agent_gets_it(
     assert first.fixture_key == "timeline-turn2"
     answer = next(b for b in blocks(first.messages[-1]) if b["tool_use_id"] == "u1")
     assert "2026-11-21" in answer["content"]  # the agent is told the stored date
-    # the resume carries on into the steps after the pause: rules (no model call), then gaps
+    # the resume carries on into the steps after the pause: rules (no model call), gaps, and draft
+    # (no model call without evidence text)
     assert [request.fixture_key for request in later] == ["gaps-turn1"]
 
 

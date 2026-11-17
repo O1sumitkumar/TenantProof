@@ -9,7 +9,9 @@ from sqlmodel import Session, select
 from app.models import CaseRow, FormFieldRow, GapRow, TimelineEventRow, UserRow
 from app.schemas import FieldPatch, GapPatch, TimelineEventPatch
 from app.services import activity
+from app.services.agent.tools import CLEARED_NOTE, DRAFTED_NOTE
 from app.services.stage import refresh_stage
+from app.services.verifier import normalize
 
 OPEN = ("open", "waiting_tenant")
 CONTENT_FIELDS = ("title", "description", "date")
@@ -68,6 +70,24 @@ def patch_event(
     return event
 
 
+def save_field_value(field: FormFieldRow, value: str) -> None:
+    """The one way a caseworker's value reaches a form field: the form page and a gap's input
+    both come here. A source stays only while its excerpt still holds the value, so a changed
+    value never shows a quote that contradicts it. The agent's "confirm it" note is done once the
+    caseworker saves; clearing a drafted field marks it so the agent does not draft it again.
+    Caller adds and commits."""
+    if value != (field.value or ""):
+        wanted = normalize(value)
+        field.sources = [
+            s for s in field.sources
+            if wanted and wanted in normalize(str(s.get("excerpt") or ""))
+        ]  # fmt: skip
+    if field.note == DRAFTED_NOTE:
+        field.note = None if value else CLEARED_NOTE
+    field.value = value or None
+    field.status = "user_entered" if value else "missing"
+
+
 def _field_for_gap(session: Session, gap: GapRow) -> FormFieldRow | None:
     key = (gap.input or {}).get("field_key")
     return session.get(FormFieldRow, (gap.case_id, key)) if key else None
@@ -86,12 +106,12 @@ def patch_gap(
         value = patch.value.strip()
         if not value:
             raise _bad("value cannot be empty")
-        field.value, field.status = value, "user_entered"
+        save_field_value(field, value)
         session.add(field)
     elif patch.status in OPEN and was_resolved:
         field = _field_for_gap(session, gap)
         if field is not None and field.status == "user_entered":
-            field.value, field.status = None, "missing"  # reopen clears what this gap wrote
+            save_field_value(field, "")  # reopen clears what this gap wrote
             session.add(field)
     gap.status = patch.status
     if "resolution_note" in patch.model_fields_set:
@@ -126,8 +146,7 @@ def patch_field(
     if field is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Field not found")
     value = patch.value.strip()
-    field.value = value or None
-    field.status = "user_entered" if value else "missing"
+    save_field_value(field, value)
     session.add(field)
     for gap in session.exec(select(GapRow).where(GapRow.case_id == case.id)).all():
         if (gap.input or {}).get("field_key") != key:

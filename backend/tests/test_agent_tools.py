@@ -12,7 +12,7 @@ EXPECTED = {
     "list_evidence", "read_evidence", "get_metadata", "search_facts",
     "propose_event", "flag_conflict",
     "list_form_fields", "search_legal_sources", "create_gap",
-    "draft_tenant_message", "ask_caseworker", "finish",
+    "draft_tenant_message", "fill_form_field", "ask_caseworker", "finish",
 }  # fmt: skip
 FORBIDDEN_FIELDS = {"org_id", "case_id", "run_id", "url", "path", "filename"}
 
@@ -27,7 +27,8 @@ def test_every_tool_has_the_right_effect() -> None:
         "list_evidence": "read", "read_evidence": "read", "get_metadata": "read",
         "search_facts": "read", "list_form_fields": "read", "search_legal_sources": "read",
         "propose_event": "draft", "flag_conflict": "draft", "create_gap": "draft",
-        "draft_tenant_message": "draft", "ask_caseworker": "control", "finish": "control",
+        "draft_tenant_message": "draft", "fill_form_field": "draft",
+        "ask_caseworker": "control", "finish": "control",
     }  # fmt: skip
 
 

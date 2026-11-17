@@ -32,6 +32,8 @@ def script() -> dict[str, llm.LLMResponse]:
         "timeline-turn4": turn(tool_use("finish", "u4", summary="One event proposed.")),
         # the gaps step runs after the timeline in a full run (WS4)
         "gaps-turn1": turn(tool_use("finish", "u5", summary="Nothing new to add.")),
+        # and the draft step after it (#40)
+        "draft-turn1": turn(tool_use("finish", "u6", summary="Nothing to fill.")),
     }
 
 

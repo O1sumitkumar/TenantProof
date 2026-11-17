@@ -59,7 +59,8 @@ def asks(row: RunRow) -> list[dict]:
 @pytest.fixture
 def resume() -> Iterator[RecordingProvider]:
     """The provider the answer route resumes with. Only the gaps step, which runs after the
-    timeline on resume, is scripted: a timeline call would fail the test."""
+    timeline on resume, is scripted: a timeline call would fail the test. The draft step after it
+    makes no model call, because the case has no evidence text in the database here."""
     provider = RecordingProvider(
         {"gaps-turn1": turn(tool_use("finish", "g1", summary="Nothing new to add."))})
     api.dependency_overrides[runs_router.provider_dep] = lambda: provider

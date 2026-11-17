@@ -9,13 +9,17 @@ Crash safety: the loop commits once per turn, and the runner writes the step (to
 and a checkpoint of the conversation) in that same commit. A killed worker loses at most the
 open turn together with its rows, and `execute_run` on that run continues from the checkpoint.
 
-The `extract`, `timeline`, `rules` and `gaps` steps exist so far. `extract` runs first, at the
-start of a run, so it needs nothing from ingest: it reads the `evidence_page` rows that ingest
-wrote. `rules` is deterministic (WS4): it gives the case the corpus sources and the evidence
-deadline, and it runs after `timeline` because the hearing date it needs comes from there. `gaps`
-(WS4) writes the deterministic gaps first, then runs an agent loop that reads the evidence and
-drafts requests to the tenant. `ingest` needs WS1 and `draft` is deterministic and comes next;
-those steps stay `pending` here.
+All steps but `ingest` exist, in this order: `extract`, `timeline`, `rules`, `draft`, `gaps`.
+`extract` runs first, at the start of a run, so it needs nothing from ingest: it reads the
+`evidence_page` rows that ingest wrote. `rules` is deterministic (WS4): it gives the case the
+corpus sources and the evidence deadline, and it runs after `timeline` because the hearing date it
+needs comes from there. `draft` (#40) is an agent loop that fills the form fields still `missing`
+from the evidence, each value copied from a citation the verifier accepts and saved as
+`needs_confirmation`. BUILD_PLAN planned it deterministic, but the extracted facts carry no field
+key, so per-field patterns would not hold across documents and languages. With nothing to fill it
+makes no model call. It runs before `gaps`, so the gaps step only asks the tenant for what the
+evidence does not say. `gaps` (WS4) writes the deterministic gaps first, then runs an agent loop
+that reads the evidence and drafts requests to the tenant. `ingest` needs WS1 and stays `pending`.
 
 Pause and resume: when the agent calls ask_caseworker the step becomes `needs_input` and the
 conversation is saved in the step's `checkpoint` key (the API never returns it). Call
@@ -37,9 +41,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
-from app.models import CaseRow, RunRow
+from app.models import CaseRow, EvidenceRow, FormFieldRow, RunRow
 from app.schemas import ToolCall
 from app.services import activity
 from app.services.agent import extract, prompts
@@ -63,8 +67,10 @@ from app.services.agent.tools import (
     AGENT_ACTOR,
     CreateGapOutput,
     DraftTenantMessageOutput,
+    FillFormFieldOutput,
     ProposeEventOutput,
     ToolContext,
+    is_fillable,
     new_nonce,
 )
 from app.services.legal import gaps
@@ -77,10 +83,12 @@ STEP_LABELS = {
     "extract": "Extract facts",
     "timeline": "Build timeline",
     "rules": "Look up official rules",
-    "gaps": "Find missing information",
+    # `draft` runs before `gaps` (#40): once the form agent has filled what the evidence states,
+    # the gaps step no longer asks the tenant for her own name or the landlord's address.
     "draft": "Draft form",
+    "gaps": "Find missing information",
 }
-IMPLEMENTED_STEPS = ("extract", "timeline", "rules", "gaps")
+IMPLEMENTED_STEPS = ("extract", "timeline", "rules", "draft", "gaps")
 HEARING_QUESTION = "What is the hearing date? It is not in the evidence."
 log = logging.getLogger(__name__)
 
@@ -182,6 +190,39 @@ def _tally_gaps(state: StepState) -> str:
         except ValueError:
             continue  # the call was a ToolError, so it changed nothing
     return f"{added} gaps added, {drafts} tenant drafts"
+
+
+def _tally_draft(state: StepState) -> str:
+    filled = rejected = 0
+    for call in state.tool_calls:
+        if call.tool != "fill_form_field":
+            continue
+        try:
+            filled += FillFormFieldOutput.model_validate_json(call.output).filled
+        except ValueError:
+            rejected += 1  # a ToolError: a rejected citation or value, nothing saved
+    return f"{filled} fields filled, {rejected} attempts rejected"
+
+
+def _fillable_fields(session: Session, case: CaseRow) -> list[tuple[str, str]]:
+    """(key, label) of the fields the draft step may fill (`tools.is_fillable`): still missing,
+    not the remedy, and not a draft the caseworker cleared."""
+    rows = session.exec(
+        select(FormFieldRow)
+        .where(FormFieldRow.case_id == case.id)
+        .order_by(col(FormFieldRow.position))
+    ).all()
+    return [(row.key, row.label) for row in rows if is_fillable(row)]
+
+
+def _has_text(session: Session, case: CaseRow, texts: EvidenceTextStore) -> bool:
+    """Whether any evidence item of the case has text the agent could cite."""
+    ids = session.exec(select(EvidenceRow.id).where(EvidenceRow.case_id == case.id)).all()
+    return any(texts.pages(case.id, evidence_id) for evidence_id in ids)
+
+
+# What a step changed, for its summary; the timeline's counts are the default.
+_TALLIES: dict[str, Callable[[StepState], str]] = {"gaps": _tally_gaps, "draft": _tally_draft}
 
 
 def _write_extract(
@@ -295,6 +336,12 @@ class AgentStep:
 
 
 def _agent_step(key: str, ctx: ToolContext, kickoff: str) -> AgentStep:
+    if key == "draft":
+        return AgentStep(
+            kickoff=kickoff, system=prompts.draft_system(),
+            run_note=prompts.draft_run_note(ctx.nonce), tools=prompts.DRAFT_TOOLS,
+            tally=_tally_draft,
+        )  # fmt: skip
     if key == "gaps":
         return AgentStep(
             kickoff=kickoff, system=prompts.gaps_system(),
@@ -445,6 +492,24 @@ async def execute_run(
                     prepared = gaps.prepare(session, case)
                     session.commit()
                     kickoff = prompts.gaps_kickoff(prepared.open_gaps, prepared.language, ctx.nonce)
+                # Only on a fresh start: a step resumed from its checkpoint (after a crash) goes
+                # on with its conversation, whatever it already filled.
+                if key == "draft" and step.get("checkpoint") is None:
+                    gaps.ensure_form_fields(session, case)  # a no-op once gaps has run
+                    fillable = _fillable_fields(session, case)
+                    skip = (
+                        "No missing form fields to fill." if not fillable
+                        else None if _has_text(session, case, texts)
+                        else "No evidence text to fill the form from yet."
+                    )  # fmt: skip
+                    if skip is not None:  # no model call
+                        state = StepState(messages=[])
+                        step["nonce"] = ctx.nonce
+                        _write_step(step, state, "done", skip)
+                        run.steps = copy.deepcopy(all_steps)
+                        session.commit()
+                        continue
+                    kickoff = prompts.draft_kickoff(fillable)
                 spec = _agent_step(key, ctx, kickoff)
                 state = _load_state(step, answer, spec.kickoff)
                 current = (step, state)
@@ -476,7 +541,8 @@ async def execute_run(
         session.rollback()  # only a model call can be cut off; no turn is open
         if current is not None:
             step, state = current
-            why = f"Stopped early: the {deadline_s:.0f} s run deadline passed ({_tally(state)})."
+            tally = _TALLIES.get(step["key"], _tally)(state)
+            why = f"Stopped early: the {deadline_s:.0f} s run deadline passed ({tally})."
             _write_step(step, state, "done", why)
     except asyncio.CancelledError:
         session.rollback()  # the step stays running with its last checkpoint: it can resume
