@@ -219,7 +219,8 @@ TRANSLATE_PROMPT_VERSION = "translate-v1"
 TRANSLATE_FIXTURE_KEY = "translate-request"
 # Names for the model. The case keeps the code; a code not listed is passed through as it is.
 LANGUAGE_NAMES = {
-    "en": "English", "zh": "Simplified Chinese", "fr": "French", "es": "Spanish", "ar": "Arabic",
+    "en": "English", "zh": "Simplified Chinese", "fr": "French", "es": "Spanish",
+    "ru": "Russian", "hi": "Hindi", "ar": "Arabic",
 }  # fmt: skip
 
 

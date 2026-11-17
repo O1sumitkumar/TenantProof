@@ -30,6 +30,7 @@ Single source of truth. Update the relevant section in every PR.
 | Submission polish | README rewrite (pitch, architecture, live-mode setup, 3-minute demo, team), LICENSE, SECURITY.md statuses, security headers, system fonts, planning files moved to `docs/archive/`, API_CONTRACT rows; caseload wording ("Deadline passed (N days ago)", plurals, one "Must be received by" wording for stored labels) and seeded deadlines kept relative to today | `Lameda12/submission-polish` |
 | UI fix (Tenant view) | The Tenant view lives in the case rail, not the top bar; re-sending a sent intake link asks first | PRs #70, #71 (`292a6d7`) |
 | M3 (#54) | Form J and Regulations s. 25A confirmed by a person (all five sources confirmed); the Form J draft is labelled partial; `pypdf[crypto]` reads Form J's locked PDF | PR #66 |
+| M3 (#68, #69) | Tenant languages Russian and Hindi: schema, New case list, tenant page strings (machine-translated, need native review), agent language names | `Lameda12/tenant-languages-ru-hi` |
 
 Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #38).
 

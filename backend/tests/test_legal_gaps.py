@@ -141,11 +141,13 @@ def draft(gap_id: str, language: str, message: str, message_en: str, tool_id: st
 IN_LANGUAGE = {
     "zh": "请发送房东的送达地址。",
     "fr": "Merci d'envoyer l'adresse du propriétaire.",
+    "ru": "Пожалуйста, пришлите адрес арендодателя.",
+    "hi": "कृपया मकान मालिक का पता भेजें।",
     "en": "Please send the address.",
 }
 
 
-@pytest.mark.parametrize("language", ["zh", "fr", "en"])
+@pytest.mark.parametrize("language", ["zh", "fr", "ru", "hi", "en"])
 def test_the_agent_drafts_in_the_tenant_language(fresh_db, session, language):
     case = session.get(CaseRow, CASE)
     assert case is not None

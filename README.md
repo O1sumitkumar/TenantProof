@@ -10,7 +10,7 @@ A tenant with a repair dispute in Nova Scotia has to bring evidence to a hearing
 
 ## What TenantProof does
 
-1. **The tenant** opens a private link on their phone, in their own language (English, 中文, Français, Español), and uploads files. Location and device data are stripped before any model sees a photo.
+1. **The tenant** opens a private link on their phone, in their own language (English, 中文, Français, Español, Русский, हिन्दी), and uploads files. Location and device data are stripped before any model sees a photo.
 2. **The agent** reads the files, extracts facts, builds a dated timeline where every event cites the file it came from, looks up the official rules, finds what is missing, drafts the missing form fields, and writes requests to the tenant in their language.
 3. **The caseworker** reviews every event and field, answers what only a person knows (the hearing date), approves every message, and signs off.
 4. **The package** is a zip for the caseworker's records: the application draft, an evidence manifest with SHA-256 hashes, and the evidence files, with GPS data removed from images and HEIC photos filed as JPG.
