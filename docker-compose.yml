@@ -48,6 +48,10 @@ services:
       RUN_BUDGET_S: ${RUN_BUDGET_S:-180}  # #49: seconds one analysis run may take
       SEED_PASSWORD: ${SEED_PASSWORD:-tenantproof-demo}
       STORAGE_DIR: /data/storage
+      # #58: the proxies whose X-Forwarded-For is believed. Through a published port the API sees
+      # nginx as the compose network's gateway, never 127.0.0.1: list that gateway or its subnet,
+      # or use * when only nginx can reach this port (see docs/DEPLOY.md).
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
     volumes: [blobs:/data]
     command: >
       sh -c "uv run --no-dev alembic upgrade head &&
