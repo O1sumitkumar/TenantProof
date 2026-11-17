@@ -31,7 +31,7 @@ from sqlmodel import Session, col, select
 from app.models import CaseRow, EvidenceRow, FormFieldRow, GapRow, PackageRow, UserRow
 from app.schemas import Attestations, Package, PackageFile
 from app.services import activity, storage
-from app.services.evidence import sniff  # also registers the HEIC opener
+from app.services.evidence import gps, sniff  # also registers the HEIC opener
 from app.services.gating import MissingField, OpenGap, package_blockers
 from app.services.mappers import (
     OPEN_GAP,
@@ -56,6 +56,8 @@ EVIDENCE_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/heic": ".heic"
                 "application/pdf": ".pdf", "text/plain": ".txt"}
 NOT_STORED = "Original file not in storage (seeded demo rows have none)"
 HEIC_NOT_FILED = "Not filed: HEIC is not an accepted format and no JPG copy could be made"
+GPS_NOT_FILED = "Not filed: the location data in this image could not be removed"
+LOCATION_REMOVED = "location data removed"
 log = logging.getLogger(__name__)
 ATTESTATION_LABELS = {
     "reviewed_fields": "Confirm you reviewed every field and the summary",
@@ -154,22 +156,46 @@ class EvidenceFile:
     sha256: str
     note: str
     data: bytes | None = None  # None: the original, read from storage by sha256
+    location_removed: bool = False  # a copy made with its GPS data taken out
 
 
 def evidence_files(ev: EvidenceRow) -> list[EvidenceFile]:
     """What goes in the zip for one piece of evidence: the original, plus a PDF made from a TXT.
     A HEIC is never filed: the Program doesn't accept it, so only the JPG made from it goes in
-    (nothing at all if it can't be converted). Empty when the original was never stored."""
+    (nothing at all if it can't be converted). A JPG or PNG with GPS data is filed as a copy
+    without it (the stored original is untouched), and left out if that can't be done. Empty
+    when the original was never stored."""
     name = evidence_zip_name(ev)
     if name is None:
         return []
     made = _rendition(ev, name.rsplit(".", 1)[0])
     if ev.mime == sniff.HEIC:
         return [made] if made is not None else []
-    files = [EvidenceFile(ev.label, name, ev.sha256, ev.filename)]
+    original = _original(ev, name)
+    if original is None:
+        return []
+    files = [original]
     if made is not None:
         files.append(made)
     return files
+
+
+def _original(ev: EvidenceRow, name: str) -> EvidenceFile | None:
+    """The original as it goes in the zip. A JPG or PNG with GPS data becomes a copy without it:
+    same pixels, same capture time and orientation, only the location taken out. None when that
+    could not be done, because an image must not be filed with its location in it."""
+    plain = EvidenceFile(ev.label, name, ev.sha256, ev.filename)
+    if ev.mime not in (sniff.JPEG, sniff.PNG):
+        return plain
+    try:
+        data, removed = gps.without_gps(storage.read(ev.sha256), ev.mime)
+    except Exception as exc:
+        log.warning("could not remove location data from %s: %s", ev.label, type(exc).__name__)
+        return None
+    if not removed:
+        return plain
+    return EvidenceFile(ev.label, name, _sha(data), f"{ev.filename}; {LOCATION_REMOVED}",
+                        data, location_removed=True)
 
 
 def _rendition(ev: EvidenceRow, stem: str) -> EvidenceFile | None:
@@ -177,10 +203,15 @@ def _rendition(ev: EvidenceRow, stem: str) -> EvidenceFile | None:
         return None  # couldn't be read at ingest (corrupt, or over the pixel limit): don't decode
     try:
         if ev.mime == sniff.HEIC:
-            data = heic_to_jpeg(storage.read(ev.sha256))
-            return EvidenceFile(ev.label, f"{stem}.jpg", _sha(data),
-                                f"JPG made from the HEIC original ({ev.filename}); "
-                                "the Program does not accept HEIC", data)
+            raw = storage.read(ev.sha256)
+            data = heic_to_jpeg(raw)
+            removed = gps.exif_has_gps(raw)
+            note = (f"JPG made from the HEIC original ({ev.filename}); "
+                    "the Program does not accept HEIC")
+            if removed:
+                note += f"; {LOCATION_REMOVED}"
+            return EvidenceFile(ev.label, f"{stem}.jpg", _sha(data), note, data,
+                                location_removed=removed)
         if ev.mime == sniff.TEXT:
             decoded = sniff.decode_text(storage.read(ev.sha256))
             if decoded is None:  # not reachable for a file the type check accepted
@@ -194,10 +225,12 @@ def _rendition(ev: EvidenceRow, stem: str) -> EvidenceFile | None:
 
 
 def heic_to_jpeg(data: bytes) -> bytes:
-    """Same pixels and the same EXIF as the original (it is filed as evidence, like the
-    original). Not the stripped copy: that one is only for the model."""
+    """Same pixels and the same EXIF as the original, minus the GPS data (this copy goes in the
+    package). Not the stripped copy: that one is only for the model."""
     with Image.open(io.BytesIO(data)) as img:
         exif = img.getexif()
+        if gps.GPS_IFD in exif:
+            del exif[gps.GPS_IFD]
         out = io.BytesIO()
         img.convert("RGB").save(out, format="JPEG", quality=92, exif=exif.tobytes())
     return out.getvalue()
@@ -230,10 +263,19 @@ def manifest_pdf(
         for copy in copies:
             lead = "Filed as" if heic else "Also as"
             _write(pdf, f"{lead} {copy.name}, sha256 {copy.sha256}", size=8, gap=3)
+        for item in filed:
+            if item.location_removed:
+                _write(pdf, f"{item.name}, sha256 {item.sha256}: {LOCATION_REMOVED}",
+                       size=8, gap=3)
         if not filed:
-            _write(pdf, HEIC_NOT_FILED if heic and storage.exists(ev.sha256) else NOT_STORED,
-                   size=8, gap=3)
+            _write(pdf, _unfiled_reason(ev), size=8, gap=3)
     return bytes(pdf.output())
+
+
+def _unfiled_reason(ev: EvidenceRow) -> str:
+    if not storage.exists(ev.sha256):
+        return NOT_STORED
+    return HEIC_NOT_FILED if ev.mime == sniff.HEIC else GPS_NOT_FILED
 
 
 def _sha(data: bytes) -> str:
@@ -266,6 +308,7 @@ def build_zip(
             {"label": e.label, "filename": e.filename, "sha256": e.sha256,
              "received_at": iso_req(e.received_at), "uploaded_by": e.uploaded_by,
              "in_zip": ev_files[e.id][0].name if ev_files[e.id] else None,
+             "location_data_removed": any(f.location_removed for f in ev_files[e.id]),
              "rendition": {"path": ev_files[e.id][1].name, "sha256": ev_files[e.id][1].sha256}
              if len(ev_files[e.id]) > 1 and e.mime != sniff.HEIC else None}
             for e in evidence
