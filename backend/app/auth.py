@@ -9,7 +9,7 @@ from typing import Annotated
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from fastapi import Depends, HTTPException, Request, Response, status
-from sqlmodel import Session, select
+from sqlmodel import Session, col, delete, select
 
 from app.config import Settings
 from app.db import get_session
@@ -42,8 +42,20 @@ def authenticate(session: Session, email: str, password: str) -> UserRow | None:
     return user if ok else None
 
 
+def purge_expired_sessions(session: Session, now: datetime | None = None) -> int:
+    """Delete every login session whose expiry has passed (#59), any user's. Returns how many.
+    Caller commits. Live sessions are untouched; signing out already deletes its own row."""
+    cutoff = now or datetime.now(UTC)
+    result = session.exec(  # type: ignore[call-overload]
+        delete(LoginSessionRow).where(col(LoginSessionRow.expires_at) <= cutoff)
+    )
+    return result.rowcount
+
+
 def start_session(session: Session, user: UserRow, settings: Settings, response: Response) -> None:
-    """Create the server-side session and set the cookie. Caller commits."""
+    """Create the server-side session and set the cookie, clearing out expired sessions in the
+    same transaction. Caller commits."""
+    purge_expired_sessions(session)
     value = secrets.token_urlsafe(32)
     ttl = timedelta(hours=settings.session_ttl_hours)
     session.add(

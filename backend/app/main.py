@@ -1,3 +1,7 @@
+import asyncio
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -6,8 +10,13 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from sqlmodel import Session
+from starlette.concurrency import run_in_threadpool
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
+from app.auth import purge_expired_sessions
 from app.config import get_settings
+from app.db import get_engine
 from app.ratelimit import limiter
 from app.routers import (
     activity,
@@ -26,7 +35,44 @@ from app.routers import (
 )
 from app.services.evidence.http import UploadBodyLimit
 
-app = FastAPI(title="TenantProof API", version="0.1.0")
+log = logging.getLogger(__name__)
+PURGE_EVERY_S = 3600.0  # #59: how often expired login sessions are cleared out
+
+
+def _purge_once() -> int:
+    with Session(get_engine()) as session:
+        removed = purge_expired_sessions(session)
+        session.commit()
+        return removed
+
+
+async def _purge_forever() -> None:
+    """Clear out expired login sessions now and then every PURGE_EVERY_S, until cancelled."""
+    while True:
+        try:
+            await run_in_threadpool(_purge_once)
+        except Exception as exc:  # keep the loop alive; the next round tries again
+            log.warning("session purge failed: %s", type(exc).__name__)  # type only
+        await asyncio.sleep(PURGE_EVERY_S)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    task = asyncio.create_task(_purge_forever())
+    app.state.purge_task = task
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
+app = FastAPI(title="TenantProof API", version="0.1.0", lifespan=lifespan)
+# #58: believe X-Forwarded-For/-Proto only from the listed proxies, so the rate limits count each
+# visitor's own IP behind nginx. Uvicorn applies the same setting itself when it starts the app;
+# this keeps it however the app is served. Applying it twice gives the same client.
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=get_settings().forwarded_allow_ips)
 
 api = FastAPI(title="TenantProof API")
 api.state.limiter = limiter
