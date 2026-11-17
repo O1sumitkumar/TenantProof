@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
+from app.config import get_settings
 from app.models import ActivityRow, CaseRow, GapRow, RunRow, TimelineEventRow
 from app.services.agent import llm, loop, prompts, runner
 from app.services.agent import tools as t
@@ -361,6 +362,17 @@ def test_the_deadline_covers_the_whole_run_not_each_call(fresh_db: None, session
     assert "checkpoint" not in step
     assert 1 <= len(step["tool_calls"]) < 25  # what was done before the deadline is kept
     assert row.status == "needs_review" and row.finished_at is not None
+    assert row.usage is not None and row.usage["duration_ms"] < 2000
+
+
+def test_the_deadline_defaults_to_the_run_budget_setting(
+    fresh_db: None, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(get_settings(), "run_budget_s", 0.45)
+    script = {f"timeline-turn{i}": turn(tool_use("list_evidence", f"u{i}")) for i in range(1, 20)}
+    row = execute(session, new_run(session), SlowProvider(script, delay=0.1))  # no deadline_s
+    step = next(s for s in row.steps if s["key"] == "timeline")
+    assert step["status"] == "done" and "run deadline passed" in step["summary"]
     assert row.usage is not None and row.usage["duration_ms"] < 2000
 
 

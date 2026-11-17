@@ -166,7 +166,7 @@ differ by > 1 day (day precision) or by month. `date_inferred` when basis is `fi
 
 ## 8. Performance targets (measure with `bench/`)
 
-- Full run on the demo case (~10 evidence items): **< 60 s** live, **< 3 s** with cache warm.
+- Full run on the demo case (~10 evidence items): **< 60 s** live, **< 3 s** with cache warm. This is the target, not the limit: a run is cut off only after `RUN_BUDGET_S` (180 s by default, issue #49), and one model call after 60 s.
 - Read endpoints p95 **< 100 ms** locally (`bench/load.py` with locust or httpx async, 50 concurrent users).
 - Extraction cache hit on re-run of unchanged evidence: 100%.
 - Report tokens and estimated cost per run in `Run.usage` and the README.

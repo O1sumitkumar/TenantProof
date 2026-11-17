@@ -11,7 +11,7 @@ from app.services.agent import llm
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Some machines set these already; the tests set what they need."""
-    for name in ("LLM_MODEL", "ANTHROPIC_BASE_URL"):
+    for name in ("LLM_MODEL", "ANTHROPIC_BASE_URL", "RUN_BUDGET_S"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-real")
 
@@ -33,6 +33,20 @@ def provider(**values: str) -> llm.AnthropicProvider:
 def test_both_are_empty_by_default() -> None:
     s = make()
     assert (s.llm_model, s.anthropic_base_url) == ("", "")
+
+
+def test_the_run_budget_is_180_s_by_default_and_read_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert make().run_budget_s == 180.0
+    monkeypatch.setenv("RUN_BUDGET_S", "240")
+    assert make().run_budget_s == 240.0
+
+
+@pytest.mark.parametrize("value", ["0", "-5", "9.9", "901", "abc"])
+def test_a_run_budget_out_of_range_is_refused(value: str) -> None:
+    with pytest.raises(ValidationError, match="run_budget_s"):
+        make(run_budget_s=value)
 
 
 def test_they_are_read_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:

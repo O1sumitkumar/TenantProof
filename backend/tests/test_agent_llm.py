@@ -241,10 +241,11 @@ def test_api_errors_become_llm_call_errors_without_details() -> None:
     assert "APIConnectionError" in str(info.value) and "secret" not in str(info.value)
 
 
-def test_real_client_timeout_equals_the_run_budget() -> None:
+def test_one_call_is_capped_at_60_s_whatever_the_run_budget() -> None:
     provider = llm.AnthropicProvider("sk-test-not-real")
-    assert llm.CALL_TIMEOUT_S == llm.RUN_BUDGET_S == 60.0
+    assert llm.CALL_TIMEOUT_S == provider.deadline_s == 60.0
     assert provider.client.timeout == llm.CALL_TIMEOUT_S and provider.client.max_retries == 1
+    assert not hasattr(llm, "RUN_BUDGET_S")  # the run budget is a setting now (#49)
 
 
 def test_a_hung_call_hits_the_total_deadline_and_is_not_retried() -> None:

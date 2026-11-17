@@ -45,6 +45,7 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      RUN_BUDGET_S: ${RUN_BUDGET_S:-180}  # #49: seconds one analysis run may take
       SEED_PASSWORD: ${SEED_PASSWORD:-tenantproof-demo}
       STORAGE_DIR: /data/storage
     volumes: [blobs:/data]
