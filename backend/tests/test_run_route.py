@@ -129,10 +129,26 @@ def test_a_second_start_while_one_is_running_is_409(fresh_db, client, session, p
     assert r.json()["detail"]["reasons"] == ["An analysis is already running for this case"]
 
 
+def test_a_run_inside_its_budget_still_blocks_a_new_one(
+    fresh_db, client, session, provider, monkeypatch
+):
+    """Two minutes in: past the old 60 s budget, but inside the 180 s default (#49)."""
+    monkeypatch.setattr(get_settings(), "run_budget_s", 180.0)
+    started = datetime.now(UTC) - timedelta(seconds=120)
+    session.add(RunRow(id="run_slow", case_id=CASE, status="running", started_at=started, steps=[]))
+    session.commit()
+    assert client.post(URL).status_code == 409
+
+
+def test_the_stale_cutoff_follows_the_run_budget(monkeypatch) -> None:
+    monkeypatch.setattr(get_settings(), "run_budget_s", 300.0)
+    assert runs_router.stale_after() == timedelta(seconds=330)
+
+
 def test_a_run_cut_off_long_ago_does_not_block_a_new_one(
     fresh_db, client, session, provider, pages
 ):
-    old = datetime.now(UTC) - runs_router.STALE_AFTER - timedelta(seconds=5)
+    old = datetime.now(UTC) - runs_router.stale_after() - timedelta(seconds=5)
     session.add(RunRow(id="run_stale", case_id=CASE, status="running", started_at=old, steps=[]))
     session.commit()
     assert client.post(URL).status_code == 200

@@ -22,15 +22,16 @@ from app.config import Settings
 
 MODEL = "claude-sonnet-5-5"
 ANTHROPIC_API_URL = "https://api.anthropic.com"  # used when ANTHROPIC_BASE_URL is empty or unset
-RUN_BUDGET_S = 60.0  # the run target
-# One total deadline per call (asyncio.timeout), equal to the run budget. The httpx timeout
-# (per phase) is set to the same value, so a timed-out attempt has used the whole budget and
-# the SDK retry cannot start another one. Retries stay for 429 and 5xx, inside the deadline.
-CALL_TIMEOUT_S = RUN_BUDGET_S
+# The whole-run deadline is a setting (`Settings.run_budget_s`, 180 s by default); the runner
+# wraps all steps in it. BUILD_PLAN's "< 60 s" for the demo case is the target, not that limit.
+# One total deadline per call (asyncio.timeout). The httpx timeout (per phase) is set to the same
+# value, so a timed-out attempt has used the whole call budget and the SDK retry cannot start
+# another one. Retries stay for 429 and 5xx, inside the deadline.
+CALL_TIMEOUT_S = 60.0
 MAX_RETRIES = 1
 EFFORT = "medium"  # output_config.effort: suggested start for multistep tool use
 CACHE_WRITE_PRICE_FACTOR = 1.25  # of the input price: writing a 5-minute cache entry
-CACHE_CONTROL = {"type": "ephemeral"}  # the default 5-minute lifetime; a run lasts under 60 s
+CACHE_CONTROL = {"type": "ephemeral"}  # the default 5-minute lifetime; a run stays under it
 DEFAULT_MAX_TOKENS = 16000  # thinking counts against max_tokens
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 _EVIDENCE_TAG = re.compile(r"evidence-[0-9a-f]{6,}")
@@ -274,7 +275,7 @@ class AnthropicProvider:
         model: str = MODEL,
         client: Any | None = None,
         effort: str = EFFORT,
-        deadline_s: float = RUN_BUDGET_S,
+        deadline_s: float = CALL_TIMEOUT_S,
         base_url: str | None = None,
     ) -> None:
         """`base_url` points the client at an Anthropic-compatible API (empty or None:

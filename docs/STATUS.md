@@ -19,17 +19,18 @@ Single source of truth. Update the relevant section in every PR.
 | M2 (WS1) | Evidence ingest and tenant uploads: upload routes, type check by signature, metadata, stripped copy, text as `evidence_page` rows, evidence in the zip | PRs #6, #7, #8 (`24a343d`) |
 | M3 (WS3) | Agent tool bodies and loop, `POST /cases/{id}/runs`, the `extract` step writing `evidence_fact`, `POST /runs/{id}/answer`, demo evals for prompt injection and fabricated quotes | PRs #5, #15, #16, #18, #19, #20 |
 
-Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #36).
+Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #37).
 
 ## In progress
 
-Open draft PRs into `dev` (2026-11-17), all opoeci6's. (#21, #22, #23 and NineJZ356's #43, #44 and #45 are merged.) Merge #46 first, then #42 and #47.
+Open draft PRs into `dev` (2026-11-17), opoeci6's, for issues #48 and #49. #42, #46 and #47 (issues #40 and #41) are merged, with NineJZ356's #43, #44 and #45. Merge #50 before #51, and #52 before #53.
 
 | PR | Area | What | Depends on |
 |---|---|---|---|
-| #46 | `schema:` | `CaseCreate` and `POST /cases` in the contract; CONTRACT_CHANGES #35 (`POST /cases`), #36 (the `draft` step and how a field is saved), two UI exceptions waiting for team approval | none |
-| #42 | WS3 (#40) | The `draft` step, run before `gaps`: an agent fills missing form fields from verified quotes, as `needs_confirmation`; a Confirm button on the form | #46, for its contract rows |
-| #47 | caseload (#41) | `POST /cases` (`routers/cases.py`, `services/cases.py`), the "New case" form on the caseload, "Not sent yet" and "Send intake link" for a case whose link was never sent | #46 |
+| #50 | `schema:` | `RUN_BUDGET_S` in `config.py` (180 s by default, 10 to 900) and its line in `backend/.env.example` | none |
+| #51 | WS3 (#49) | The whole-run deadline comes from the setting; one model call stays capped at 60 s; a run counts as stale after the budget plus 30 s | #50 |
+| #52 | `schema:` | CONTRACT_CHANGES #37: the optional send body, `POST /gaps/{id}/tenant-request/translate`, `IntakeView.requests[].message_en`; a UI exception for the editable request | none |
+| #53 | gaps (#48) | The caseworker edits the request to the tenant, translates the English with one model call, and sends both; the tenant page shows the English behind "Show in English"; language names in English first on caseworker screens, and an English preview on the Tenant view | #52 |
 
 Open issues: #9 (tell tenants that original photos, GPS included, go into the package), #10 (about 500 MB can be spooled to disk before the intake token is checked; WS2), #11 (Big5 and GBK TXT outside GB2312 get 415). #13, #14 and #4 track WS3 work that looks done but is not closed. WS2 and WS5 are unassigned.
 

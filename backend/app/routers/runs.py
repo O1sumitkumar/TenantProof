@@ -27,7 +27,11 @@ DATE_HINT = "Enter the date like 2026-11-21 or Nov 21, 2026"
 DATE_PASSED = "That date has passed. Enter the upcoming hearing date."
 # A run still "running" after its whole budget (plus slack for a slow start) was cut off by a
 # restart or a crash, so it no longer blocks a new one.
-STALE_AFTER = timedelta(seconds=llm.RUN_BUDGET_S + 30)
+STALE_SLACK = timedelta(seconds=30)
+
+
+def stale_after() -> timedelta:
+    return timedelta(seconds=get_settings().run_budget_s) + STALE_SLACK
 
 
 class AnswerIn(BaseModel):
@@ -109,7 +113,7 @@ def start_run(
     `GET /runs/{id}`. The case comes from the path and the caseworker's org, never a body."""
     # Lock the case row so two clicks cannot both pass the "already running" check.
     session.exec(select(CaseRow).where(CaseRow.id == case.id).with_for_update()).one()
-    cutoff = datetime.now(UTC) - STALE_AFTER
+    cutoff = datetime.now(UTC) - stale_after()
     active = session.exec(
         select(RunRow).where(
             RunRow.case_id == case.id, RunRow.status == "running", RunRow.started_at > cutoff

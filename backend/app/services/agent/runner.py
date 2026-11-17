@@ -3,7 +3,8 @@
 `execute_run` walks the run's steps in order and saves the run row after every step, so the
 caller (the worker, later) can resume after a crash from the first unfinished step. One nonce
 names the evidence tag for the whole run (saved on the steps, so a resume reuses it), and one
-deadline (`RUN_BUDGET_S`) wraps the whole run, not each model call.
+deadline (the `RUN_BUDGET_S` setting, 180 s by default) wraps the whole run, not each model
+call.
 
 Crash safety: the loop commits once per turn, and the runner writes the step (tool calls, usage
 and a checkpoint of the conversation) in that same commit. A killed worker loses at most the
@@ -43,13 +44,13 @@ from typing import Any
 
 from sqlmodel import Session, col, select
 
+from app.config import get_settings
 from app.models import CaseRow, EvidenceRow, FormFieldRow, RunRow
 from app.schemas import ToolCall
 from app.services import activity
 from app.services.agent import extract, prompts
 from app.services.agent.evidence_text import EvidenceTextStore
 from app.services.agent.llm import (
-    RUN_BUDGET_S,
     LLMProvider,
     Message,
     Usage,
@@ -399,7 +400,7 @@ async def execute_run(
     texts: EvidenceTextStore,
     *,
     nonce: str | None = None,
-    deadline_s: float = RUN_BUDGET_S,
+    deadline_s: float | None = None,
     answer: str | None = None,
     steps: tuple[str, ...] = IMPLEMENTED_STEPS,
     claimed: bool = False,
@@ -407,7 +408,9 @@ async def execute_run(
     """Run the given steps that are not done yet. The deadline covers all of them together; on a
     resume it is what is left of the budget after the time earlier calls already used. The
     nonce is chosen once and kept on the steps: a resume reuses it, and passing a different one
-    is an error."""
+    is an error. `deadline_s` defaults to the `RUN_BUDGET_S` setting."""
+    if deadline_s is None:
+        deadline_s = get_settings().run_budget_s
     case = session.get(CaseRow, run.case_id)
     if case is None:
         raise ValueError("run has no case")
