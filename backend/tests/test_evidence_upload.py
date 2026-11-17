@@ -625,6 +625,16 @@ def test_tenant_upload_with_an_unknown_token_is_404(fresh_db, anon_client, sessi
     r = anon_client.post(files_url("not-a-real-token"), files=files(jpg()))
     assert r.status_code == 404
     assert len(evidence_rows(session)) == SEEDED
+def test_a_bad_token_is_refused_before_the_body_is_parsed(fresh_db, anon_client):
+    """Issue #10: the 404 comes from the token check, not from multipart parsing. A body that
+    is not multipart at all would otherwise be a 422 after being spooled."""
+    r = anon_client.post(
+        "/api/intake/not-a-real-token/files",
+        content=b"not multipart at all",
+        headers={"content-type": "application/octet-stream"},
+    )
+    assert r.status_code == 404
+    assert r.json() == {"detail": "Link not found"}
 
 
 def test_tenant_upload_is_rate_limited(fresh_db, token, anon_client):
@@ -1089,11 +1099,11 @@ def test_a_declared_body_over_the_limit_is_refused_before_it_is_read(fresh_db, c
         assert r.json() == {"detail": {"reasons": ["The upload is too large"]}}
 
 
-def test_a_chunked_body_over_the_limit_is_stopped_before_the_token_check(
-    fresh_db, client, monkeypatch
+def test_a_chunked_body_over_the_limit_is_stopped_for_a_valid_token(
+    fresh_db, client, token, monkeypatch
 ):
-    """No Content-Length: the body is counted as it arrives. An unknown token still gets
-    413, not 404, because the token is only checked after the body has been read."""
+    """No Content-Length: the body is counted as it arrives and cut off at the app's cap. A
+    bad token never gets here: it is a 404 before the body is read (test_intake_gate)."""
     monkeypatch.setattr(get_settings(), "max_upload_bytes", 2048)
 
     def body():
@@ -1101,7 +1111,7 @@ def test_a_chunked_body_over_the_limit_is_stopped_before_the_token_check(
         for _ in range(64):  # 4 MB in all, well over 20 x 2 KB + 1 MB of slack
             yield b"a" * 65536
 
-    r = client.post("/api/intake/not-a-real-token/files", content=body(),
+    r = client.post(files_url(token), content=body(),
                     headers={"content-type": "multipart/form-data; boundary=x"})
     assert r.status_code == 413
     assert r.json() == {"detail": {"reasons": ["The upload is too large"]}}

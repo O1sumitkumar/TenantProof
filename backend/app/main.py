@@ -35,6 +35,7 @@ from app.routers import (
 )
 from app.services import health
 from app.services.evidence.http import UploadBodyLimit
+from app.services.intake_gate import IntakeTokenGate
 
 log = logging.getLogger(__name__)
 PURGE_EVERY_S = 3600.0  # #59: how often expired login sessions are cleared out
@@ -70,6 +71,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="TenantProof API", version="0.1.0", lifespan=lifespan)
+# Issue #10: an intake upload with a bad token is refused before its body is read. Added
+# before ProxyHeadersMiddleware, so it runs inside it and sees the visitor's own address.
+app.add_middleware(IntakeTokenGate)
 # #58: believe X-Forwarded-For/-Proto only from the listed proxies, so the rate limits count each
 # visitor's own IP behind nginx. Uvicorn applies the same setting itself when it starts the app;
 # this keeps it however the app is served. Applying it twice gives the same client.
