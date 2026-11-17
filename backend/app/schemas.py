@@ -73,6 +73,8 @@ class Intake(BaseModel):
     last_upload_at: str | None
     tenant_attested_genuine: bool
     tenant_attested_at: str | None
+    # QR code of `url` as an SVG data URI (#56). Like `url`, set only in the POST response.
+    qr_svg: str | None = None
 
 
 class Case(BaseModel):

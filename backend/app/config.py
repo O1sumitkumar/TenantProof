@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     rate_limit_storage_uri: str | None = None
     login_rate_limit: str = "10/minute"
     submit_rate_limit: str = "20/minute"
+    # Proxies whose X-Forwarded-For and X-Forwarded-Proto are believed (comma list of IPs or
+    # CIDRs, or "*"), so the rate limits count each visitor's own IP. "*" is safe only when the
+    # proxy alone can reach the API port. Same name as uvicorn's own setting (whose default also
+    # trusts ::1). Behind a published Docker port the API sees the compose network's gateway,
+    # never 127.0.0.1, so the default never trusts a proxy there.
+    forwarded_allow_ips: str = "127.0.0.1"
     # Evidence uploads: per-file size cap, and a rate limit per client IP on both upload routes.
     max_upload_bytes: int = 25 * 1024 * 1024
     upload_rate_limit: str = "30/minute"
