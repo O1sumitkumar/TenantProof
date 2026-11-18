@@ -625,6 +625,8 @@ def test_tenant_upload_with_an_unknown_token_is_404(fresh_db, anon_client, sessi
     r = anon_client.post(files_url("not-a-real-token"), files=files(jpg()))
     assert r.status_code == 404
     assert len(evidence_rows(session)) == SEEDED
+
+
 def test_a_bad_token_is_refused_before_the_body_is_parsed(fresh_db, anon_client):
     """Issue #10: the 404 comes from the token check, not from multipart parsing. A body that
     is not multipart at all would otherwise be a 422 after being spooled."""
@@ -635,6 +637,25 @@ def test_a_bad_token_is_refused_before_the_body_is_parsed(fresh_db, anon_client)
     )
     assert r.status_code == 404
     assert r.json() == {"detail": "Link not found"}
+
+
+def test_a_revoked_token_is_refused_before_the_body_is_parsed(fresh_db, token, client,
+                                                             anon_client):
+    """#10 through the real app: a link replaced by a new one is a 404 even for a body that
+    multipart parsing would reject, and the 404 carries the security headers."""
+    client.post(f"/api/cases/{CASE}/intake-link")  # revokes `token`
+    r = anon_client.post(files_url(token), content=b"not multipart at all",
+                         headers={"content-type": "application/octet-stream"})
+    assert r.status_code == 404 and r.json() == {"detail": "Link not found"}
+    assert r.headers["x-content-type-options"] == "nosniff"
+
+
+def test_a_valid_token_passes_the_gate_to_the_route(fresh_db, token, anon_client):
+    """The gate lets a live link through: the same bad body now reaches the route, which
+    refuses it as a malformed upload instead of a missing link."""
+    r = anon_client.post(files_url(token), content=b"not multipart at all",
+                         headers={"content-type": "application/octet-stream"})
+    assert r.status_code == 422  # the route's validation, after the gate let it in
 
 
 def test_tenant_upload_is_rate_limited(fresh_db, token, anon_client):
