@@ -1303,13 +1303,24 @@ async function dropCase(why) {
   toast(why || "That case isn't available. Back to your caseload.");
   await refresh(["cases"]);
 }
-async function refresh(parts) {
+// Refreshes run one at a time, in the order they were asked for. Each is asked for after the
+// change it follows was saved, so the last one to finish always holds the newest server state.
+// Run side by side (fast review clicks), an older reply could land last and show a reviewed
+// event as "Not reviewed", with the count one short.
+let refreshQueue = Promise.resolve();
+function refresh(parts) {
+  const next = refreshQueue.then(() => loadAndRender(parts));
+  refreshQueue = next.catch(() => {});
+  return next;
+}
+async function loadAndRender(parts) {
   let keys = TENANT_MODE ? ["intake"] : parts ? [...new Set([...parts, "activity", "cases"])] : Object.keys(LOADERS);
   if (!TENANT_MODE && !CASE_ID) keys = keys.filter(k => CASELESS_LOADERS.includes(k));
   try { await Promise.all(keys.map(k => LOADERS[k]())); }
   catch (err) {
     if (err.status === 401 && !TENANT_MODE) return showLogin();
-    if (err.status === 404 && CASE_ID && !TENANT_MODE) return dropCase();
+    // Not awaited: dropCase queues its own refresh, which runs once this one has finished.
+    if (err.status === 404 && CASE_ID && !TENANT_MODE) { dropCase(); return; }
     toast(err.message);
   }
   render();
