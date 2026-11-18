@@ -130,6 +130,8 @@ default ones (Python's, for example).
 
 The rest of WS2 is not built: a managed host, object storage for uploaded files (they live in a
 Docker volume on this one server), a guard that refuses unsafe production settings, more than one
-API replica (`--scale api=2`), and issue #10 (large uploads are spooled to disk before the intake
-token is checked). Backups are not set up either: the Postgres volume and the `blobs` volume
-exist only on this server.
+API replica (`--scale api=2`), and a per-client cap on upload size. An upload with a bad intake
+link or without a login is refused before the API reads its body (#10), but this server's nginx
+buffers up to 100 MB of every request body before passing it on, and a live link may send that much
+in one request. Backups are not set up either: the Postgres volume and the `blobs` volume exist
+only on this server.

@@ -80,18 +80,26 @@ def end_session(session: Session, request: Request, settings: Settings, response
     )
 
 
+def user_for_cookie(session: Session, value: str | None) -> UserRow | None:
+    """The signed-in user for a session cookie value, or None when it is missing, unknown or
+    expired. The one definition of a valid login, used by current_user and by the upload gate
+    (services/intake_gate.py), which checks it before an upload body is read (#10)."""
+    row = session.get(LoginSessionRow, _hash_cookie(value)) if value else None
+    if row is None:
+        return None
+    expires = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=UTC)
+    if expires <= datetime.now(UTC):
+        return None
+    return session.get(UserRow, row.user_id)
+
+
 def current_user(
     request: Request, session: Annotated[Session, Depends(get_session)]
 ) -> UserRow:
-    value = request.cookies.get(COOKIE_NAME)
-    row = session.get(LoginSessionRow, _hash_cookie(value)) if value else None
-    if row is not None:
-        expires = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=UTC)
-        if expires > datetime.now(UTC):
-            user = session.get(UserRow, row.user_id)
-            if user is not None:
-                return user
-    raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not signed in")
+    user = user_for_cookie(session, request.cookies.get(COOKIE_NAME))
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not signed in")
+    return user
 
 
 def make_session_for_tests(session: Session, user_id: str) -> str:

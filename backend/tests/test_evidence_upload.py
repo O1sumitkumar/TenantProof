@@ -627,6 +627,62 @@ def test_tenant_upload_with_an_unknown_token_is_404(fresh_db, anon_client, sessi
     assert len(evidence_rows(session)) == SEEDED
 
 
+class CountedBody:
+    """A multipart body (64 chunks of 64 KB) that counts how many chunks were pulled. The test
+    client pulls the body only when the app reads it, so 0 means it was never read."""
+
+    def __init__(self) -> None:
+        self.pulled = 0
+
+    def __iter__(self):
+        for _ in range(64):
+            self.pulled += 1
+            yield b"a" * 65536
+
+
+MULTIPART = {"content-type": "multipart/form-data; boundary=x"}
+
+
+def test_a_bad_token_is_refused_before_the_body_is_read(fresh_db, anon_client):
+    """Issue #10: the 404 comes from the token check, before any of the body is read."""
+    body = CountedBody()
+    r = anon_client.post(files_url("not-a-real-token"), content=body, headers=MULTIPART)
+    assert r.status_code == 404 and r.json() == {"detail": "Link not found"}
+    assert body.pulled == 0
+
+
+def test_a_revoked_token_is_refused_before_the_body_is_read(fresh_db, token, client,
+                                                            anon_client):
+    """#10 through the real app: a link replaced by a new one is a 404 with the security
+    headers, and none of the body is read."""
+    client.post(f"/api/cases/{CASE}/intake-link")  # revokes `token`
+    body = CountedBody()
+    r = anon_client.post(files_url(token), content=body, headers=MULTIPART)
+    assert r.status_code == 404 and r.json() == {"detail": "Link not found"}
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert body.pulled == 0
+
+
+def test_a_caseworker_upload_without_a_login_is_refused_before_the_body_is_read(
+    fresh_db, anon_client
+):
+    """#10 for the caseworker route: without a valid session the 401 comes before the body."""
+    body = CountedBody()
+    r = anon_client.post(EVIDENCE, content=body, headers=MULTIPART)
+    assert r.status_code == 401 and r.json() == {"detail": "Not signed in"}
+    assert body.pulled == 0
+
+
+def test_a_live_link_and_a_login_still_read_the_body(fresh_db, token, client, anon_client):
+    """The gate lets both through: the body is read and the routes answer about the body (the
+    counted body is not valid multipart)."""
+    for poster, url in ((anon_client, files_url(token)), (client, EVIDENCE)):
+        body = CountedBody()
+        r = poster.post(url, content=body, headers=MULTIPART)
+        assert r.status_code == 400, (url, r.status_code)  # malformed multipart, after reading
+        assert body.pulled > 0, url
+
+
 def test_tenant_upload_is_rate_limited(fresh_db, token, anon_client):
     limit = int(get_settings().upload_rate_limit.split("/")[0])
     statuses = [
@@ -1089,11 +1145,11 @@ def test_a_declared_body_over_the_limit_is_refused_before_it_is_read(fresh_db, c
         assert r.json() == {"detail": {"reasons": ["The upload is too large"]}}
 
 
-def test_a_chunked_body_over_the_limit_is_stopped_before_the_token_check(
-    fresh_db, client, monkeypatch
+def test_a_chunked_body_over_the_limit_is_stopped_for_a_valid_token(
+    fresh_db, client, token, monkeypatch
 ):
-    """No Content-Length: the body is counted as it arrives. An unknown token still gets
-    413, not 404, because the token is only checked after the body has been read."""
+    """No Content-Length: the body is counted as it arrives and cut off at the app's cap. A
+    bad token never gets here: it is a 404 before the body is read (test_intake_gate)."""
     monkeypatch.setattr(get_settings(), "max_upload_bytes", 2048)
 
     def body():
@@ -1101,7 +1157,7 @@ def test_a_chunked_body_over_the_limit_is_stopped_before_the_token_check(
         for _ in range(64):  # 4 MB in all, well over 20 x 2 KB + 1 MB of slack
             yield b"a" * 65536
 
-    r = client.post("/api/intake/not-a-real-token/files", content=body(),
+    r = client.post(files_url(token), content=body(),
                     headers={"content-type": "multipart/form-data; boundary=x"})
     assert r.status_code == 413
     assert r.json() == {"detail": {"reasons": ["The upload is too large"]}}

@@ -26,5 +26,5 @@ Threat model and controls, with what is built today. The Status column says whic
 ## Known gaps
 - **Blob storage is a local volume.** Several API replicas need shared storage (object store) behind `storage.py`.
 - **Font size.** The bundled Noto Sans SC adds about 10 MB to the repo and the image.
-- **Unauthenticated multipart bodies.** About 500 MB can be spooled to disk before the intake token is checked (issue #10).
+- **Large uploads with a valid credential.** An upload with an unknown, revoked or expired intake link (404), or a caseworker upload without a valid login (401), is refused before any of its body is read (`IntakeTokenGate`, issue #10, from YCL0609). A live link or a signed-in caseworker can still send about 500 MB in one request (20 files of 25 MB). The upload rate limit (30 a minute per IP) is checked after the body is read, so it caps stored uploads, not the bytes written to disk. A proxy in front can cap a request lower; the hosted demo's nginx caps it at 100 MB and buffers the body itself before the app sees it.
 - **No Content-Security-Policy.** The single-page UI uses inline script and style, so a useful policy needs the UI split first.
