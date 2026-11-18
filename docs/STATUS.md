@@ -31,29 +31,23 @@ Single source of truth. Update the relevant section in every PR.
 | UI fix (Tenant view) | The Tenant view lives in the case rail, not the top bar; re-sending a sent intake link asks first | PRs #70, #71 (`292a6d7`) |
 | M3 (#54) | Form J and Regulations s. 25A confirmed by a person (all five sources confirmed); the Form J draft is labelled partial; `pypdf[crypto]` reads Form J's locked PDF | PR #66 |
 | M3 (#68, #69) | Tenant languages Russian and Hindi: schema, New case list, tenant page strings (machine-translated, need native review), agent language names | `Lameda12/tenant-languages-ru-hi` |
-| M3 (#69 review) | Russian tenant page wording reviewed (Lameda12, 2026-11-17) | `Lameda12/fix-ru-wording` |
+| M3 (#69 review) | Russian tenant page wording reviewed (Lameda12, 2026-11-17); #69 closed | PR #79 (`8a213a9`) |
 | M3 (#54 follow-up) | Only registered mail, express post or courier counts as received on the 3rd day, and e-mail sent at or after 4 p.m. counts the next day (leozhang5867's check): package reminders, source notes, mock | PRs #72, #73 (`6ad8d60`) |
 | M3 (#61, OCR part) | Text in photos and scanned PDF pages is read on the server (RapidOCR, no network) and cited as `text in the photo (OCR)` or `page N (OCR)`; unsure lines dropped; a time budget per upload; demo screenshot `demo/landlord_text_zh.png` | PRs #81, #82 |
+| WS2 (#10) | A bad intake link (404) or a caseworker upload without a login (401) is refused before the body is read; the first commit is YCL0609's | PR #83 (`fe6f7ab`) |
+| UI fix (open case in the URL) | The open case is kept in the address (`?case=<id>`), so a refresh stays on it instead of opening the first case; an id the user can't see falls back to the caseload's first case; sign-out clears it; mock mode unchanged | `opoeci6/ui-case-in-url` |
 
 Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #40).
 
 ## In progress
 
-Open PRs (2026-11-18), all into `dev`:
-
-| PR | Area | What |
-|---|---|---|
-| #79 | i18n (Lameda12) | Russian wording |
-| #80 | WS2 (YCL0609) | Their `m2-deploy` branch; its #10 commit is in #83 with their authorship. Close once #83 is merged |
-| #83 | WS2 (#10) | A bad intake link (404) or a caseworker upload without a login (401) is refused before the body is read; the first commit is YCL0609's |
+Open PRs (2026-11-18), all into `dev`: only this one (`opoeci6/ui-case-in-url`).
 
 Open issues:
 - **#54 (closed, PR #66):** Lameda12 confirmed Form J (the full title line, edition 2024-01) and Regulations s. 25A(2) on 2026-11-17, so all five sources are confirmed. The Form J confirmation covers the title and URL only: the draft is partial (seven tenant-applicant fields; the caseworker completes the rest; F4 is out of scope). Full coverage is a post-submission issue. leozhang5867 also checked 25A(3B) and (3C): the app's "mail" and "after 4 p.m." wording is fixed in #73.
-- **#9:** tell tenants that original photos go into the package. The GPS data is already removed from the package copies.
-- **#10:** an upload with a bad intake link (404) or a caseworker upload without a login (401) is now refused before the body is read (YCL0609's `IntakeTokenGate`, cherry-picked from their `m2-deploy` branch onto `opoeci6/m2-intake-gate`, extended to the caseworker route); close after merge. A live link can still send about 500 MB per request (see Known issues).
 - **#74:** intake tokens are written to the access logs in plain text (the API's, and a proxy's path and `Referer`).
 - **#4:** WS3 follow-ups from the PR #2 review.
-- **#68, #69:** add Hindi and Russian as tenant languages (Hindi also needs text shaping in the PDFs).
+- **#68:** Hindi needs text shaping in the PDFs (uharfbuzz with fpdf2 `set_text_shaping`); everything else is in. Russian (#69) is done and closed.
 - **#60:** remove personal details from evidence text before it goes to the model (to discuss).
 - **#61 (OCR part built, see Done):** after the MVP: let the model see photos and scanned pages, with content checks first (malware, known illegal images, graphic content).
 
