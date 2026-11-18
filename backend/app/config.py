@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     # Evidence uploads: per-file size cap, and a rate limit per client IP on both upload routes.
     max_upload_bytes: int = 25 * 1024 * 1024
     upload_rate_limit: str = "30/minute"
+    # OCR on this server (RapidOCR, no network): text in photos and in scanned PDF pages becomes
+    # evidence text the agent can cite. One upload request spends at most `ocr_request_seconds`
+    # on it; later images are kept without their text, and the evidence says so.
+    ocr_enabled: bool = True
+    ocr_request_seconds: float = 40.0
     # Content-addressed blob store: package zips, original evidence files and stripped copies.
     storage_dir: str = "./data/storage"
     web_dir: str = "../web"
