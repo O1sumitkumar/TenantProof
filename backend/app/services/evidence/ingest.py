@@ -192,7 +192,8 @@ def _process(data: bytes, mime: str, budget: ocr.Budget | None = None) -> _Proce
 
 def _process_unchecked(data: bytes, mime: str, budget: ocr.Budget | None) -> _Processed:
     if mime == sniff.PDF:
-        pdf = text.read_pdf_isolated(data)  # a child process with a hard time limit
+        # A child process with a hard time limit; it renders scanned pages only for OCR.
+        pdf = text.read_pdf_isolated(data, scans=budget is not None)
         pages, skipped = _ocr_scans(pdf, budget)
         partial = None if pdf.complete else "Only part of the text could be extracted."
         return _Processed(
@@ -206,37 +207,38 @@ def _process_unchecked(data: bytes, mime: str, budget: ocr.Budget | None) -> _Pr
         meta = exif.read_meta(img).as_dict()  # before strip_image changes the image
         clean, _ = strip.strip_image(img, mime)  # also turns it upright and checks its size
         pages = [exif.photo_page(meta["captured_at"])]  # so the agent can cite the capture date
-        skipped = False
-        if budget is not None:
-            if budget.left():
-                found = _ocr(img)
-                if found:
-                    pages.append({"locator": PHOTO_OCR_LOCATOR, "text": found})
-            else:
-                skipped = True
+        found, skipped = _ocr(img, budget) if budget is not None else ("", False)
+        if found:
+            pages.append({"locator": PHOTO_OCR_LOCATOR, "text": found})
     return _Processed(
         metadata=meta, stripped_sha256=storage.put(clean).key, pages=pages,
         error=OCR_SKIPPED if skipped else None,
     )
 
 
-def _ocr(img: Image.Image) -> str:
-    """OCR that can't fail the upload: on any error the file is kept without the text."""
+def _ocr(img: Image.Image, budget: ocr.Budget) -> tuple[str, bool]:
+    """OCR that can't fail the upload. Returns (text, skipped): skipped when this request's OCR
+    time is used up, before or while waiting for the engine. On any other error the file is
+    kept without its text."""
+    if not budget.left():
+        return "", True
     try:
-        return ocr.read_text(img)
+        return budget.read(img), False
+    except ocr.Busy:
+        return "", True
     except Exception as exc:
         log.warning("OCR failed: %s", type(exc).__name__)  # type only
-        return ""
+        return "", False
 
 
-def _ocr_png(png: bytes) -> str:
+def _ocr_png(png: bytes, budget: ocr.Budget) -> tuple[str, bool]:
     """A scanned page's grey PNG, made by our own PDF child process, read by OCR."""
     try:
         with Image.open(io.BytesIO(png)) as img:
-            return _ocr(img)
+            return _ocr(img, budget)
     except Exception as exc:
         log.warning("OCR of a scanned page failed: %s", type(exc).__name__)  # type only
-        return ""
+        return "", False
 
 
 def _ocr_scans(pdf: text.PdfText, budget: ocr.Budget | None) -> tuple[text.Pages, bool]:
@@ -247,10 +249,9 @@ def _ocr_scans(pdf: text.PdfText, budget: ocr.Budget | None) -> tuple[text.Pages
     pages, skipped = [], False
     for page in pdf.pages:
         png = pdf.scans.get(page["locator"])
-        if png is not None and not budget.left():
-            skipped = True
-        elif png is not None:
-            found = _ocr_png(png)
+        if png is not None:
+            found, missed = _ocr_png(png, budget)
+            skipped = skipped or missed
             if found:
                 page = {"locator": f"{page['locator']} (OCR)", "text": found}
         pages.append(page)

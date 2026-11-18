@@ -4,6 +4,7 @@ agent can cite, under locators that say it was machine-read. These tests run the
 (Russian, Hindi) are dropped, and nothing in OCR can fail an upload."""
 
 import io
+import time
 from pathlib import Path
 
 import pytest
@@ -176,3 +177,108 @@ def test_scans_after_the_budget_keep_their_empty_page_and_say_so() -> None:
     pdf = text.read_pdf(scanned_pdf(picture(("NotoSans-Regular.ttf", EN))), scans=True)
     pages, skipped = ingest._ocr_scans(pdf, ocr.Budget(0))
     assert skipped and pages == pdf.pages
+
+
+# --- review findings: thin images, a busy engine, the budget, mixed PDFs, OCR off -------------
+
+
+@pytest.fixture
+def no_engine(monkeypatch):
+    """Fails the test if OCR reaches the engine."""
+    def refuse() -> None:
+        raise AssertionError("the engine must not run for this image")
+
+    monkeypatch.setattr(ocr, "_engine", refuse)
+
+
+@pytest.mark.parametrize("size", [(2000, 1), (1, 2000), (2000, 8), (300, 40000), (5000, 200)])
+def test_thin_images_are_refused_before_the_engine(no_engine, size) -> None:
+    """RapidOCR scales the short side up without capping the long one: a 2000x1 PNG asked for
+    a 900-megapixel buffer. Such shapes are lines or bars, never readable text."""
+    assert ocr.read_text(Image.new("RGB", size, "white")) == ""
+
+
+def test_shapes_that_stay_readable() -> None:
+    assert ocr.readable_shape(1080, 1300)  # a screenshot
+    assert ocr.readable_shape(1080, 20000)  # a 1:18.5 scroll capture: 108 x 2000 after shrinking
+    assert not ocr.readable_shape(1080, 22000)  # 1:20.4
+    assert ocr.readable_shape(100, 2000)  # 1:20 is the limit
+    assert not ocr.readable_shape(99, 2000)
+    assert not ocr.readable_shape(31, 31)
+
+
+def test_a_thin_scanned_page_never_reaches_the_engine(no_engine) -> None:
+    pdf = text.read_pdf(scanned_pdf(Image.new("L", (300, 40000), 255)), scans=True)
+    assert list(pdf.scans) == ["page 1"]  # passes the child's checks: 12 MP, short side 300
+    pages, skipped = ingest._ocr_scans(pdf, ocr.Budget(60))
+    assert pages == pdf.pages and not skipped
+
+
+def test_a_busy_engine_counts_as_skipped_not_as_a_wait(monkeypatch) -> None:
+    img = picture(("NotoSans-Regular.ttf", EN))
+    assert ocr._lock.acquire(timeout=5)
+    try:
+        with pytest.raises(ocr.Busy):
+            ocr.read_text(img, wait_s=0.05)
+        found, skipped = ingest._ocr(img, ocr.Budget(0.05))
+    finally:
+        ocr._lock.release()
+    assert (found, skipped) == ("", True)
+
+
+def test_the_budget_counts_ocr_time_only(monkeypatch) -> None:
+    budget = ocr.Budget(1.0)
+    assert budget.remaining() == 1.0  # nothing spent before OCR runs, whatever else takes time
+    def slow(img: Image.Image, wait_s: float) -> str:
+        time.sleep(0.1)
+        return "seen"
+
+    monkeypatch.setattr(ocr, "read_text", slow)
+    assert budget.read(Image.new("RGB", (64, 64))) == "seen"
+    assert 0.05 < 1.0 - budget.remaining() < 0.6
+
+
+def test_a_mixed_pdf_reads_only_its_scanned_page(ocr_on) -> None:
+    from fpdf import FPDF
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", size=12)
+    pdf.cell(text="Notice of entry: the landlord will enter on Monday at 10 a.m.")
+    pdf.add_page()
+    pdf.image(picture(("NotoSans-Regular.ttf", EN)), x=10, y=10, w=190)
+    done = ingest._process(bytes(pdf.output()), "application/pdf", ocr.Budget(60))
+    assert [p["locator"] for p in done.pages] == ["page 1", "page 2 (OCR)"]
+    assert done.pages[0]["text"].startswith("Notice of entry")
+    assert done.pages[1]["text"] == EN and done.error is None
+
+
+def test_an_ocr_error_on_a_scan_keeps_the_page(monkeypatch) -> None:
+    def broken(img: Image.Image, wait_s: float = 60.0) -> str:
+        raise RuntimeError("engine crashed")
+
+    monkeypatch.setattr(ocr, "read_text", broken)
+    done = ingest._process(scanned_pdf(picture(("NotoSans-Regular.ttf", EN))),
+                           "application/pdf", ocr.Budget(60))
+    assert [p["locator"] for p in done.pages] == ["page 1"]
+    assert done.processing == "done" and done.error is None
+
+
+def test_with_ocr_off_a_pdf_decodes_no_page_images(monkeypatch) -> None:
+    data = scanned_pdf(picture(("NotoSans-Regular.ttf", EN)))
+    assert text.read_pdf_isolated(data).scans == {}  # the child skips the images too
+    done = ingest._process(data, "application/pdf", None)
+    assert [p["locator"] for p in done.pages] == ["page 1"]
+
+
+def test_max_scans_counts_pages_tried_not_pages_found(monkeypatch) -> None:
+    calls: list[int] = []
+
+    def nothing(page: object) -> None:
+        calls.append(1)
+        return None
+
+    monkeypatch.setattr(text, "_scan_png", nothing)
+    data = scanned_pdf(*[picture(("NotoSans-Regular.ttf", "x"))] * (text.MAX_SCANS + 5))
+    assert text.read_pdf(data, scans=True).scans == {}
+    assert len(calls) == text.MAX_SCANS

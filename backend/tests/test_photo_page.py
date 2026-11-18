@@ -163,3 +163,5 @@ def test_the_agent_sees_the_photo_page_in_its_tools(fresh_db, client, session) -
 def test_the_timeline_prompt_says_a_photo_page_can_be_cited_for_its_date() -> None:
     system = prompts.timeline_system()
     assert "photo 1" in system and "basis exif" in system and "cannot see the image" in system
+    # Since OCR (#61), a photo or a scanned page may have a second, machine-read text page.
+    assert "text in the photo (OCR)" in system and "page N (OCR)" in system

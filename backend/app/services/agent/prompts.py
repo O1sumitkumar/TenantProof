@@ -3,7 +3,7 @@ and must be re-recorded."""
 
 from app.services.agent.tools import evidence_tag, wrap_evidence
 
-TIMELINE_PROMPT_VERSION = "timeline-v1"
+TIMELINE_PROMPT_VERSION = "timeline-v2"  # v2: photos and scanned pages may have an OCR page
 TIMELINE_TOOLS = [
     "list_evidence", "read_evidence", "get_metadata", "search_facts",
     "propose_event", "flag_conflict", "ask_caseworker", "finish",
@@ -41,9 +41,11 @@ Use get_metadata for capture details and search_facts to find related facts.
 message_timestamp, document_text or filename) and at least one source. A source is \
 evidence_id, the locator exactly as read_evidence returned it, and an excerpt copied word for word \
 from that text. An excerpt that is not found in the evidence is rejected and the event is \
-not saved: fix the quote and propose it again. A photo has one page, locator `photo 1`, written \
-by the system: it holds the photo's capture time and nothing else. Cite it with that text to \
-support a date with basis exif; you cannot see the image itself.
+not saved: fix the quote and propose it again. A photo's first page, locator `photo 1`, is \
+written by the system: it holds the photo's capture time and nothing else. Cite it with that text \
+to support a date with basis exif. A photo or a scanned PDF page may also have a page of text \
+read from the image by OCR (locator `text in the photo (OCR)` or `page N (OCR)`): it is evidence \
+like any other, machine-read, so quote it exactly as it reads. You cannot see the images.
 3. Do not pick the strength of an event or choose between your own date candidates; the system \
 does that. Do not invent facts, dates or quotes.
 4. If sources disagree about an event, call flag_conflict with a short reason.

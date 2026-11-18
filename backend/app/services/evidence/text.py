@@ -85,6 +85,7 @@ def read_pdf(data: bytes, scans: bool = False) -> PdfText:
     seen: dict[tuple[int, ...], str] = {}
     pages: Pages = []
     found: dict[str, bytes] = {}
+    tried = 0  # pages whose images were decoded; failures count, so MAX_SCANS bounds the work
     budget = MAX_CHARS
     complete = len(reader.pages) <= MAX_PAGES
     for number, page in enumerate(reader.pages[:MAX_PAGES], start=1):
@@ -101,7 +102,8 @@ def read_pdf(data: bytes, scans: bool = False) -> PdfText:
         budget -= len(text)
         locator = f"page {number}"
         pages.append({"locator": locator, "text": text})
-        if scans and len(found) < MAX_SCANS and len("".join(text.split())) < SCAN_MIN_CHARS:
+        if scans and tried < MAX_SCANS and len("".join(text.split())) < SCAN_MIN_CHARS:
+            tried += 1
             png = _scan_png(page)
             if png is not None:
                 found[locator] = png
@@ -111,7 +113,9 @@ def read_pdf(data: bytes, scans: bool = False) -> PdfText:
     return PdfText(pages=pages, software=software or None, complete=complete, scans=found)
 
 
-def read_pdf_isolated(data: bytes, timeout: float | None = None) -> PdfText:
+def read_pdf_isolated(
+    data: bytes, timeout: float | None = None, scans: bool = False
+) -> PdfText:
     """read_pdf in a child process that is killed after `timeout` (PDF_HARD_SECONDS) seconds.
     Never a plain fork: the server has threads, and a forked child could inherit a held lock.
     On Linux and macOS a fork server (one thread, this module preloaded) forks each child in
@@ -123,7 +127,7 @@ def read_pdf_isolated(data: bytes, timeout: float | None = None) -> PdfText:
         ctx = multiprocessing.get_context("forkserver")
         ctx.set_forkserver_preload([__name__])  # used when the fork server first starts
     result, child_end = ctx.Pipe(duplex=False)
-    proc = ctx.Process(target=_read_pdf_child, args=(data, child_end), daemon=True)
+    proc = ctx.Process(target=_read_pdf_child, args=(data, child_end, scans), daemon=True)
     proc.start()
     child_end.close()  # the parent keeps only its end, so a dead child reads as EOF
     try:
@@ -170,10 +174,10 @@ class _PipeEnd(Protocol):
     def close(self) -> None: ...
 
 
-def _read_pdf_child(data: bytes, conn: _PipeEnd) -> None:
+def _read_pdf_child(data: bytes, conn: _PipeEnd, scans: bool = False) -> None:
     try:
         limit_child_resources()
-        conn.send((True, read_pdf(data, scans=True)))
+        conn.send((True, read_pdf(data, scans=scans)))
     except Exception as exc:  # any parser error: the parent marks the file failed
         conn.send((False, type(exc).__name__))
     finally:
