@@ -67,6 +67,8 @@ maintainer for values:
 | `ANTHROPIC_API_KEY` | Only with `LLM_MODE=live`. The maintainer enters it on the server; never paste it into a chat, a commit or a ticket. |
 | `LLM_MODEL` | Optional. Empty means the built-in default. The demo sets a smaller model because of the API account's rate limits; remove it once those are raised. |
 | `RUN_BUDGET_S` | Optional, seconds one analysis run may take (default 180). |
+| `OCR_ENABLED` | Optional, default `true`: text in photos and scanned PDF pages is read on this server and becomes evidence text. `false` turns it off. |
+| `OCR_REQUEST_SECONDS` | Optional, default 40: the most one upload request spends on OCR (about 2 s per image). Later images are kept without their text, and the evidence says so. Keep it under the proxy's timeout (Cloudflare: 100 s). |
 
 ## Updating the demo
 

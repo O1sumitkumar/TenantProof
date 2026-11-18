@@ -32,8 +32,9 @@ Single source of truth. Update the relevant section in every PR.
 | M3 (#54) | Form J and Regulations s. 25A confirmed by a person (all five sources confirmed); the Form J draft is labelled partial; `pypdf[crypto]` reads Form J's locked PDF | PR #66 |
 | M3 (#68, #69) | Tenant languages Russian and Hindi: schema, New case list, tenant page strings (machine-translated, need native review), agent language names | `Lameda12/tenant-languages-ru-hi` |
 | M3 (#54 follow-up) | Only registered mail, express post or courier counts as received on the 3rd day, and e-mail sent at or after 4 p.m. counts the next day (leozhang5867's check): package reminders, source notes, mock | PRs #72, #73 (`6ad8d60`) |
+| M3 (#61, OCR part) | Text in photos and scanned PDF pages is read on the server (RapidOCR, no network) and cited as `text in the photo (OCR)` or `page N (OCR)`; unsure lines dropped; a time budget per upload; demo screenshot `demo/landlord_text_zh.png` | `opoeci6/m3-ocr` |
 
-Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #39).
+Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #40).
 
 ## In progress
 
@@ -52,7 +53,7 @@ Open issues:
 - **#4:** WS3 follow-ups from the PR #2 review.
 - **#68, #69:** add Hindi and Russian as tenant languages (Hindi also needs text shaping in the PDFs).
 - **#60:** remove personal details from evidence text before it goes to the model (to discuss).
-- **#61:** after the MVP: let the model see photos and scanned pages, with content checks first (malware, known illegal images, graphic content).
+- **#61 (OCR part built, see Done):** after the MVP: let the model see photos and scanned pages, with content checks first (malware, known illegal images, graphic content).
 
 WS5 is unassigned. WS2's four items above are opoeci6's; the rest of WS2 has no owner.
 
@@ -67,6 +68,7 @@ WS5 is unassigned. WS2's four items above are opoeci6's; the rest of WS2 has no 
 - **`docker compose up --scale api=2` does not work yet:** the api service publishes fixed host port 8000, so a second replica cannot start without a proxy service in front (not planned for now). Migrations already run once, in the `migrate` service (#76), not once per replica.
 - **The filing package files photos without their GPS data.** Each JPG, PNG and HEIC-made JPG in the zip is a copy with the GPS IFD (and an XMP packet carrying GPS) taken out; the capture time and orientation stay, and the stored original is untouched (`services/evidence/gps.py`). The manifest PDF says "location data removed" for each such file. Not covered: location in a maker note or in a legacy "Raw profile type exif" PNG text chunk. Issue #9's remaining part (warning the tenant on the intake page, an optional per-file "file the stripped copy instead") still waits on the open decision below.
 - **An unauthenticated upload can spool about 500 MB to disk** (20 × 25 MB + 1 MB) before the intake token is checked. Needs a per-client cap at a proxy (issue #10, WS2).
+- **OCR reads English, Chinese, French and Spanish, not Russian or Hindi** (the bundled model knows neither script; its guesses are dropped, so those images give no text). It does not keep which side of a chat a bubble is on, and handwriting reads poorly. About 2 s per image, at most `OCR_REQUEST_SECONDS` (40) of OCR per upload request; a file whose OCR was skipped for time is not read again when the same file is uploaded again (it matches the stored copy). Images thinner than 1:20 are not read.
 - **Big5 and GBK TXT files with characters outside GB2312 answer 415** (issue #11, closed by #25: kept on purpose). The reason now says "re-save it as UTF-8", which fixes every one of them. Big5 stays refused on purpose: it decodes as GB18030 into private-use characters and no byte pattern tells the two code pages apart, so a guess would file traditional Chinese as different characters. Windows-1252 and Shift-JIS are refused for the same reason.
 - **Verified by an agent on 2026-11-06 (Playwright + rendered pages, see the PR #1 comments):** Chinese glyphs render in the built PDF, second-org isolation in two separate browser contexts, `?mock=1`, the empty-caseload state. **Electron 45 window (2026-11-06, Windows, against `web/index.html?mock=1` over the DevTools protocol):** the mock UI renders, the renderer has no Node, `window.open` is denied, off-origin navigation is blocked. **Electron 45 window against the real API (2026-11-07, Windows 11, NineJZ356, PR #1):** `npm install`, `node check.js` and `npm start` work, login works in the window, the renderer has no Node, `window.open` is denied. **Mac: pending Lameda12's check by eye** (`make desktop` starts the window; install and `check.js` pass).
 - **Throughput work is deferred:** `WEB_CONCURRENCY` and gzip belong to WS2; the load re-benchmark (`backend/bench/load.py`, p50/p95/p99 on the compose stack) to WS5. `GET /api/cases` already runs a fixed number of queries (query-count test).

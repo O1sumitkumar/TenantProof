@@ -103,10 +103,10 @@ PHOTO_LOCATOR = "photo 1"
 
 
 def photo_page(captured_at: str | None) -> dict[str, str]:
-    """The one `evidence_page` a photo gets, written by code, never read from the file: a model
-    can cite it for the photo's capture date (the agent never sees the image). It takes only the
+    """A photo's first `evidence_page`, written by code, never read from the file: a model can
+    cite it for the photo's capture date (the agent never sees the image). It takes only the
     capture time, which `_captured_at` has already parsed to digits, so GPS, device and software
-    cannot reach it."""
+    cannot reach it. With OCR on, text found in the image is a second page (ingest)."""
     if captured_at:
         text = f"Photo file. Capture time (EXIF): {captured_at}."
     else:

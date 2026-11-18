@@ -14,6 +14,10 @@ x-app-env: &app-env
   LLM_MODEL: ${LLM_MODEL:-}
   ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
   RUN_BUDGET_S: ${RUN_BUDGET_S:-180}  # #49: seconds one analysis run may take
+  # OCR of photos and scanned PDF pages, on this server (#61): on by default, and the most one
+  # upload request spends on it.
+  OCR_ENABLED: ${OCR_ENABLED:-true}
+  OCR_REQUEST_SECONDS: ${OCR_REQUEST_SECONDS:-40}
   SEED_PASSWORD: ${SEED_PASSWORD:-tenantproof-demo}
   STORAGE_DIR: /data/storage
   # #58: the proxies whose X-Forwarded-For is believed. Through a published port the API sees
