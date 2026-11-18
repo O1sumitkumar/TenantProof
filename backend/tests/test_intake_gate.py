@@ -100,3 +100,7 @@ def test_other_paths_and_methods_are_not_gated(monkeypatch):
     for path in ("/api/intake/tok", "/api/intake/tok/submit", "/api/cases/c1/evidence/e1"):
         sent, _, ran = _run(path)
         assert ran and sent[0]["status"] == 200, path
+    for method in ("GET", "PUT", "HEAD"):  # the gated paths, with methods that aren't uploads
+        for path in ("/api/intake/tok/files", "/api/cases/c1/evidence"):
+            sent, _, ran = _run(path, method=method)
+            assert ran and sent[0]["status"] == 200, (method, path)
