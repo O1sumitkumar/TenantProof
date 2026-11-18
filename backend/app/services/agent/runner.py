@@ -45,7 +45,7 @@ from typing import Any
 from sqlmodel import Session, col, select
 
 from app.config import get_settings
-from app.models import CaseRow, EvidenceRow, FormFieldRow, RunRow
+from app.models import CaseRow, EvidenceRow, FormFieldRow, RunRow, TimelineEventRow
 from app.schemas import ToolCall
 from app.services import activity
 from app.services.agent import extract, prompts
@@ -216,6 +216,43 @@ def _fillable_fields(session: Session, case: CaseRow) -> list[tuple[str, str]]:
     return [(row.key, row.label) for row in rows if is_fillable(row)]
 
 
+def _restart_timeline(session: Session, case: CaseRow) -> list[str]:
+    """Before the timeline step builds the timeline again: remove the events nobody reviewed yet
+    (an earlier run's proposals, which this run proposes afresh from all the evidence) and return
+    one line per event the caseworker did review, for the kickoff. Reviewed events stay: an
+    accepted or edited one is the caseworker's, and a rejected one must not come back. Without
+    this every run added a full new set, so the timeline filled with copies. Caller commits."""
+    rows = session.exec(
+        select(TimelineEventRow)
+        .where(TimelineEventRow.case_id == case.id)
+        .order_by(col(TimelineEventRow.sort_key), col(TimelineEventRow.id))
+    ).all()
+    stale = [e for e in rows if e.review_status == "pending"]
+    for event in stale:
+        session.delete(event)
+    if stale:
+        activity.log(
+            session, case.id, "agent", AGENT_ACTOR,
+            f"Removed {len(stale)} unreviewed {'event' if len(stale) == 1 else 'events'} "
+            "from an earlier run before building the timeline again",
+        )  # fmt: skip
+    labels: dict[str, str] = dict(
+        session.exec(
+            select(EvidenceRow.id, EvidenceRow.label).where(EvidenceRow.case_id == case.id)
+        ).all()
+    )
+    lines: list[str] = []
+    for e in rows:
+        if e.review_status == "pending":
+            continue
+        cited = ", ".join(
+            f"{labels.get(str(s.get('evidence_id')), '?')} {s.get('locator')}" for s in e.sources
+        )
+        when = (e.date or {}).get("value") or "no date"
+        lines.append(f"- {e.id} [{e.review_status}] {when}: {e.title} ({cited})")
+    return lines
+
+
 def _has_text(session: Session, case: CaseRow, texts: EvidenceTextStore) -> bool:
     """Whether any evidence item of the case has text the agent could cite."""
     ids = session.exec(select(EvidenceRow.id).where(EvidenceRow.case_id == case.id)).all()
@@ -350,7 +387,7 @@ def _agent_step(key: str, ctx: ToolContext, kickoff: str) -> AgentStep:
             tally=_tally_gaps,
         )  # fmt: skip
     return AgentStep(
-        kickoff=prompts.TIMELINE_KICKOFF, system=prompts.timeline_system(),
+        kickoff=kickoff, system=prompts.timeline_system(),
         run_note=prompts.timeline_run_note(ctx.nonce), tools=prompts.TIMELINE_TOOLS,
         tally=_tally,
     )  # fmt: skip
@@ -489,6 +526,12 @@ async def execute_run(
                     continue
                 saved = (step.get("checkpoint") or {}).get("pending") or {}
                 kickoff = prompts.TIMELINE_KICKOFF
+                # Only on a fresh start: a step resumed after the hearing-date question keeps
+                # the events it already proposed in this run.
+                if key == "timeline" and step.get("checkpoint") is None:
+                    reviewed = _restart_timeline(session, case)
+                    session.commit()
+                    kickoff = prompts.timeline_kickoff(tuple(reviewed), ctx.nonce)
                 if key == "gaps":
                     # The deterministic gaps are written before the agent reads anything, so it
                     # is told what already exists instead of inventing duplicates.
