@@ -858,10 +858,11 @@ function showLogin(msg) {
 async function ensureCase() {
   if (CASE_ID) return;
   const list = await request("GET", "/cases");
-  const pick = list.find(c => c.has_demo_data) || list[0];
+  const wanted = caseInUrl();  // the case open before a refresh, if this user can still see it
+  const pick = (wanted && list.find(c => c.id === wanted)) || list.find(c => c.has_demo_data) || list[0];
   if (pick) setCase(pick.id);
 }
-async function logout() { try { await request("POST", "/auth/logout"); } catch {} location.reload(); }
+async function logout() { try { await request("POST", "/auth/logout"); } catch {} writeCaseToUrl(null); location.reload(); }
 
 /* ---------- chrome ---------- */
 function renderChrome() {
@@ -1264,7 +1265,16 @@ function render() {
 
 /* ---------- data loading ---------- */
 let C = `/cases/${CASE_ID}`;
-const setCase = id => { CASE_ID = id; C = `/cases/${id}`; };
+/* caseInUrl:start: the open case is kept in the address (?case=<id>), so a refresh stays on it */
+const caseInUrl = () => USE_MOCK || TENANT_MODE ? null : new URLSearchParams(location.search).get("case");
+function writeCaseToUrl(id) {
+  if (USE_MOCK || TENANT_MODE) return;
+  const url = new URL(location.href);
+  if (id) url.searchParams.set("case", id); else url.searchParams.delete("case");
+  if (url.href !== location.href) history.replaceState(history.state, "", url);
+}
+/* caseInUrl:end */
+const setCase = id => { CASE_ID = id; C = `/cases/${id}`; writeCaseToUrl(id); };
 // The server returns the raw link only from POST /intake-link, so a caseworker can preview
 // the tenant view only after sending a link in this session.
 const tokenOf = url => (url ? url.split("/").pop() : null);
@@ -1287,7 +1297,7 @@ function prioritizeClient(list) { return list.map(c => ({ ...c, _days: c.next_de
 const CASELESS_LOADERS = ["me", "cases"];
 // If the selected case is gone (404), forget it and go back to the caseload instead of an empty shell.
 async function dropCase(why) {
-  CASE_ID = null; C = ""; S.case = null; S.evidence = []; S.run = null; S.timeline = []; S.gaps = []; S.sources = []; S.form = null; S.activity = []; S.pkg = null;
+  CASE_ID = null; C = ""; writeCaseToUrl(null); S.case = null; S.evidence = []; S.run = null; S.timeline = []; S.gaps = []; S.sources = []; S.form = null; S.activity = []; S.pkg = null;
   S.intake.view = null; S.lastLink = null;
   location.hash = "cases";
   toast(why || "That case isn't available. Back to your caseload.");
