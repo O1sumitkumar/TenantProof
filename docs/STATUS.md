@@ -32,17 +32,19 @@ Single source of truth. Update the relevant section in every PR.
 | M3 (#54) | Form J and Regulations s. 25A confirmed by a person (all five sources confirmed); the Form J draft is labelled partial; `pypdf[crypto]` reads Form J's locked PDF | PR #66 |
 | M3 (#68, #69) | Tenant languages Russian and Hindi: schema, New case list, tenant page strings (machine-translated, need native review), agent language names | `Lameda12/tenant-languages-ru-hi` |
 | M3 (#54 follow-up) | Only registered mail, express post or courier counts as received on the 3rd day, and e-mail sent at or after 4 p.m. counts the next day (leozhang5867's check): package reminders, source notes, mock | PRs #72, #73 (`6ad8d60`) |
+| M3 (#61, OCR part) | Text in photos and scanned PDF pages is read on the server (RapidOCR, no network) and cited as `text in the photo (OCR)` or `page N (OCR)`; unsure lines dropped; a time budget per upload; demo screenshot `demo/landlord_text_zh.png` | PRs #81, #82 |
 
-Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #39).
+Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #40).
 
 ## In progress
 
-Open PRs (2026-11-17), all drafts into `dev`:
+Open PRs (2026-11-18), all into `dev`:
 
 | PR | Area | What |
 |---|---|---|
-| #75 | `schema:` | `CONTRACT_CHANGES.md` row 39: `/healthz` answers 503 `degraded` when Postgres or Redis is down; merge before #76 |
-| #76 | WS2 | From YCL0609's `m2-deploy` branch: a one-shot `migrate` service runs Alembic and the seed once per `docker compose up`; `/healthz` checks Postgres and Redis (stored for 5 s, logs which failed) |
+| #79 | i18n (Lameda12) | Russian wording |
+| #80 | WS2 (YCL0609) | Their `m2-deploy` branch; its #10 commit is in #83 with their authorship. Close once #83 is merged |
+| #83 | WS2 (#10) | A bad intake link (404) or a caseworker upload without a login (401) is refused before the body is read; the first commit is YCL0609's |
 
 Open issues:
 - **#54 (closed, PR #66):** Lameda12 confirmed Form J (the full title line, edition 2024-01) and Regulations s. 25A(2) on 2026-11-17, so all five sources are confirmed. The Form J confirmation covers the title and URL only: the draft is partial (seven tenant-applicant fields; the caseworker completes the rest; F4 is out of scope). Full coverage is a post-submission issue. leozhang5867 also checked 25A(3B) and (3C): the app's "mail" and "after 4 p.m." wording is fixed in #73.
@@ -52,7 +54,7 @@ Open issues:
 - **#4:** WS3 follow-ups from the PR #2 review.
 - **#68, #69:** add Hindi and Russian as tenant languages (Hindi also needs text shaping in the PDFs).
 - **#60:** remove personal details from evidence text before it goes to the model (to discuss).
-- **#61:** after the MVP: let the model see photos and scanned pages, with content checks first (malware, known illegal images, graphic content).
+- **#61 (OCR part built, see Done):** after the MVP: let the model see photos and scanned pages, with content checks first (malware, known illegal images, graphic content).
 
 WS5 is unassigned. WS2's four items above are opoeci6's; the rest of WS2 has no owner.
 
@@ -67,6 +69,7 @@ WS5 is unassigned. WS2's four items above are opoeci6's; the rest of WS2 has no 
 - **`docker compose up --scale api=2` does not work yet:** the api service publishes fixed host port 8000, so a second replica cannot start without a proxy service in front (not planned for now). Migrations already run once, in the `migrate` service (#76), not once per replica.
 - **The filing package files photos without their GPS data.** Each JPG, PNG and HEIC-made JPG in the zip is a copy with the GPS IFD (and an XMP packet carrying GPS) taken out; the capture time and orientation stay, and the stored original is untouched (`services/evidence/gps.py`). The manifest PDF says "location data removed" for each such file. Not covered: location in a maker note or in a legacy "Raw profile type exif" PNG text chunk. Issue #9's remaining part (warning the tenant on the intake page, an optional per-file "file the stripped copy instead") still waits on the open decision below.
 - **A live intake link or a signed-in caseworker can send about 500 MB in one upload request** (20 × 25 MB + 1 MB). Bad credentials are refused before the body is read (#10). The upload rate limit runs after the body is read, so a per-client size cap would need a proxy in front (the hosted demo's nginx caps a request at 100 MB).
+- **OCR reads English, Chinese, French and Spanish, not Russian or Hindi** (the bundled model knows neither script; its guesses are dropped, so those images give no text). It does not keep which side of a chat a bubble is on, and handwriting reads poorly. About 2 s per image, at most `OCR_REQUEST_SECONDS` (40) of OCR per upload request; a file whose OCR was skipped for time is not read again when the same file is uploaded again (it matches the stored copy). Images thinner than 1:20 are not read.
 - **Big5 and GBK TXT files with characters outside GB2312 answer 415** (issue #11, closed by #25: kept on purpose). The reason now says "re-save it as UTF-8", which fixes every one of them. Big5 stays refused on purpose: it decodes as GB18030 into private-use characters and no byte pattern tells the two code pages apart, so a guess would file traditional Chinese as different characters. Windows-1252 and Shift-JIS are refused for the same reason.
 - **Verified by an agent on 2026-11-06 (Playwright + rendered pages, see the PR #1 comments):** Chinese glyphs render in the built PDF, second-org isolation in two separate browser contexts, `?mock=1`, the empty-caseload state. **Electron 45 window (2026-11-06, Windows, against `web/index.html?mock=1` over the DevTools protocol):** the mock UI renders, the renderer has no Node, `window.open` is denied, off-origin navigation is blocked. **Electron 45 window against the real API (2026-11-07, Windows 11, NineJZ356, PR #1):** `npm install`, `node check.js` and `npm start` work, login works in the window, the renderer has no Node, `window.open` is denied. **Mac: pending Lameda12's check by eye** (`make desktop` starts the window; install and `check.js` pass).
 - **Throughput work is deferred:** `WEB_CONCURRENCY` and gzip belong to WS2; the load re-benchmark (`backend/bench/load.py`, p50/p95/p99 on the compose stack) to WS5. `GET /api/cases` already runs a fixed number of queries (query-count test).

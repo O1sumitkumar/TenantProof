@@ -24,6 +24,8 @@ os.environ["DATABASE_URL"] = TEST_URL
 os.environ["LLM_MODE"] = "fixture"
 os.environ["FIXTURE_STRICT"] = "1"  # a stale fixture fails the test instead of warning
 os.environ["SEED_PASSWORD"] = "test-password-123"
+# OCR takes 1 to 2 s per image, and most tests upload photos. tests/test_ocr.py turns it on.
+os.environ["OCR_ENABLED"] = "false"
 # Real Redis, as in compose and CI (db 1, apart from the app's db 0). No in-memory fallback.
 os.environ.setdefault("RATE_LIMIT_STORAGE_URI", "redis://localhost:6379/1")
 os.environ["STORAGE_DIR"] = tempfile.mkdtemp(prefix="tp-test-storage-")
