@@ -35,13 +35,14 @@ Single source of truth. Update the relevant section in every PR.
 | M3 (#54 follow-up) | Only registered mail, express post or courier counts as received on the 3rd day, and e-mail sent at or after 4 p.m. counts the next day (leozhang5867's check): package reminders, source notes, mock | PRs #72, #73 (`6ad8d60`) |
 | M3 (#61, OCR part) | Text in photos and scanned PDF pages is read on the server (RapidOCR, no network) and cited as `text in the photo (OCR)` or `page N (OCR)`; unsure lines dropped; a time budget per upload; demo screenshot `demo/landlord_text_zh.png` | PRs #81, #82 |
 | WS2 (#10) | A bad intake link (404) or a caseworker upload without a login (401) is refused before the body is read; the first commit is YCL0609's | PR #83 (`fe6f7ab`) |
-| UI fix (open case in the URL) | The open case is kept in the address (`?case=<id>`), so a refresh stays on it instead of opening the first case; an id the user can't see falls back to the caseload's first case; sign-out clears it; mock mode unchanged | `opoeci6/ui-case-in-url` |
+| UI fix (open case in the URL) | The open case is kept in the address (`?case=<id>`), so a refresh stays on it instead of opening the first case; an id the user can't see falls back to the caseload's first case; sign-out clears it; mock mode unchanged | PRs #84, #85 (`0aea6d9`) |
+| UI fix (review count) | The page's refreshes run one at a time, in order: fast review clicks could let an older timeline reply land last, so a reviewed event showed as not reviewed and the count was one short (the server was right) | `opoeci6/ui-refresh-in-order` |
 
 Details of every deviation from `API_CONTRACT.md`: `CONTRACT_CHANGES.md` (#1 to #40).
 
 ## In progress
 
-Open PRs (2026-11-18), all into `dev`: only this one (`opoeci6/ui-case-in-url`).
+Open PRs (2026-11-18), all into `dev`: only this one (`opoeci6/ui-refresh-in-order`).
 
 Open issues:
 - **#54 (closed, PR #66):** Lameda12 confirmed Form J (the full title line, edition 2024-01) and Regulations s. 25A(2) on 2026-11-17, so all five sources are confirmed. The Form J confirmation covers the title and URL only: the draft is partial (seven tenant-applicant fields; the caseworker completes the rest; F4 is out of scope). Full coverage is a post-submission issue. leozhang5867 also checked 25A(3B) and (3C): the app's "mail" and "after 4 p.m." wording is fixed in #73.
