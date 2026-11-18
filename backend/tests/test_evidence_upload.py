@@ -627,35 +627,60 @@ def test_tenant_upload_with_an_unknown_token_is_404(fresh_db, anon_client, sessi
     assert len(evidence_rows(session)) == SEEDED
 
 
-def test_a_bad_token_is_refused_before_the_body_is_parsed(fresh_db, anon_client):
-    """Issue #10: the 404 comes from the token check, not from multipart parsing. A body that
-    is not multipart at all would otherwise be a 422 after being spooled."""
-    r = anon_client.post(
-        "/api/intake/not-a-real-token/files",
-        content=b"not multipart at all",
-        headers={"content-type": "application/octet-stream"},
-    )
-    assert r.status_code == 404
-    assert r.json() == {"detail": "Link not found"}
+class CountedBody:
+    """A multipart body (64 chunks of 64 KB) that counts how many chunks were pulled. The test
+    client pulls the body only when the app reads it, so 0 means it was never read."""
+
+    def __init__(self) -> None:
+        self.pulled = 0
+
+    def __iter__(self):
+        for _ in range(64):
+            self.pulled += 1
+            yield b"a" * 65536
 
 
-def test_a_revoked_token_is_refused_before_the_body_is_parsed(fresh_db, token, client,
-                                                             anon_client):
-    """#10 through the real app: a link replaced by a new one is a 404 even for a body that
-    multipart parsing would reject, and the 404 carries the security headers."""
+MULTIPART = {"content-type": "multipart/form-data; boundary=x"}
+
+
+def test_a_bad_token_is_refused_before_the_body_is_read(fresh_db, anon_client):
+    """Issue #10: the 404 comes from the token check, before any of the body is read."""
+    body = CountedBody()
+    r = anon_client.post(files_url("not-a-real-token"), content=body, headers=MULTIPART)
+    assert r.status_code == 404 and r.json() == {"detail": "Link not found"}
+    assert body.pulled == 0
+
+
+def test_a_revoked_token_is_refused_before_the_body_is_read(fresh_db, token, client,
+                                                            anon_client):
+    """#10 through the real app: a link replaced by a new one is a 404 with the security
+    headers, and none of the body is read."""
     client.post(f"/api/cases/{CASE}/intake-link")  # revokes `token`
-    r = anon_client.post(files_url(token), content=b"not multipart at all",
-                         headers={"content-type": "application/octet-stream"})
+    body = CountedBody()
+    r = anon_client.post(files_url(token), content=body, headers=MULTIPART)
     assert r.status_code == 404 and r.json() == {"detail": "Link not found"}
     assert r.headers["x-content-type-options"] == "nosniff"
+    assert body.pulled == 0
 
 
-def test_a_valid_token_passes_the_gate_to_the_route(fresh_db, token, anon_client):
-    """The gate lets a live link through: the same bad body now reaches the route, which
-    refuses it as a malformed upload instead of a missing link."""
-    r = anon_client.post(files_url(token), content=b"not multipart at all",
-                         headers={"content-type": "application/octet-stream"})
-    assert r.status_code == 422  # the route's validation, after the gate let it in
+def test_a_caseworker_upload_without_a_login_is_refused_before_the_body_is_read(
+    fresh_db, anon_client
+):
+    """#10 for the caseworker route: without a valid session the 401 comes before the body."""
+    body = CountedBody()
+    r = anon_client.post(EVIDENCE, content=body, headers=MULTIPART)
+    assert r.status_code == 401 and r.json() == {"detail": "Not signed in"}
+    assert body.pulled == 0
+
+
+def test_a_live_link_and_a_login_still_read_the_body(fresh_db, token, client, anon_client):
+    """The gate lets both through: the body is read and the routes answer about the body (the
+    counted body is not valid multipart)."""
+    for poster, url in ((anon_client, files_url(token)), (client, EVIDENCE)):
+        body = CountedBody()
+        r = poster.post(url, content=body, headers=MULTIPART)
+        assert r.status_code == 400, (url, r.status_code)  # malformed multipart, after reading
+        assert body.pulled > 0, url
 
 
 def test_tenant_upload_is_rate_limited(fresh_db, token, anon_client):

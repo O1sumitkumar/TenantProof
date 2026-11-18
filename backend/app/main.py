@@ -71,8 +71,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="TenantProof API", version="0.1.0", lifespan=lifespan)
-# Issue #10: an intake upload with a bad token is refused before its body is read. Added
-# before ProxyHeadersMiddleware, so it runs inside it and sees the visitor's own address.
+# Issue #10: an upload with a bad intake link, or a caseworker upload without a login, is
+# refused before its body is read. Added before ProxyHeadersMiddleware, so it runs inside it
+# and sees the visitor's own address.
 app.add_middleware(IntakeTokenGate)
 # #58: believe X-Forwarded-For/-Proto only from the listed proxies, so the rate limits count each
 # visitor's own IP behind nginx. Uvicorn applies the same setting itself when it starts the app;
