@@ -50,8 +50,8 @@ _NAME_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 MAX_NAME = 120
 # Text read by OCR is cited under its own locator, so the caseworker sees it was machine-read.
 PHOTO_OCR_LOCATOR = "text in the photo (OCR)"
-OCR_SKIPPED = ("The text in this file was not read: too many images in one upload. "
-               "The file is kept as it is.")
+OCR_SKIPPED = ("The text in this file was not read: the server's time for reading images in "
+               "this upload ran out. The file is kept as it is.")
 
 
 class UploadRejected(Exception):

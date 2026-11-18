@@ -282,3 +282,10 @@ def test_max_scans_counts_pages_tried_not_pages_found(monkeypatch) -> None:
     data = scanned_pdf(*[picture(("NotoSans-Regular.ttf", "x"))] * (text.MAX_SCANS + 5))
     assert text.read_pdf(data, scans=True).scans == {}
     assert len(calls) == text.MAX_SCANS
+
+
+def test_an_endless_budget_waits_without_overflowing() -> None:
+    """OCR_REQUEST_SECONDS=inf (pydantic accepts it) must not make the lock wait raise."""
+    budget = ocr.Budget(float("inf"))
+    assert budget.left() and budget.remaining() == float("inf")
+    assert ocr.read_text(picture(("NotoSans-Regular.ttf", EN)), wait_s=float("inf")) == EN

@@ -58,7 +58,8 @@ def read_text(img: Image.Image, wait_s: float = 60.0) -> str:
     rgb.thumbnail((MAX_SIDE, MAX_SIDE))
     if not readable_shape(*rgb.size):
         return ""
-    if not _lock.acquire(timeout=max(wait_s, 0.0)):
+    # TIMEOUT_MAX: a huge or infinite OCR_REQUEST_SECONDS must not raise OverflowError here.
+    if not _lock.acquire(timeout=min(max(wait_s, 0.0), threading.TIMEOUT_MAX)):
         raise Busy
     try:
         result: Any = _engine()(rgb)
